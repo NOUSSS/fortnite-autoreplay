@@ -1,0 +1,9 @@
+{
+  "vision": {
+    "threshold": 0.85
+  },
+  "engine": {
+    "confirm_frames": 2,
+    "action_cooldown_s": 1.0
+  }
+}

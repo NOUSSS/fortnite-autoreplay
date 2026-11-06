@@ -1,0 +1,85 @@
+{
+  "capture": {
+    "backend": "auto",
+    "monitor": 1,
+    "roi": null,
+    "target_fps": 8.0,
+    "scale": 1.0
+  },
+  "vision": {
+    "backend": "auto",
+    "threshold": 0.82,
+    "scales": [1.0],
+    "padding": 8
+  },
+  "actions": {
+    "backend": "auto",
+    "move_before_click": true,
+    "move_duration_s": 0.06,
+    "click_hold_s": 0.05,
+    "click_offset": [0, 0],
+    "restore_cursor": false
+  },
+  "engine": {
+    "confirm_frames": 2,
+    "action_cooldown_s": 1.0,
+    "max_actions": 0,
+    "save_debug_frames": false,
+    "debug_dir": "captures",
+    "start_paused": true,
+    "stop_after_idle_s": 0.0
+  },
+  "hotkeys": {
+    "enabled": true,
+    "toggle": "F8",
+    "quit": "F9"
+  },
+  "template_dir": "templates",
+  "log_level": "INFO",
+  "states": [
+    {
+      "slug": "pass_battle",
+      "label": "Passer",
+      "priority": 100,
+      "click": "center",
+      "require_confirm": true,
+      "cooldown_s": 4.0,
+      "post_action_sleep_s": 1.2,
+      "clicks": 1,
+      "enabled": true
+    },
+    {
+      "slug": "replay",
+      "label": "Rejouer",
+      "priority": 90,
+      "click": "center",
+      "require_confirm": true,
+      "cooldown_s": 3.0,
+      "post_action_sleep_s": 1.5,
+      "clicks": 1,
+      "enabled": true
+    },
+    {
+      "slug": "continue",
+      "label": "Continuer",
+      "priority": 80,
+      "click": "center",
+      "require_confirm": true,
+      "cooldown_s": 3.0,
+      "post_action_sleep_s": 1.5,
+      "clicks": 1,
+      "enabled": true
+    },
+    {
+      "slug": "ready",
+      "label": "Prêt",
+      "priority": 70,
+      "click": "center",
+      "require_confirm": true,
+      "cooldown_s": 5.0,
+      "post_action_sleep_s": 2.0,
+      "clicks": 1,
+      "enabled": true
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+numpy>=1.26
+Pillow>=10.0
+
+# capture rapide (optionnel, recommandé) — pip install dxcam ; mss en repli
+mss>=9.0
+dxcam>=0.0.5 ; sys_platform == "win32"
+
+# vision (optionnel mais fortement recommandé)
+opencv-python>=4.9
+
+# entrées (optionnel : repli SendInput/ctypes intégré)
+pydirectinput>=1.0.4 ; sys_platform == "win32"
