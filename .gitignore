@@ -8,8 +8,9 @@ __pycache__/
 
 # données locales
 captures/*.png
-logs/
+logs/*
 config/local.json
+!logs/.gitkeep
 
 # templates volontairement versionnés
 !templates/**/*.png
