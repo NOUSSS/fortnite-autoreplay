@@ -92,6 +92,16 @@ SCENES = [
         recent=5,
     ),
     Scene("expanded-background", "background", False, actions=55, per_state=_BUSY, recent=5),
+    Scene("expanded-hidden", "hidden", False, actions=55, per_state=_BUSY, recent=5),
+    Scene(
+        "expanded-mouse",
+        "mouse",
+        False,
+        detail=f"Clic sur «{NBSP}Rejouer{NBSP}» en attente",
+        actions=55,
+        per_state=_BUSY,
+        recent=5,
+    ),
     Scene("expanded-capture", "capture", False, detail="aucun écran à capturer", recent=0),
     Scene("expanded-stopped", "stopped", False, detail="ScreenCapture indisponible"),
     Scene(
@@ -148,6 +158,9 @@ class DemoController:
 
     def quit(self) -> None:
         self.closing = True
+
+    def check_stall(self) -> None:
+        pass
 
     def still_here_answers(self) -> list[str]:
         return list(self.scene.answers)

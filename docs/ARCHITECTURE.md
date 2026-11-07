@@ -4,15 +4,16 @@
 
 Automatiser une boucle de rejeu : observer l'écran, reconnaître les boutons
 demandés par Fortnite, cliquer dessus, recommencer. Aucune lecture mémoire,
-aucune injection : uniquement de la vision et des entrées souris réelles.
+aucune injection : uniquement de la vision, des entrées souris réelles au
+premier plan et des messages de fenêtre au second plan.
 
 ## Flux
 
 ```
         ┌──────────────┐
-        │  GameWindow   │  window.py  (zone client du jeu, focus)
+        │  GameWindow   │  window.py  (zone client du jeu, état)
         └──────┬───────┘
-               │ région écran + « au premier plan ? »
+               │ région écran + « visible ? au premier plan ? »
         ┌──────▼───────┐
         │  ScreenCapture│  capture.py  (dxcam → mss → PIL)
         └──────┬───────┘
@@ -23,7 +24,7 @@ aucune injection : uniquement de la vision et des entrées souris réelles.
         └───┬───────┬──┘
    Vision   │       │  Actions
  ┌──────────▼──┐  ┌─▼─────────────┐
- │  vision.py  │  │  actions.py    │  (pydirectinput → SendInput → pyautogui)
+ │  vision.py  │  │  actions.py    │  (SendInput au premier plan, PostMessage sinon)
  │ + templates │  └───────────────┘
  └─────────────┘
 ```
@@ -33,14 +34,15 @@ aucune injection : uniquement de la vision et des entrées souris réelles.
 | Module | Rôle |
 | --- | --- |
 | `config.py` | Schéma typé + validation + fusion `default.json`/`local.json` |
-| `window.py` | Fenêtre du jeu par exécutable + classe, zone client, focus, DPI |
+| `window.py` | Fenêtre du jeu par exécutable + classe, zone client, état (`focus`), DPI |
 | `capture.py` | Capture rapide, repli de backend, région suivant la fenêtre, frame→écran |
 | `vision.py` | Matching multi-échelle, backends OpenCV/numpy, annotations |
 | `templates.py` | Templates par état, JSON de zone, mise à l'échelle de la frame |
 | `engine.py` | Boucle, priorité, `confirm_frames`, cooldowns, garde-fous, pause/stop |
 | `history.py` | Historique des sessions (`logs/sessions.jsonl`) et totaux |
-| `actions.py` | Clics souris, offsets, arières-plans interchangeables |
-| `hotkeys.py` | `F8`/`F9` via `GetAsyncKeyState`, sans dépendance |
+| `actions.py` | Clics souris, offsets, backends interchangeables, clic posté (`BackgroundClicker`) |
+| `hotkeys.py` | `F8`/`F9` via `GetAsyncKeyState`, seulement quand le jeu est au premier plan |
+| `diagnostics.py` | Exceptions non rattrapées au journal, piles des threads dans `logs/crash.log` |
 | `sounds.py` | Deux notes sur `F8` (reprise, pause) |
 | `panel.py` | Panneau de contrôle tkinter, moteur dans un thread |
 | `cli.py` | `run`, `check`, `config`, `window`, `stats`, `panel` + surcharges en ligne de commande |
@@ -87,8 +89,23 @@ capture n'apporterait rien. Tout le gain vient du matching.
 - **Fenêtre par exécutable, pas par titre** : l'anti-triche
   (`…_EAC_EOS.exe`) ouvre aussi une fenêtre « Fortnite », invisible. On cherche
   `FortniteClient-Win64-Shipping.exe` de classe `UnrealWindow`, visible.
-- **Focus avant tout** : sans focus, la boucle ne capture rien et oublie ses
-  confirmations ; le focus est revérifié juste avant chaque clic.
+- **Jeu visible avant tout** : fenêtre absente ou réduite (origine à
+  -32000), la boucle ne capture rien et oublie ses confirmations ; l'état est
+  revérifié juste avant chaque clic.
+- **Clic au second plan** : au premier plan, entrée réelle (`SendInput`). Au
+  second plan, le clic est posté à la fenêtre du jeu (`WM_MOUSEMOVE`,
+  `WM_LBUTTONDOWN`, `WM_LBUTTONUP`, coordonnées client) : il n'active pas le
+  jeu et ne vole pas le focus. Jamais de repli sur une entrée réelle, qui
+  partirait dans la fenêtre active. Unreal calcule le survol d'un bouton
+  d'après le vrai curseur (`GetCursorPos`), pas d'après le message : en mode
+  `cursor`, le curseur est posé sur le bouton le temps du clic puis remis au
+  même pixel (plus le geste fait pendant le clic, pour ne pas reculer),
+  seulement si la souris est immobile et sans bouton enfoncé. Sinon le clic est
+  reporté à l'image suivante, sans nouvelle confirmation (« Clic en attente »).
+- **Traces d'arrêt** : sous `pythonw`, rien ne s'affiche. Chaque sortie est
+  journalisée avec sa cause ; `faulthandler` écrit la pile de tous les threads
+  dans `logs/crash.log` lors d'un plantage natif ; le panneau y écrit aussi la
+  pile quand le moteur ne bat plus depuis 20 s ou ne s'arrête pas en 3 s.
 - **Clic sans effet** : une série de clics sur le même bouton s'arrête dès que
   le bouton disparaît d'une frame. Au-delà de `max_ineffective_clicks`, pause.
 - **DPI** : le processus se déclare *per-monitor aware* au démarrage, pour que

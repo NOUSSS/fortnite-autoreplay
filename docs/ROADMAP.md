@@ -15,7 +15,9 @@
 ## Fait (garde-fous)
 
 - [x] Détection de la fenêtre Fortnite (exécutable + classe) au lieu d'un ROI manuel
-- [x] Aucune analyse ni clic tant que le jeu n'est pas au premier plan
+- [x] Aucune analyse ni clic tant que le jeu est absent ou réduit
+- [x] Clic au second plan : messages postés à la fenêtre du jeu, curseur remis en place
+- [x] Traces des arrêts inattendus (`logs/crash.log`, cause de sortie au journal)
 - [x] Pause + bip + frame sauvée quand un clic reste sans effet
 - [x] Sauvegarde d'une frame quand une détection est douteuse (score sous le seuil)
 - [x] Historique des sessions (`logs/sessions.jsonl`) et commande `stats`
@@ -59,6 +61,7 @@
 - [ ] Packaging en exécutable (`pyinstaller`) et démarrage en administrateur
 - [ ] Raccourci sur le Bureau pour le panneau (à créer à la demande)
 - [ ] Panneau : vérifier en partie qu'un clic dessus laisse le focus au jeu
+- [ ] Vérifier en partie le clic au second plan (modes `cursor` et `message`)
 
 ## Idées long terme
 

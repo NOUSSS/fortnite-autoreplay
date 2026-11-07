@@ -102,7 +102,9 @@ def test_explain_is_quiet_when_all_is_well() -> None:
         ("capture", "critical"),
         ("covered", "caution"),
         ("no_game", "caution"),
+        ("hidden", "caution"),
         ("background", "caution"),
+        ("mouse", "info"),
         ("stopped", "info"),
     ],
 )

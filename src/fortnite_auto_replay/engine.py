@@ -7,14 +7,18 @@ permettent. Rien n'est bloquant : une détection ratée n'arrête pas le bot.
 
 Garde-fous :
 
-- **focus** : tant que la fenêtre du jeu n'est pas au premier plan, rien n'est
-  analysé ni cliqué (sinon les clics partiraient dans une autre fenêtre) ;
+- **fenêtre du jeu** : absente ou réduite, rien n'est analysé ni cliqué. Visible
+  sans le focus, le clic est posté à sa fenêtre sans l'activer (voir
+  ``actions``), sauf avec ``window.require_foreground`` qui fait attendre le
+  premier plan ;
 - **clic sans effet** : si un bouton reste visible sans interruption après
   ``max_ineffective_clicks`` clics, le bot se met en pause et sauve la frame ;
 - **détection douteuse** : un score juste sous le seuil fait sauver la frame,
   pour recadrer un template ou ajuster ``vision.threshold`` ;
 - **bouton couvert** : si une autre fenêtre (le panneau, une notification) est
-  sous le point du clic, le clic est annulé : il partirait dans cette fenêtre.
+  sous le point du clic, le clic est annulé : il partirait dans cette fenêtre ;
+- **souris utilisée** : jeu au second plan, le clic attend une souris immobile
+  (il y pose le curseur un instant) ; sinon il est reporté à l'image suivante.
 
 L'état courant se lit par :meth:`Engine.status`, depuis un autre thread (panneau).
 """
@@ -49,12 +53,23 @@ _CAPTURE_RETRY_S = 0.2
 _CAPTURE_ERROR_LOG_S = 10.0  # une même erreur n'est répétée dans le journal qu'à cet intervalle
 _STEP_RETRY_S = 0.5
 _RECENT_CLICKS = 20
-_COVERED_SHOW_S = 3.0  # durée pendant laquelle un clic annulé reste signalé
+_NOTICE_SHOW_S = 3.0  # durée pendant laquelle un clic annulé ou reporté reste signalé
 
-# actif | en pause | bloqué (clic sans effet) | bloqué (erreurs) | jeu absent |
-# jeu en arrière-plan | capture en échec | bouton couvert | arrêté
+# actif | en pause | bloqué (clic sans effet) | bloqué (erreurs) | jeu absent | jeu réduit |
+# jeu en arrière-plan (premier plan exigé) | capture en échec | bouton couvert |
+# clic reporté (souris utilisée) | arrêté
 Phase = Literal[
-    "active", "paused", "stuck", "errors", "no_game", "background", "capture", "covered", "stopped"
+    "active",
+    "paused",
+    "stuck",
+    "errors",
+    "no_game",
+    "hidden",
+    "background",
+    "capture",
+    "covered",
+    "mouse",
+    "stopped",
 ]
 
 
@@ -63,11 +78,29 @@ class FrameSource(Protocol):
 
 
 class Clicker(Protocol):
-    def click(self, x: int, y: int, *, clicks: int = 1) -> tuple[int, int]: ...
+    def click(
+        self,
+        x: int,
+        y: int,
+        *,
+        clicks: int = 1,
+        window: int = 0,
+        cancel: Callable[[], bool] | None = None,
+    ) -> tuple[int, int] | None:
+        """``window`` : handle du jeu au second plan.
+
+        ``None`` si le clic est reporté (souris utilisée) ou abandonné parce que
+        ``cancel`` est devenu vrai pendant l'attente.
+        """
+        ...
 
 
 class FocusSource(Protocol):
     def focus(self) -> Focus: ...
+
+    def hwnd(self) -> int:
+        """Handle de la fenêtre du jeu, à qui poster un clic quand elle n'a pas le focus."""
+        ...
 
     def covering(self, x: int, y: int) -> tuple[int, str] | None:
         """``None`` si le point écran tombe sur le jeu, sinon (pid, exécutable) qui le couvre."""
@@ -182,8 +215,7 @@ class Engine:
             raise RuntimeError("aucun état avec template : impossible de démarrer")
         self.states = self._select_states()
 
-        self._game = window  # pour vérifier qu'un clic tombe bien sur le jeu
-        self._window = window if cfg.window.require_foreground else None
+        self._window = window  # état de la fenêtre du jeu, et point de clic qui tombe dessus
         if alert is None:
             alert = _beep if cfg.engine.beep_on_stuck else _no_alert
         self._alert = alert
@@ -207,8 +239,12 @@ class Engine:
         self._last_full_scan = float("-inf")
         self._step_errors = 0  # erreurs inattendues consécutives
         self._step_error_logged_at = float("-inf")
-        self._covered: tuple[float, str] | None = None  # (instant, message) du dernier clic annulé
+        # dernier clic annulé (bouton couvert) ou reporté (souris utilisée) :
+        # (instant, phase, message)
+        self._notice: tuple[float, Phase, str] | None = None
         self._covered_logged_at = float("-inf")
+        self._mouse_logged_at = float("-inf")
+        self.last_beat = time.monotonic()  # dernier tour de boucle, pour repérer un blocage
         self._recent: deque[ClickRecord] = deque(maxlen=_RECENT_CLICKS)
         self._lock = threading.Lock()  # compteurs et clics récents, lus par status()
         self._pause_reason: Literal["user", "stuck", "errors"] = "user"
@@ -281,12 +317,14 @@ class Engine:
             detail = self._pause_detail
         elif self._focus == "missing":
             phase = "no_game"
-        elif self._focus == "background":
+        elif self._focus == "hidden":
+            phase = "hidden"
+        elif self._focus == "background" and self.cfg.window.require_foreground:
             phase = "background"
         elif self._capture_error is not None:
             phase, detail = "capture", self._capture_error
-        elif self._covered is not None and time.time() - self._covered[0] < _COVERED_SHOW_S:
-            phase, detail = "covered", self._covered[1]
+        elif self._notice is not None and time.time() - self._notice[0] < _NOTICE_SHOW_S:
+            _, phase, detail = self._notice
         else:
             phase = "active"
         with self._lock:
@@ -309,21 +347,30 @@ class Engine:
         self._streak = 0
         self._last_detection_at = time.time()
 
-    # --- focus --------------------------------------------------------
-    def _has_focus(self) -> bool:
+    # --- fenêtre du jeu -----------------------------------------------
+    def _allowed(self, focus: Focus) -> bool:
+        if focus == "foreground":
+            return True
+        return focus == "background" and not self.cfg.window.require_foreground
+
+    def _game_ready(self) -> bool:
+        """Le jeu est-il visible et cliquable ? Met à jour ``_focus`` au passage."""
         if self._window is None:
             return True
         focus = self._window.focus()
         if focus != self._focus:
-            if focus == "foreground":
-                if self._focus is not None:
-                    log.info("jeu au premier plan : reprise")
-            elif focus == "missing":
+            if focus == "missing":
                 log.info("fenêtre du jeu introuvable : en attente")
-            else:
+            elif focus == "hidden":
+                log.info("fenêtre du jeu réduite : en attente")
+            elif not self._allowed(focus):
                 log.info("le jeu n'est pas au premier plan : en attente")
+            elif focus == "background":
+                log.info("jeu au second plan : clics envoyés à sa fenêtre")
+            elif self._focus is not None:
+                log.info("jeu au premier plan")
             self._focus = focus
-        return focus == "foreground"
+        return self._allowed(focus)
 
     # --- recherche ----------------------------------------------------
     def _floor(self) -> float:
@@ -466,17 +513,18 @@ class Engine:
 
     def _click_covered(self, state: StateConfig, x: int, y: int) -> bool:
         """Vrai si une autre fenêtre que le jeu est sous le point : le clic y partirait."""
-        if self._game is None:
+        if self._window is None:
             return False
-        cover = self._game.covering(x, y)
+        cover = self._window.covering(x, y)
         if cover is None:
-            self._covered = None
+            if self._notice is not None and self._notice[1] == "covered":
+                self._notice = None  # un clic reporté reste signalé jusqu'à ce qu'il parte
             return False
         pid, process = cover
         who = "Le panneau" if pid == os.getpid() else (process or "Une autre fenêtre")
         message = f"{who} couvre le bouton «\u00a0{state.label}\u00a0»"
         now = time.time()
-        self._covered = (now, message)
+        self._notice = (now, "covered", message)
         if now - self._covered_logged_at >= _CAPTURE_ERROR_LOG_S:
             log.warning("clic annulé en %dx%d : %s", x, y, message)
             self._covered_logged_at = now
@@ -484,9 +532,27 @@ class Engine:
         self._candidate_hits = 0
         return True
 
+    def _click_deferred(self, state: StateConfig) -> None:
+        """Clic reporté (souris utilisée) : retenté dès l'image suivante, sans reconfirmer."""
+        now = time.time()
+        self._notice = (now, "mouse", f"Clic sur «\u00a0{state.label}\u00a0» en attente")
+        if now - self._mouse_logged_at >= _CAPTURE_ERROR_LOG_S:
+            log.info("clic sur '%s' reporté : la souris est utilisée", state.slug)
+            self._mouse_logged_at = now
+
+    def _interrupted(self) -> bool:
+        """Pause ou arrêt demandé : un clic en attente de la souris est abandonné."""
+        return self._stop.is_set() or self._paused.is_set()
+
     def _act(self, detection: Detection, frame: Frame) -> bool:
-        if not self._has_focus():  # le focus a pu partir pendant l'analyse
+        if not self._game_ready():  # le jeu a pu changer d'état pendant l'analyse
             return False
+        # au second plan, le clic est posté à sa fenêtre : une entrée réelle l'activerait
+        window = 0
+        if self._window is not None and self._focus == "background":
+            window = self._window.hwnd()
+            if not window:  # fermée entre-temps : surtout pas d'entrée réelle à la place
+                return False
         state = detection.state
         if state.click == "center":
             x, y = detection.match.center
@@ -495,15 +561,23 @@ class Engine:
         screen_x, screen_y = frame.to_screen(x, y)
         if self._click_covered(state, screen_x, screen_y):
             return False
+        done = self.actions.click(
+            screen_x, screen_y, clicks=state.clicks, window=window, cancel=self._interrupted
+        )
+        if done is None:
+            if not self._interrupted():
+                self._click_deferred(state)  # journalisé à part : pas une ligne par frame
+            return False
         log.info(
-            "état '%s' (%.2f) -> clic %dx en %sx%s",
+            "état '%s' (%.2f) -> clic %dx en %sx%s%s",
             state.slug,
             detection.match.score,
             state.clicks,
             screen_x,
             screen_y,
+            " (jeu au second plan)" if window else "",
         )
-        self.actions.click(screen_x, screen_y, clicks=state.clicks)
+        self._notice = None
         now = time.time()
         self._last_action_at = now
         self._last_action_per_state[state.slug] = now
@@ -654,10 +728,11 @@ class Engine:
         try:
             while not self._stop.is_set():
                 started = time.time()
+                self.last_beat = time.monotonic()
                 if self._paused.is_set():
                     self._stop.wait(_PAUSE_POLL_S)
                     continue
-                if not self._has_focus():
+                if not self._game_ready():
                     self._reset_tracking()
                     self._stop.wait(_FOCUS_POLL_S)
                     continue

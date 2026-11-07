@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from fortnite_auto_replay import cli, history
+from fortnite_auto_replay import window as window_mod
 from fortnite_auto_replay.capture import CaptureError, apply_roi
 from fortnite_auto_replay.config import WindowConfig
 from fortnite_auto_replay.window import WindowCandidate, pick_window
@@ -98,3 +99,58 @@ def test_no_window_flag_disables_window() -> None:
     assert cli._build_config(args).window.enabled is False
     args = cli.build_parser().parse_args(["config", "--no-local"])
     assert cli._build_config(args).window.enabled is True
+
+
+class FakeWin32:
+    """API fenêtres factice pour ``GameWindow`` : une seule fenêtre du jeu."""
+
+    def __init__(self, rect: tuple[int, int, int, int] | None, foreground: bool) -> None:
+        self.rect = rect
+        self.foreground = foreground
+
+    def enumerate(self) -> list[WindowCandidate]:
+        return [_candidate(4, rect=self.rect)]
+
+    def is_window(self, hwnd: int) -> bool:
+        return hwnd == 4
+
+    def window_pid(self, hwnd: int) -> int:
+        return hwnd * 10
+
+    def client_rect(self, hwnd: int) -> tuple[int, int, int, int] | None:
+        return self.rect
+
+    def foreground_pid(self) -> int:
+        return 40 if self.foreground else 99
+
+
+@pytest.mark.parametrize(
+    ("rect", "foreground", "expected"),
+    [
+        ((0, 0, 1920, 1080), True, "foreground"),
+        ((0, 0, 1920, 1080), False, "background"),
+        (None, False, "hidden"),  # réduite : rien à capturer ni à cliquer
+        (None, True, "hidden"),
+    ],
+)
+def test_game_window_focus_states(
+    monkeypatch: pytest.MonkeyPatch,
+    rect: tuple[int, int, int, int] | None,
+    foreground: bool,
+    expected: str,
+) -> None:
+    monkeypatch.setattr(window_mod, "_win32", lambda: FakeWin32(rect, foreground))
+    game = window_mod.GameWindow(WindowConfig())
+    assert game.focus() == expected
+    assert game.hwnd() == 4
+
+
+def test_game_window_handle_is_zero_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Empty(FakeWin32):
+        def enumerate(self) -> list[WindowCandidate]:
+            return []
+
+    monkeypatch.setattr(window_mod, "_win32", lambda: Empty(None, False))
+    game = window_mod.GameWindow(WindowConfig())
+    assert game.focus() == "missing"
+    assert game.hwnd() == 0

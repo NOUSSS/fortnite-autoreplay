@@ -2,19 +2,21 @@
 
 Une petite fenêtre sans bordure, toujours au-dessus du jeu :
 
-- elle ne prend jamais le focus (``WS_EX_NOACTIVATE``) : le bot ne clique que
-  si Fortnite est au premier plan, et un clic sur le panneau ne doit pas l'en
-  priver ;
+- elle ne prend jamais le focus (``WS_EX_NOACTIVATE``) : un clic sur le
+  panneau ne doit pas le retirer au jeu, ni à la fenêtre où l'on travaille ;
 - les captures d'écran ne la voient pas (``WDA_EXCLUDEFROMCAPTURE``) : posée sur
   le jeu, elle ne cache aucun bouton au bot. Un clic qui tomberait sur elle est
   annulé par le moteur (``GameWindow.covering``) ;
 - repliée, elle tient sur une ligne : pastille, état, bouton Pause.
 
 Le moteur tourne dans un thread à part ; seul le thread principal touche à Tk.
+Toute fermeture est journalisée avec sa cause ; un moteur qui ne répond plus
+voit la pile de ses threads écrite dans ``logs/crash.log``.
 """
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import dataclasses
 import logging
@@ -26,9 +28,10 @@ import tkinter.font as tkfont
 from collections.abc import Callable, Sequence
 from ctypes import wintypes
 from dataclasses import dataclass
+from types import TracebackType
 from typing import Protocol
 
-from . import history
+from . import diagnostics, history
 from .actions import Actions
 from .capture import CaptureError, Frame, ScreenCapture
 from .config import Config, PanelConfig, update_local_config
@@ -40,6 +43,8 @@ log = logging.getLogger(__name__)
 
 NBSP = "\u00a0"
 _POLL_MS = 250
+_STALL_S = 20.0  # moteur sans tour de boucle depuis ce délai : bloqué
+_JOIN_S = 3.0  # attente de l'arrêt du moteur à la fermeture
 
 Area = tuple[int, int, int, int]  # left, top, right, bottom en pixels écran
 
@@ -105,9 +110,11 @@ LOOKS: dict[Phase, Look] = {
     "stuck": Look("Bloqué", C.critical),
     "errors": Look("Bloqué", C.critical),
     "no_game": Look("En attente du jeu", C.caution),
+    "hidden": Look("En attente du jeu", C.caution),
     "background": Look("En attente du jeu", C.caution),
     "capture": Look("Capture impossible", C.critical),
     "covered": Look("Clic annulé", C.caution),
+    "mouse": Look("Clic en attente", C.caution),
     "stopped": Look("Arrêté", C.neutral),
 }
 
@@ -150,8 +157,12 @@ def explain(status: Status) -> tuple[str, str] | None:  # noqa: PLR0911 - une br
     if phase == "covered":
         tail = " Déplacez le panneau." if detail.startswith("Le panneau") else ""
         return "caution", f"{detail}, le clic est annulé.{tail}"
+    if phase == "mouse":
+        return "info", f"{detail}{NBSP}: le bot attend que la souris reste immobile un instant."
     if phase == "no_game":
         return "caution", "Fortnite n\u2019est pas ouvert. Le bot attend sa fenêtre."
+    if phase == "hidden":
+        return "caution", "Fortnite est réduit. Le bot reprend dès que sa fenêtre est visible."
     if phase == "background":
         return "caution", (
             "Fortnite n\u2019est pas au premier plan. Le bot reprend dès votre retour en jeu."
@@ -243,6 +254,10 @@ class Controller(Protocol):
 
     def quit(self) -> None: ...
 
+    def check_stall(self) -> None:
+        """Signale un moteur figé (appelé à chaque rafraîchissement du panneau)."""
+        ...
+
     def still_here_answers(self) -> list[str]: ...
 
     def set_still_here(self, answer: str) -> None: ...
@@ -276,6 +291,7 @@ class EngineController:
         self._window = window
         self._fatal = ""
         self._quit = threading.Event()
+        self._stall_reported = False
         path = cfg.resolved_stats_file()
         past = history.summarize(history.read_sessions(path)) if path is not None else {}
         self._past = (
@@ -298,9 +314,20 @@ class EngineController:
             log.exception("le moteur s'est arrêté")
             self._fatal = str(exc) or exc.__class__.__name__
 
-    def join(self, timeout: float) -> None:
+    def join(self, timeout: float) -> bool:
+        """Attend la fin du moteur ; faux s'il tourne encore après ``timeout``."""
         if self._thread.is_alive():
             self._thread.join(timeout)
+        return not self._thread.is_alive()
+
+    def check_stall(self) -> None:
+        """Moteur figé (capture ou pilote bloqué) : la pile de ses threads, une fois par blocage."""
+        if not self._thread.is_alive():
+            return
+        stalled = time.monotonic() - self.engine.last_beat >= _STALL_S
+        if stalled and not self._stall_reported:
+            diagnostics.dump_threads(f"moteur sans réponse depuis {_STALL_S:.0f}{NBSP}s")
+        self._stall_reported = stalled
 
     @property
     def closing(self) -> bool:
@@ -703,6 +730,8 @@ class Panel:
         start = tuple(cfg.position) if cfg.position else home
         self._pos = (int(start[0]), int(start[1]))
 
+        root.report_callback_exception = self._report_error  # type: ignore[method-assign]
+        root.protocol("WM_DELETE_WINDOW", self._closed_by_system)
         root.withdraw()
         root.overrideredirect(True)
         root.configure(bg=C.bg)
@@ -845,12 +874,11 @@ class Panel:
         self.footer_rule = tk.Frame(root, bg=C.stroke, height=1)
         self.footer = tk.Frame(root, bg=C.bg, padx=px(PAD), pady=px(PAD))
         quit_w = self.f_body.measure("Quitter") + 2 * px(PAD)
-        self.quit_button = self._button(
-            self.footer, "Quitter", self.controller.quit, "standard", quit_w
-        )
+        self.quit_button = self._button(self.footer, "Quitter", self._quit, "standard", quit_w)
         self.quit_button.pack(side="left")
         toggle, stop = self.hotkeys
-        hint = f"{toggle}{NBSP}: pause, {stop}{NBSP}: quitter"
+        # les raccourcis ne comptent que jeu au premier plan (voir hotkeys)
+        hint = f"En jeu, {toggle}{NBSP}: pause, {stop}{NBSP}: quitter"
         self.hint = self._label(self.footer, self.f_caption, C.text_3, text=hint)
         self.hint.pack(side="right")
 
@@ -895,8 +923,24 @@ class Panel:
         self.root.geometry(f"{self.width}x{height}+{self._pos[0]}+{self._pos[1]}")
 
     # --- actions ------------------------------------------------------------
+    def _quit(self) -> None:
+        log.info("fermeture : bouton Quitter")
+        self.controller.quit()
+
+    def _closed_by_system(self) -> None:
+        """WM_CLOSE (Alt+F4, fermeture de session, autre logiciel) : arrêt propre, journalisé."""
+        log.warning("fermeture demandée par Windows (WM_CLOSE)")
+        self.controller.quit()
+
+    def _report_error(
+        self, kind: type[BaseException], value: BaseException, tb: TracebackType | None
+    ) -> None:
+        """Erreur dans un rappel Tk : sous pythonw, elle n'irait nulle part."""
+        log.error("erreur dans le panneau", exc_info=(kind, value, tb))
+
     def _primary(self) -> None:
         if self.controller.status().phase == "stopped":
+            log.info("fermeture : bouton Quitter (moteur arrêté)")
             self.controller.quit()
             return
         self._started = True
@@ -947,9 +991,14 @@ class Panel:
         if self.controller.closing:
             self.root.quit()
             return
-        self._guard_focus()
-        self._render(self.controller.status())
-        self.root.after(_POLL_MS, self._poll)
+        try:
+            self._guard_focus()
+            self.controller.check_stall()
+            self._render(self.controller.status())
+        except Exception:  # un rendu raté ne doit pas figer le panneau pour de bon
+            log.exception("erreur pendant la mise à jour du panneau")
+        finally:
+            self.root.after(_POLL_MS, self._poll)
 
     def _guard_focus(self) -> None:
         """Le panneau ne garde jamais le premier plan : il le rend à la fenêtre d'avant."""
@@ -1052,6 +1101,7 @@ class Panel:
 # --- lancement ------------------------------------------------------------------
 def run_panel(cfg: Config, library: TemplateLibrary, *, dry_run: bool = False) -> int:
     """Ouvre le panneau, lance le moteur dans son thread, attend la fermeture."""
+    from .cli import game_in_front  # noqa: PLC0415 - le panneau est lancé par la CLI
     from .hotkeys import HotkeyListener  # noqa: PLC0415 - inutile hors panneau
 
     window = GameWindow(cfg.window) if cfg.window.enabled else None
@@ -1073,17 +1123,25 @@ def run_panel(cfg: Config, library: TemplateLibrary, *, dry_run: bool = False) -
     )
     listener: HotkeyListener | None = None
     if cfg.hotkeys.enabled:
-        listener = HotkeyListener()
+        listener = HotkeyListener(active=game_in_front(window))
         listener.bind(cfg.hotkeys.toggle, engine.toggle)
-        listener.bind(cfg.hotkeys.quit, controller.quit)
+        listener.bind(cfg.hotkeys.quit, lambda: _hotkey_quit(controller))
         listener.start()
     controller.start()
     try:
         root.mainloop()
+        log.info("panneau fermé")
     finally:
         controller.quit()
         if listener is not None:
             listener.stop()
-        controller.join(timeout=3.0)
-        root.destroy()
+        if not controller.join(timeout=_JOIN_S):
+            diagnostics.dump_threads(f"le moteur ne s'est pas arrêté en {_JOIN_S:.0f}{NBSP}s")
+        with contextlib.suppress(tk.TclError):  # déjà détruite
+            root.destroy()
     return 0
+
+
+def _hotkey_quit(controller: EngineController) -> None:
+    log.info("fermeture : raccourci clavier")
+    controller.quit()

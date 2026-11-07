@@ -6,7 +6,7 @@
 - Lint : `python -m ruff check .` puis `python -m ruff format --check .`.
 - Sur la machine réelle, Fortnite peut être ouvert et au premier plan : ne jamais
   lancer `run` sans `--dry-run`, ni l'outil `capture_templates`, ni rien qui
-  clique, tape ou change le focus. `window` ne fait que lire ; `check` capture
+  clique, tape, bouge le curseur ou change le focus. `window` ne fait que lire ; `check` capture
   une frame (envoyer `engine.debug_dir` dans un dossier temporaire).
 - Panneau : à sa création, la fenêtre Tk prend le premier plan un instant et
   la garde le rend aussitôt (voir ARCHITECTURE) ; ne l'ouvrir que si personne
@@ -29,7 +29,11 @@
 ## Zones à relire de près
 
 - `engine.py` : ordre des garde-fous dans `_step` (confirmation, cooldown, clic
-  sans effet, clic), remise à zéro des séries, focus revérifié dans `_act`.
+  sans effet, clic), remise à zéro des séries, état du jeu revérifié dans `_act`.
+- Clic au second plan (`actions.BackgroundClicker`, `Engine._act`) : aucun
+  chemin ne doit retomber sur une entrée réelle (`SendInput` partirait dans la
+  fenêtre active), handle nul compris ; le curseur est remis en place même
+  quand l'envoi échoue ; les coordonnées client sont signées dans `lParam`.
 - Coordonnées : frame → écran (`Frame.to_screen`, `capture.scale`), région
   rognée à l'écran capturé (l'origine de la frame doit suivre), zone connue
   rognée au bord de la frame, `capture.roi` relatif à la zone client du jeu.

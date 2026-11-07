@@ -69,9 +69,19 @@ class FakeCapture:
 class FakeClicker:
     def __init__(self) -> None:
         self.clicks: list[tuple[int, int]] = []
+        self.windows: list[int] = []  # handle visé par chaque clic, 0 = entrée réelle
 
-    def click(self, x: int, y: int, *, clicks: int = 1) -> tuple[int, int]:
+    def click(
+        self,
+        x: int,
+        y: int,
+        *,
+        clicks: int = 1,
+        window: int = 0,
+        cancel: Callable[[], bool] | None = None,
+    ) -> tuple[int, int] | None:
         self.clicks.append((x, y))
+        self.windows.append(window)
         return x, y
 
 
@@ -81,12 +91,20 @@ class FakeWindow:
     ``cover`` = ce qui couvre tout point cliqué (``None`` : le jeu reçoit le clic).
     """
 
-    def __init__(self, *states: str, cover: tuple[int, str] | None = None) -> None:
+    HWND = 4242
+
+    def __init__(
+        self, *states: str, cover: tuple[int, str] | None = None, hwnd: int = HWND
+    ) -> None:
         self.states = list(states)
         self.cover = cover
+        self.handle = hwnd
 
     def focus(self) -> Any:
         return self.states.pop(0) if len(self.states) > 1 else self.states[0]
+
+    def hwnd(self) -> int:
+        return self.handle
 
     def covering(self, x: int, y: int) -> tuple[int, str] | None:
         return self.cover
@@ -205,14 +223,43 @@ def test_known_zone_near_frame_edge_keeps_coordinates(tmp_path: Path) -> None:
     assert clicker.clicks == [screen_center(0, 0)]
 
 
-@pytest.mark.parametrize("focus", ["background", "missing"])
-def test_nothing_happens_without_focus(tmp_path: Path, focus: str) -> None:
-    frames = [make_frame(replay=(50, 40))] * 4
-    eng, capture, clicker = make_engine(tmp_path, frames, window=FakeWindow(focus))
-    timer = threading.Timer(0.4, eng.stop)
+def run_briefly(eng: Engine, seconds: float = 0.4) -> None:
+    timer = threading.Timer(seconds, eng.stop)
     timer.start()
     eng.run()
     timer.cancel()
+
+
+@pytest.mark.parametrize(("focus", "phase"), [("hidden", "hidden"), ("missing", "no_game")])
+def test_nothing_happens_while_game_is_not_visible(tmp_path: Path, focus: str, phase: str) -> None:
+    frames = [make_frame(replay=(50, 40))] * 4
+    eng, capture, clicker = make_engine(tmp_path, frames, window=FakeWindow(focus))
+    run_briefly(eng)
+    assert capture.grabbed == 0
+    assert clicker.clicks == []
+    assert eng.status().phase in (phase, "stopped")
+
+
+def test_background_game_gets_a_posted_click(tmp_path: Path) -> None:
+    frames = [make_frame(replay=(50, 40))] * 2
+    eng, _, clicker = make_engine(tmp_path, frames, window=FakeWindow("background"))
+    eng.run()
+    assert clicker.clicks == [screen_center(50, 40)]
+    assert clicker.windows == [FakeWindow.HWND]
+
+
+def test_foreground_game_gets_real_input(tmp_path: Path) -> None:
+    frames = [make_frame(replay=(50, 40))] * 2
+    eng, _, clicker = make_engine(tmp_path, frames, window=FakeWindow("foreground"))
+    eng.run()
+    assert clicker.windows == [0]
+
+
+def test_background_game_waits_when_foreground_is_required(tmp_path: Path) -> None:
+    frames = [make_frame(replay=(50, 40))] * 4
+    eng, capture, clicker = make_engine(tmp_path, frames, window=FakeWindow("background"))
+    eng.cfg.window.require_foreground = True
+    run_briefly(eng)
     assert capture.grabbed == 0
     assert clicker.clicks == []
 
@@ -221,20 +268,170 @@ def test_resumes_when_game_gets_focus(tmp_path: Path) -> None:
     frames = [make_frame(replay=(50, 40))] * 2
     window = FakeWindow("background", "background", "foreground")
     eng, _, clicker = make_engine(tmp_path, frames, window=window)
+    eng.cfg.window.require_foreground = True
     eng.run()
+    assert clicker.clicks == [screen_center(50, 40)]
+    assert clicker.windows == [0]
+
+
+def test_closed_window_never_falls_back_to_real_input(tmp_path: Path) -> None:
+    frames = [make_frame(replay=(50, 40))] * 3
+    eng, _, clicker = make_engine(tmp_path, frames, window=FakeWindow("background", hwnd=0))
+    eng.run()
+    assert clicker.clicks == []
+
+
+class BusyMouseClicker(FakeClicker):
+    """Reporte les ``busy`` premiers clics, comme une souris en mouvement."""
+
+    def __init__(self, busy: int) -> None:
+        super().__init__()
+        self.busy = busy
+        self.deferred = 0
+
+    def click(
+        self,
+        x: int,
+        y: int,
+        *,
+        clicks: int = 1,
+        window: int = 0,
+        cancel: Callable[[], bool] | None = None,
+    ) -> tuple[int, int] | None:
+        if self.deferred < self.busy:
+            self.deferred += 1
+            return None
+        return super().click(x, y, clicks=clicks, window=window, cancel=cancel)
+
+
+def test_deferred_click_is_retried_without_counting(tmp_path: Path) -> None:
+    capture = FakeCapture([make_frame(replay=(50, 40))] * 3)
+    clicker = BusyMouseClicker(busy=1)
+    eng = Engine(
+        make_config(tmp_path),
+        capture,
+        clicker,
+        make_library(tmp_path),
+        window=FakeWindow("background"),
+    )
+    capture.on_exhausted = eng.stop
+    phases: list[str] = []
+    original = clicker.click
+
+    def spy(
+        x: int,
+        y: int,
+        *,
+        clicks: int = 1,
+        window: int = 0,
+        cancel: Callable[[], bool] | None = None,
+    ) -> tuple[int, int] | None:
+        result = original(x, y, clicks=clicks, window=window, cancel=cancel)
+        phases.append("deferred" if result is None else "done")
+        return result
+
+    clicker.click = spy  # type: ignore[method-assign]
+    eng.run()
+    # frame 1 : 1re confirmation ; frame 2 : clic reporté ; frame 3 : clic, sans reconfirmer
+    assert phases == ["deferred", "done"]
+    assert eng.stats.actions == 1
     assert clicker.clicks == [screen_center(50, 40)]
 
 
-def test_no_focus_check_when_not_required(tmp_path: Path) -> None:
-    frames = [make_frame(replay=(50, 40))] * 2
-    capture = FakeCapture(frames)
-    clicker = FakeClicker()
-    cfg = make_config(tmp_path)
-    cfg.window.require_foreground = False
-    eng = Engine(cfg, capture, clicker, make_library(tmp_path), window=FakeWindow("background"))
+def test_deferred_click_shows_in_status(tmp_path: Path) -> None:
+    capture = FakeCapture([make_frame(replay=(50, 40))] * 200)
+    eng = Engine(
+        make_config(tmp_path),
+        capture,
+        BusyMouseClicker(busy=10_000),
+        make_library(tmp_path),
+        window=FakeWindow("background"),
+    )
+    seen: list[Any] = []
+
+    def deferred_seen() -> bool:
+        status = eng.status()
+        seen.append(status)
+        return status.phase == "mouse"
+
+    run_until(eng, deferred_seen)
+    assert seen[-1].phase == "mouse"
+    assert "replay" in seen[-1].detail
+    assert eng.stats.actions == 0
+
+
+def test_deferred_click_stays_shown_until_it_goes_through(tmp_path: Path) -> None:
+    capture = FakeCapture([make_frame(replay=(50, 40))] * 4)
+    clicker = BusyMouseClicker(busy=2)
+    eng = Engine(
+        make_config(tmp_path),
+        capture,
+        clicker,
+        make_library(tmp_path),
+        window=FakeWindow("background"),
+    )
     capture.on_exhausted = eng.stop
+    phases: list[str] = []  # état lu par le panneau au début de chaque essai
+    original = clicker.click
+
+    def spy(
+        x: int,
+        y: int,
+        *,
+        clicks: int = 1,
+        window: int = 0,
+        cancel: Callable[[], bool] | None = None,
+    ) -> tuple[int, int] | None:
+        phases.append(eng.status().phase)
+        return original(x, y, clicks=clicks, window=window, cancel=cancel)
+
+    clicker.click = spy  # type: ignore[method-assign]
     eng.run()
-    assert len(clicker.clicks) == 1
+    # 1er essai reporté : le 2e et le 3e commencent sous « Clic en attente »
+    assert phases[1:] == ["mouse", "mouse"]
+    assert eng.stats.actions == 1
+    assert eng._notice is None  # le clic parti efface l'avis
+
+
+class PausingClicker(FakeClicker):
+    """Le joueur met le bot en pause pendant que le clic attend la souris."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.engine: Engine | None = None
+
+    def click(
+        self,
+        x: int,
+        y: int,
+        *,
+        clicks: int = 1,
+        window: int = 0,
+        cancel: Callable[[], bool] | None = None,
+    ) -> tuple[int, int] | None:
+        assert self.engine is not None
+        assert cancel is not None
+        self.engine.pause()
+        if cancel():
+            return None
+        return super().click(x, y, clicks=clicks, window=window, cancel=cancel)
+
+
+def test_pause_while_click_waits_abandons_it(tmp_path: Path) -> None:
+    capture = FakeCapture([make_frame(replay=(50, 40))] * 200)
+    clicker = PausingClicker()
+    eng = Engine(
+        make_config(tmp_path),
+        capture,
+        clicker,
+        make_library(tmp_path),
+        window=FakeWindow("background"),
+    )
+    clicker.engine = eng
+    run_until(eng, lambda: eng.paused)
+    assert clicker.clicks == []
+    assert eng.stats.actions == 0
+    assert eng._notice is None  # abandonné, pas « en attente »
 
 
 def test_pauses_when_clicks_have_no_effect(tmp_path: Path) -> None:
@@ -366,7 +563,15 @@ def test_template_from_larger_window_is_scaled_down(tmp_path: Path) -> None:
 
 
 class BrokenClicker(FakeClicker):
-    def click(self, x: int, y: int, *, clicks: int = 1) -> tuple[int, int]:
+    def click(
+        self,
+        x: int,
+        y: int,
+        *,
+        clicks: int = 1,
+        window: int = 0,
+        cancel: Callable[[], bool] | None = None,
+    ) -> tuple[int, int] | None:
         raise RuntimeError("souris débranchée")
 
 

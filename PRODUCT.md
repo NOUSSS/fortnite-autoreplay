@@ -28,17 +28,20 @@ attente du jeu ou bloqué.
 ## Operating Context
 
 - Le panneau se pose par-dessus Fortnite, toujours au-dessus (réponse du
-  joueur). Il ne doit jamais prendre le focus : le bot ne clique que si le jeu
-  est au premier plan.
-- Raccourcis globaux : F8 lance ou met en pause, F9 quitte. Le joueur peut les
-  utiliser sans regarder le panneau.
+  joueur). Il ne doit jamais prendre le focus. Le bot clique tant que le jeu
+  est visible, au premier plan ou non : le joueur peut travailler sur un autre
+  écran pendant ce temps.
+- Raccourcis en jeu : F8 lance ou met en pause, F9 quitte, seulement quand
+  Fortnite est au premier plan. Le joueur peut les utiliser sans regarder le
+  panneau.
 - Le bot capture l'écran du jeu : le panneau doit rester invisible pour cette
   capture et ne pas couvrir un bouton que le bot doit cliquer.
 
 ## Capabilities and Constraints
 
-- États du bot : Actif, En pause, En attente du jeu (fenêtre absente ou pas au
-  premier plan), Bloqué (clic sans effet ou erreurs répétées), arrêté.
+- États du bot : Actif, En pause, En attente du jeu (fenêtre absente ou
+  réduite), Clic en attente (souris utilisée), Bloqué (clic sans effet ou
+  erreurs répétées), arrêté.
 - Informations demandées : compteurs de la session (clics par bouton, durée),
   journal des derniers clics, totaux de toutes les sessions (historique
   `logs/sessions.jsonl`).

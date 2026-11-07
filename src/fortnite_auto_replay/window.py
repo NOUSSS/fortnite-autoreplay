@@ -1,4 +1,4 @@
-"""Repérage de la fenêtre Fortnite : zone de capture et premier plan.
+"""Repérage de la fenêtre Fortnite : zone de capture, premier plan, handle.
 
 La fenêtre du jeu est trouvée par le nom de son exécutable et sa classe
 (``FortniteClient-Win64-Shipping.exe`` / ``UnrealWindow``). On écarte ainsi les
@@ -25,12 +25,15 @@ from .config import WindowConfig
 log = logging.getLogger(__name__)
 
 Rect = tuple[int, int, int, int]  # left, top, right, bottom en coordonnées écran
-Focus = Literal["missing", "background", "foreground"]
+# absente | réduite (rien à capturer) | visible mais sans le focus | au premier plan
+Focus = Literal["missing", "hidden", "background", "foreground"]
 
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 _GA_ROOT = 2
 _DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
 _PROCESS_PER_MONITOR_DPI_AWARE = 2
+# position que Windows donne à une fenêtre réduite (parfois avant que IsIconic le dise)
+_MINIMIZED_ORIGIN = -32000
 
 
 class WindowError(RuntimeError):
@@ -156,6 +159,8 @@ class _Win32:
             return None
         origin = wintypes.POINT(0, 0)
         if not self.user32.ClientToScreen(hwnd, ctypes.byref(origin)):
+            return None
+        if origin.x <= _MINIMIZED_ORIGIN and origin.y <= _MINIMIZED_ORIGIN:
             return None
         if rect.right <= 0 or rect.bottom <= 0:
             return None
@@ -291,7 +296,14 @@ class GameWindow:
         found = self.locate()
         if found is None:
             return "missing"
+        if found.rect is None:
+            return "hidden"
         return "foreground" if self._api.foreground_pid() == found.pid else "background"
+
+    def hwnd(self) -> int:
+        """Handle de la fenêtre du jeu, 0 si elle est absente."""
+        found = self.locate()
+        return found.hwnd if found is not None else 0
 
     def covering(self, x: int, y: int) -> tuple[int, str] | None:
         """Ce qui recevrait un clic au point écran (x, y), si ce n'est pas le jeu.

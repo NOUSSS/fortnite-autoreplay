@@ -1,10 +1,17 @@
 """Envoi d'entrées souris vers le jeu.
 
-Backends, par ordre de préférence : ``pydirectinput`` (DirectInput/ScanCode,
-le mieux accepté par les jeux) → ``win32`` (SendInput natif via ctypes, sans
-dépendance) → ``pyautogui``.
+Jeu au premier plan : entrées réelles. Backends, par ordre de préférence :
+``pydirectinput`` (DirectInput/ScanCode, le mieux accepté par les jeux) →
+``win32`` (SendInput natif via ctypes, sans dépendance) → ``pyautogui``.
 
-Le bot ne nécessite aucune injection mémoire : ce sont des entrées réelles.
+Jeu visible mais sans le focus : une entrée réelle l'activerait (il volerait
+le focus de la fenêtre où l'on travaille). Le clic est alors posté dans la
+file de messages de sa fenêtre (``WM_LBUTTONDOWN``/``WM_LBUTTONUP``), ce qui ne
+l'active jamais. Unreal calcule le survol des boutons avec le vrai curseur :
+en mode ``cursor``, le curseur est posé sur le bouton le temps du clic (moins
+de 0,2 s), seulement quand la souris est immobile, puis remis à sa place.
+
+Le bot ne nécessite aucune injection mémoire.
 """
 
 from __future__ import annotations
@@ -13,7 +20,9 @@ import ctypes
 import logging
 import random
 import time
+from collections.abc import Callable
 from ctypes import wintypes
+from typing import Protocol
 
 from .config import PROJECT_ROOT, ActionConfig
 
@@ -24,6 +33,16 @@ _MOUSEEVENTF_LEFTDOWN = 0x0002
 _MOUSEEVENTF_LEFTUP = 0x0004
 _MOUSEEVENTF_ABSOLUTE = 0x8000
 _MOUSEEVENTF_VIRTUALDESK = 0x4000
+
+_WM_MOUSEMOVE = 0x0200
+_WM_LBUTTONDOWN = 0x0201
+_WM_LBUTTONUP = 0x0202
+_MK_LBUTTON = 0x0001
+# VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2
+_MOUSE_BUTTONS = (0x01, 0x02, 0x04, 0x05, 0x06)
+_IDLE_POLL_S = 0.02
+_IDLE_TIMEOUT_S = 1.5  # au-delà, le clic est reporté à une prochaine image
+_ERROR_ACCESS_DENIED = 5
 
 _ULONG_PTR = ctypes.c_ulonglong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_ulong
 
@@ -161,13 +180,26 @@ def _build_chain(requested: str) -> list[str]:
 class Actions:
     """Clique et déplace la souris selon la configuration."""
 
-    def __init__(self, cfg: ActionConfig, *, dry_run: bool = False) -> None:
+    def __init__(
+        self,
+        cfg: ActionConfig,
+        *,
+        dry_run: bool = False,
+        background: BackgroundClicker | None = None,
+    ) -> None:
         self._cfg = cfg
         self.dry_run = dry_run
         self._backend: _Win32Backend | None = None
+        self._background = background
         if not dry_run:
             self._backend = self._open(cfg.backend)
-            log.info("backend d'entrée : %s", self._backend.name)
+            if self._background is None:
+                self._background = BackgroundClicker(cfg)
+            log.info(
+                "backend d'entrée : %s ; jeu au second plan : clic posté (mode %s)",
+                self._backend.name,
+                cfg.background,
+            )
         else:
             log.info("mode dry-run : aucun clic réel")
 
@@ -194,12 +226,32 @@ class Actions:
     def _sleep_jitter(self, base: float) -> None:
         time.sleep(base * random.uniform(0.8, 1.25))
 
-    def click(self, x: int, y: int, *, clicks: int = 1) -> tuple[int, int]:
-        """Clique en (x, y) coordonnées écran absolues. Retourne le point visé."""
+    def click(
+        self,
+        x: int,
+        y: int,
+        *,
+        clicks: int = 1,
+        window: int = 0,
+        cancel: Callable[[], bool] | None = None,
+    ) -> tuple[int, int] | None:
+        """Clique en (x, y) coordonnées écran absolues. Retourne le point visé.
+
+        Avec ``window`` (handle du jeu au second plan), le clic est posté à
+        cette fenêtre sans l'activer ; ``None`` s'il est reporté (souris utilisée)
+        ou abandonné (``cancel`` devenu vrai pendant l'attente de la souris).
+        """
         ox, oy = self._cfg.click_offset
         tx, ty = int(x + ox), int(y + oy)
         if self.dry_run:
-            log.info("[dry-run] clic %sx%s (x%d)", clicks, (tx, ty), clicks)
+            where = " en arrière-plan" if window else ""
+            log.info("[dry-run] clic%s %sx%s (x%d)", where, clicks, (tx, ty), clicks)
+            return tx, ty
+
+        if window:
+            assert self._background is not None
+            if not self._background.click(window, tx, ty, clicks=clicks, cancel=cancel):
+                return None
             return tx, ty
 
         assert self._backend is not None
@@ -217,6 +269,167 @@ class Actions:
         if self._cfg.restore_cursor:
             self._backend.move(*saved)
         return tx, ty
+
+
+# --- clic en arrière-plan --------------------------------------------------------
+class WindowInput(Protocol):
+    """Appels Win32 du clic en arrière-plan (remplaçables dans les tests)."""
+
+    def is_window(self, hwnd: int) -> bool: ...
+
+    def to_client(self, hwnd: int, x: int, y: int) -> tuple[int, int]: ...
+
+    def post(self, hwnd: int, message: int, wparam: int, x: int, y: int) -> None: ...
+
+    def cursor(self) -> tuple[int, int]: ...
+
+    def set_cursor(self, x: int, y: int) -> None: ...
+
+    def buttons_down(self) -> bool: ...
+
+
+class _Win32WindowInput:
+    """``WindowInput`` réel, sur une instance privée de user32 typée en 64 bits."""
+
+    def __init__(self) -> None:
+        if not hasattr(ctypes, "WinDLL"):  # pragma: no cover
+            raise InputError("clic en arrière-plan disponible sous Windows uniquement")
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        hwnd = wintypes.HWND
+        user32.IsWindow.argtypes = [hwnd]
+        user32.IsWindow.restype = wintypes.BOOL
+        user32.ScreenToClient.argtypes = [hwnd, ctypes.POINTER(wintypes.POINT)]
+        user32.ScreenToClient.restype = wintypes.BOOL
+        user32.PostMessageW.argtypes = [hwnd, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+        user32.PostMessageW.restype = wintypes.BOOL
+        user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
+        user32.GetCursorPos.restype = wintypes.BOOL
+        user32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
+        user32.SetCursorPos.restype = wintypes.BOOL
+        user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+        user32.GetAsyncKeyState.restype = ctypes.c_short
+        self._user32 = user32
+
+    def is_window(self, hwnd: int) -> bool:
+        return bool(self._user32.IsWindow(hwnd))
+
+    def to_client(self, hwnd: int, x: int, y: int) -> tuple[int, int]:
+        point = wintypes.POINT(x, y)
+        if not self._user32.ScreenToClient(hwnd, ctypes.byref(point)):
+            raise InputError(f"ScreenToClient a échoué (erreur {ctypes.get_last_error()})")
+        return int(point.x), int(point.y)
+
+    def post(self, hwnd: int, message: int, wparam: int, x: int, y: int) -> None:
+        lparam = (y & 0xFFFF) << 16 | (x & 0xFFFF)  # coordonnées signées sur 16 bits
+        if self._user32.PostMessageW(hwnd, message, wparam, lparam):
+            return
+        error = ctypes.get_last_error()
+        if error == _ERROR_ACCESS_DENIED:  # UIPI : le jeu tourne avec plus de droits
+            raise InputError("Fortnite refuse le clic : lancez le bot en administrateur")
+        raise InputError(f"PostMessage a échoué (erreur {error})")
+
+    def cursor(self) -> tuple[int, int]:
+        point = wintypes.POINT()
+        self._user32.GetCursorPos(ctypes.byref(point))
+        return int(point.x), int(point.y)
+
+    def set_cursor(self, x: int, y: int) -> None:
+        self._user32.SetCursorPos(x, y)
+
+    def buttons_down(self) -> bool:
+        return any(self._user32.GetAsyncKeyState(vk) & 0x8000 for vk in _MOUSE_BUTTONS)
+
+
+class BackgroundClicker:
+    """Clique dans une fenêtre sans l'activer : messages postés, curseur rendu."""
+
+    def __init__(
+        self,
+        cfg: ActionConfig,
+        api: WindowInput | None = None,
+        *,
+        sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._cfg = cfg
+        self._api = api if api is not None else _Win32WindowInput()
+        self._sleep = sleep
+        self._clock = clock
+
+    def _mouse_idle(self, cancel: Callable[[], bool]) -> bool:
+        """Attend une souris immobile, sans bouton enfoncé.
+
+        Faux si elle ne l'est pas à temps, ou dès que ``cancel`` devient vrai.
+        """
+        api = self._api
+        start = self._clock()
+        still_since = start
+        last = api.cursor()
+        while True:
+            if cancel():
+                return False
+            now = self._clock()
+            position = api.cursor()
+            if position != last or api.buttons_down():
+                last, still_since = position, now
+            elif now - still_since >= self._cfg.mouse_idle_s:
+                return True
+            if now - start >= _IDLE_TIMEOUT_S:
+                return False
+            self._sleep(_IDLE_POLL_S)
+
+    def _press(self, hwnd: int, cx: int, cy: int, clicks: int) -> None:
+        post = self._api.post
+        post(hwnd, _WM_MOUSEMOVE, 0, cx, cy)
+        self._sleep(self._cfg.background_wait_s)
+        for index in range(clicks):
+            post(hwnd, _WM_LBUTTONDOWN, _MK_LBUTTON, cx, cy)
+            self._sleep(self._cfg.click_hold_s)
+            post(hwnd, _WM_LBUTTONUP, 0, cx, cy)
+            if index + 1 < clicks:
+                self._sleep(0.12)
+        self._sleep(self._cfg.background_wait_s)
+
+    def click(
+        self,
+        hwnd: int,
+        x: int,
+        y: int,
+        *,
+        clicks: int = 1,
+        cancel: Callable[[], bool] | None = None,
+    ) -> bool:
+        """Clique au point écran (x, y) de la fenêtre ``hwnd``.
+
+        Faux quand le clic n'est pas fait : en mode ``cursor``, la souris est en
+        mouvement ou un de ses boutons est enfoncé, ou bien ``cancel`` (bot mis
+        en pause ou arrêté) est devenu vrai pendant cette attente.
+        """
+        api = self._api
+        if not api.is_window(hwnd):
+            raise InputError("fenêtre du jeu fermée avant le clic")
+        cx, cy = api.to_client(hwnd, x, y)
+        if self._cfg.background == "message":
+            self._press(hwnd, cx, cy, clicks)
+            return True
+        stop = cancel if cancel is not None else _never
+        if not self._mouse_idle(stop) or stop():
+            return False
+        saved = api.cursor()
+        api.set_cursor(x, y)
+        placed = api.cursor()  # relu : Windows peut rogner la position demandée
+        try:
+            self._press(hwnd, cx, cy, clicks)
+        finally:
+            # retour au même pixel ; une souris bougée pendant le clic garde son
+            # déplacement, pour que le curseur ne recule pas sous la main
+            now_x, now_y = api.cursor()
+            api.set_cursor(saved[0] + now_x - placed[0], saved[1] + now_y - placed[1])
+        return True
+
+
+def _never() -> bool:
+    return False
 
 
 def debug_click_marker(path_prefix: str, x: int, y: int) -> str:  # pragma: no cover - utilitaire

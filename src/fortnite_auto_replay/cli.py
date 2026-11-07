@@ -7,16 +7,17 @@ import json
 import logging
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 
 from . import config as config_mod
-from . import history, vision
+from . import diagnostics, history, vision
 from .actions import Actions, InputError
 from .capture import CaptureError, ScreenCapture
 from .engine import Engine
 from .hotkeys import HotkeyListener
-from .logging_setup import setup_logging
+from .logging_setup import LOG_DIR, setup_logging
 from .templates import TemplateLibrary
 from .window import GameWindow, WindowError, ensure_dpi_awareness
 
@@ -95,7 +96,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             engine = Engine(cfg, capture, actions, library, dry_run=args.dry_run, window=window)
 
             if cfg.hotkeys.enabled:
-                listener = HotkeyListener()
+                listener = HotkeyListener(active=game_in_front(window))
                 listener.bind(cfg.hotkeys.toggle, engine.toggle)
                 listener.bind(cfg.hotkeys.quit, engine.stop)
                 listener.start()
@@ -117,6 +118,13 @@ def cmd_run(args: argparse.Namespace) -> int:
     finally:
         if listener is not None:
             listener.stop()
+
+
+def game_in_front(window: GameWindow | None) -> Callable[[], bool] | None:
+    """Condition des raccourcis : jeu au premier plan (F8 tapé ailleurs ne compte pas)."""
+    if window is None:
+        return None
+    return lambda: window.focus() == "foreground"
 
 
 def _check_window(cfg: config_mod.Config) -> GameWindow | None:
@@ -312,6 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     setup_logging("DEBUG" if args.verbose else "INFO")
+    diagnostics.install(LOG_DIR)
     ensure_dpi_awareness()
     try:
         return int(args.func(args))

@@ -86,12 +86,23 @@ class ActionConfig:
     click_hold_s: float = 0.05
     click_offset: list[int] = field(default_factory=lambda: [0, 0])
     restore_cursor: bool = False
+    # jeu visible mais sans le focus : clic posté dans la file de messages de sa fenêtre,
+    # qui n'est jamais activée. « cursor » pose aussi le curseur sur le bouton le temps du
+    # clic, puis le remet où il était (le jeu calcule le survol avec le vrai curseur) ;
+    # « message » ne touche jamais au curseur.
+    background: str = "cursor"  # cursor | message
+    background_wait_s: float = 0.07  # laisse au jeu deux images à 30 i/s avant et après le clic
+    mouse_idle_s: float = 0.25  # souris immobile, sans bouton enfoncé, avant de déplacer le curseur
 
     def validate(self) -> None:
         if self.backend not in {"auto", "pydirectinput", "win32", "pyautogui"}:
             raise ConfigError(f"actions.backend inconnu : {self.backend!r}")
         if len(self.click_offset) != 2:
             raise ConfigError("actions.click_offset doit être [dx, dy]")
+        if self.background not in {"cursor", "message"}:
+            raise ConfigError(f"actions.background inconnu : {self.background!r}")
+        if self.background_wait_s < 0 or self.mouse_idle_s < 0:
+            raise ConfigError("actions.background_wait_s et mouse_idle_s doivent être positifs")
 
 
 @dataclass(slots=True)
@@ -202,7 +213,9 @@ class WindowConfig:
     process_names: list[str] = field(default_factory=lambda: ["FortniteClient-Win64-Shipping.exe"])
     window_class: str = "UnrealWindow"  # "" = toutes les classes
     use_as_roi: bool = True  # capturer la zone client du jeu plutôt que le moniteur
-    require_foreground: bool = True  # ne rien faire tant que le jeu n'a pas le focus
+    # True : ne rien faire tant que le jeu n'a pas le focus ; False : cliquer aussi quand
+    # il est visible au second plan (clic envoyé à sa fenêtre, voir actions.background)
+    require_foreground: bool = False
 
     def validate(self) -> None:
         if self.enabled and not self.process_names:
@@ -421,6 +434,7 @@ def describe(cfg: Config) -> str:
             "actions": {
                 "backend": cfg.actions.backend,
                 "move_before_click": cfg.actions.move_before_click,
+                "background": cfg.actions.background,
             },
             "engine": {
                 "confirm_frames": cfg.engine.confirm_frames,

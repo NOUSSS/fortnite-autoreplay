@@ -15,6 +15,7 @@ from .cli import main
 
 if __name__ == "__main__":
     code = main()
+    logging.getLogger("fortnite_auto_replay").info("sortie (code %d)", code)
     logging.shutdown()
     try:
         sys.stdout.flush()

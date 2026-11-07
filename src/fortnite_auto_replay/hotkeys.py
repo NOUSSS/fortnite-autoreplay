@@ -2,6 +2,11 @@
 
 Le thread de surveillance tourne en tâche de fond et appelle les callbacks
 fournis. Utilisé pour ``F8`` (pause/reprise) et ``F9`` (arrêt).
+
+``GetAsyncKeyState`` voit les touches de toutes les applications : avec
+``active``, un appui n'est pris en compte que si la condition est vraie (jeu
+au premier plan), pour que F8 ou F9 tapé dans un autre logiciel pendant que
+le bot tourne ne le mette pas en pause ni ne le ferme.
 """
 
 from __future__ import annotations
@@ -42,8 +47,11 @@ def resolve_key(name: str) -> int:
 
 
 class HotkeyListener:
-    def __init__(self, poll_interval_s: float = 0.05) -> None:
+    def __init__(
+        self, poll_interval_s: float = 0.05, *, active: Callable[[], bool] | None = None
+    ) -> None:
         self._interval = poll_interval_s
+        self._active = active
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._bindings: dict[int, Callable[[], None]] = {}
@@ -67,7 +75,10 @@ class HotkeyListener:
                 if down and vk not in pressed:
                     pressed.add(vk)
                     try:
-                        callback()
+                        if self._active is None or self._active():
+                            callback()
+                        else:
+                            log.info("raccourci %#x ignoré : le jeu n'est pas au premier plan", vk)
                     except Exception:
                         log.exception("erreur dans le callback du raccourci")
                 elif not down and vk in pressed:

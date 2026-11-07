@@ -20,8 +20,10 @@ pip install -e .
 ```
 
 Fortnite peut tourner en **fenêtré sans bordure**, fenêtré ou plein écran : le bot
-repère sa fenêtre et n'analyse que sa zone client. Il n'agit que lorsque le jeu
-est au premier plan. Lance le bot en administrateur si les clics ne passent pas.
+repère sa fenêtre et n'analyse que sa zone client. Il agit tant que le jeu est
+visible à l'écran, même si l'on travaille sur un autre écran : au second plan, ses
+clics sont envoyés à la fenêtre du jeu sans lui donner le focus. Lance le bot en
+administrateur si les clics ne passent pas.
 
 ## Utilisation
 
@@ -36,12 +38,13 @@ python -m fortnite_auto_replay run --dry-run --debug
 python -m fortnite_auto_replay run
 
 # diagnostic
-python -m fortnite_auto_replay window   # fenêtre du jeu repérée et focus
+python -m fortnite_auto_replay window   # fenêtre du jeu repérée et premier plan
 python -m fortnite_auto_replay stats    # totaux des sessions passées
 ```
 
-Raccourcis globaux : `F8` = démarrer / mettre en pause, `F9` = quitter.
-Le bot démarre en pause par sécurité. `F8` joue deux notes : montantes quand
+Raccourcis en jeu : `F8` = démarrer / mettre en pause, `F9` = quitter. Ils ne
+comptent que quand Fortnite est au premier plan : ailleurs, `F8` et `F9` restent
+à l'application active. Le bot démarre en pause par sécurité. `F8` joue deux notes : montantes quand
 le bot repart, descendantes quand il se met en pause (`engine.sound_on_toggle`).
 
 ## Panneau de contrôle
@@ -55,8 +58,8 @@ Une petite fenêtre s'ouvre au-dessus du jeu et lance le moteur :
   chevron qui replie le panneau sur cette seule ligne ;
 - déplié : la réponse au dialogue « Vous êtes toujours là ? », les compteurs de
   la session, les cinq derniers clics, les totaux de toutes les sessions et
-  Quitter. Un bandeau explique tout état anormal (bouton qui ne part pas, jeu au
-  second plan, capture en échec, clic annulé).
+  Quitter. Un bandeau explique tout état anormal (bouton qui ne part pas, jeu
+  réduit, clic en attente, capture en échec, clic annulé).
 
 Le panneau se déplace en le tirant par son en-tête ; sa position, son état
 replié et la réponse au dialogue sont gardés dans `config/local.json`. Il ne
@@ -84,19 +87,21 @@ Valeurs : `ready`, `not_yet`, `ignore`.
 ```
 window.py ──► capture.py ──► vision.py ──► engine.py ──► actions.py
  (fenêtre,     (DXGI/mss)     (matching)    (états+décisions)   (clic)
-  focus)
+  état)
 ```
 
 - `window.py` : repère la fenêtre du jeu (exécutable + classe), donne sa zone
-  client et dit si elle a le focus.
+  client et dit si elle est au premier plan, au second plan ou réduite.
 - `capture.py` : capture d'écran rapide (dxcam → mss → PIL), calée sur la zone
   client du jeu (ou sur le moniteur avec `--no-window`), à demi-échelle.
 - `templates.py` : templates par état ; leur JSON (écrit par l'outil de capture)
   donne la zone où chercher et l'échelle à appliquer.
 - `vision.py` : matching multi-échelle + `matchTemplate`, retourne score et position.
 - `engine.py` : machine à états, confirmations anti-faux-positifs, cooldowns,
-  garde de focus, pause sur clic sans effet, frames douteuses, historique.
-- `actions.py` : clics (`pydirectinput` → SendInput via ctypes → pyautogui).
+  garde de fenêtre, pause sur clic sans effet, frames douteuses, historique.
+- `actions.py` : clics au premier plan (`pydirectinput` → SendInput via ctypes →
+  pyautogui), clics postés à la fenêtre du jeu au second plan.
+- `diagnostics.py` : traces des arrêts inattendus (`logs/crash.log`).
 - `panel.py` : panneau de contrôle (tkinter) ; le moteur tourne dans un thread.
 
 Rien n'est codé en dur : seuils, ROI, délais et zones de clic sont dans
@@ -105,8 +110,19 @@ Rien n'est codé en dur : seuils, ROI, délais et zones de clic sont dans
 ## Sécurité / limites connues
 
 - Ne joue pas : il faut lancer la partie à la main la première fois.
-- Tant que Fortnite n'est pas au premier plan, le bot attend : il ne clique
-  jamais dans une autre fenêtre. `--no-window` retire ce garde-fou.
+- Tant que la fenêtre de Fortnite est absente ou réduite, le bot attend. Au
+  second plan, il poste ses clics à la fenêtre du jeu (`PostMessage`) et
+  n'envoie jamais de vraie entrée, qui partirait dans la fenêtre active.
+  `window.require_foreground: true` le fait attendre le premier plan, comme
+  avant ; `--no-window` retire ce garde-fou.
+- Au second plan, Fortnite ne voit un bouton survolé que si le vrai curseur est
+  dessus. En mode `actions.background: "cursor"` (défaut), le bot pose le
+  curseur sur le bouton le temps du clic (environ 0,2 s) puis le remet au même
+  pixel, en gardant le déplacement si la souris a bougé entre-temps ; il attend
+  pour cela que la souris reste immobile
+  `actions.mouse_idle_s` et qu'aucun bouton ne soit enfoncé (« Clic en
+  attente » sinon). Le mode `"message"` ne touche jamais au curseur, au risque
+  que le jeu ignore le clic.
 - Avant chaque clic, le bot vérifie que le point visé est bien sur le jeu : si
   une autre fenêtre le couvre (panneau, notification, overlay), il n'y clique
   pas.
@@ -116,7 +132,12 @@ Rien n'est codé en dur : seuils, ROI, délais et zones de clic sont dans
   signe qu'un template est à recadrer ou que `vision.threshold` est trop haut.
 - Si un écran de résultat diffère (nouvel événement, nouvelle saison), il faut
   refaire les templates.
-- Anti-cheat : uniquement des entrées souris clavier classiques, rien d'injecté.
+- Anti-cheat : entrées souris classiques au premier plan, messages de fenêtre
+  standard (`WM_LBUTTONDOWN`…) au second plan ; rien n'est injecté dans le
+  processus du jeu.
+- Arrêt inattendu : `logs/bot.log` dit pourquoi le bot s'est arrêté (Quitter,
+  `F9`, fermeture par Windows, exception) et `logs/crash.log` garde la pile des
+  threads lors d'un plantage natif ou d'un moteur bloqué.
 - Le backend `dxcam` ne libère pas sa sortie DXGI en fin de processus
   (`release()` plante sur Python 3.13) ; la sortie est volontairement dure
   (`os._exit`) dans `__main__.py`.
