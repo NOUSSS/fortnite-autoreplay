@@ -19,7 +19,7 @@ s'absente ; il doit savoir d'un coup d'œil si le bot travaille.
 ## Product Purpose
 
 Bot de rejeu automatique : il reconnaît à l'écran les boutons de fin de partie
-et de salon (Rejouer, Continuer, Passer, Prêt) et clique dessus, pour enchaîner
+et de salon (Retourner au salon, Continuer, Passer, Prêt) et clique dessus, pour enchaîner
 les parties sans intervention. Il répond aussi au dialogue « Vous êtes toujours
 là ? » d'un groupe (Prêt ou Pas encore, au choix). Réussite : les parties
 s'enchaînent, et le joueur sait à tout moment si le bot est actif, en pause, en

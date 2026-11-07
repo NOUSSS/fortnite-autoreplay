@@ -86,6 +86,17 @@
       "cooldown_s": 3.0,
       "post_action_sleep_s": 1.5,
       "clicks": 1,
+      "enabled": false
+    },
+    {
+      "slug": "back_to_lobby",
+      "label": "Retour au salon",
+      "priority": 90,
+      "click": "center",
+      "require_confirm": true,
+      "cooldown_s": 3.0,
+      "post_action_sleep_s": 1.5,
+      "clicks": 1,
       "enabled": true
     },
     {

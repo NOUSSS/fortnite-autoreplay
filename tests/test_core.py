@@ -61,6 +61,33 @@ def test_config_defaults_are_valid() -> None:
     assert next(s.slug for s in cfg.active_states()) == "still_here_ready"
 
 
+def test_end_of_game_goes_back_to_lobby() -> None:
+    """Fin de partie : « Retourner au salon » puis « Prêt », plus « Rejouer »."""
+    shipped = config_mod.load_config(use_local=False).states
+    for states in (shipped, config_mod.DEFAULT_STATES):
+        enabled = {s.slug for s in states if s.enabled}
+        assert {"back_to_lobby", "ready"} <= enabled
+        assert "replay" not in enabled
+
+
+@pytest.mark.parametrize("window", [(1920, 1080), None])
+def test_back_to_lobby_template_matches_half_scale_frames(
+    window: tuple[int, int] | None,
+) -> None:
+    """Agrandi x2 depuis une frame à demi-échelle : il y retrouve sa taille, fenêtre
+    du jeu connue ou non (``--no-window``, ``roi``)."""
+    cfg = config_mod.load_config(use_local=False)
+    library = TemplateLibrary(cfg.resolved_template_dir()).load(["back_to_lobby"])
+    (item,) = library.prepared(
+        "back_to_lobby", (960, 540), window, cfg.capture.scale, cfg.vision.zone_margin
+    )
+    assert item.image.shape == (21, 216)
+    if window is not None:
+        assert item.zone is not None
+        left, top, right, bottom = item.zone
+        assert left <= 682 and top <= 190 and right >= 898 and bottom >= 211
+
+
 def test_config_rejects_bad_threshold() -> None:
     with pytest.raises(config_mod.ConfigError):
         config_mod.load_config(use_local=False, overrides={"vision": {"threshold": 2.0}})

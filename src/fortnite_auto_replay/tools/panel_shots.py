@@ -49,15 +49,22 @@ class Scene:
     answers: tuple[str, ...] = ("ready", "not_yet", "ignore")
 
 
-_BUSY = {"replay": 31, "continue": 12, "pass_battle": 9, "ready": 2, "still_here_ready": 1}
+_BUSY = {"back_to_lobby": 31, "continue": 12, "pass_battle": 9, "ready": 2, "still_here_ready": 1}
 _LABELS = {
-    "replay": "Rejouer",
+    "back_to_lobby": "Retour au salon",
     "continue": "Continuer",
     "pass_battle": "Passer",
     "ready": "Prêt",
     "still_here_ready": f"Toujours là{NBSP}: Prêt",
 }
-_ORDER = ("replay", "continue", "still_here_ready", "replay", "pass_battle", "replay")
+_ORDER = (
+    "back_to_lobby",
+    "continue",
+    "still_here_ready",
+    "back_to_lobby",
+    "pass_battle",
+    "back_to_lobby",
+)
 
 SCENES = [
     Scene("collapsed-first", "paused", True, started=False),
@@ -68,16 +75,18 @@ SCENES = [
         "collapsed-stuck",
         "stuck",
         True,
-        detail=f"«{NBSP}Rejouer{NBSP}» toujours visible après 3 clics",
+        detail=f"«{NBSP}Retour au salon{NBSP}» toujours visible après 3 clics",
     ),
     Scene("expanded-first", "paused", False, started=False),
     Scene("expanded-active", "active", False, actions=55, per_state=_BUSY, recent=5),
-    Scene("expanded-two-clicks", "active", False, actions=2, per_state={"replay": 2}, recent=2),
+    Scene(
+        "expanded-two-clicks", "active", False, actions=2, per_state={"back_to_lobby": 2}, recent=2
+    ),
     Scene(
         "expanded-stuck",
         "stuck",
         False,
-        detail=f"«{NBSP}Rejouer{NBSP}» toujours visible après 3 clics",
+        detail=f"«{NBSP}Retour au salon{NBSP}» toujours visible après 3 clics",
         actions=55,
         per_state=_BUSY,
         recent=5,
@@ -86,7 +95,7 @@ SCENES = [
         "expanded-covered",
         "covered",
         False,
-        detail=f"Le panneau couvre le bouton «{NBSP}Rejouer{NBSP}»",
+        detail=f"Le panneau couvre le bouton «{NBSP}Retour au salon{NBSP}»",
         actions=55,
         per_state=_BUSY,
         recent=5,
@@ -97,7 +106,7 @@ SCENES = [
         "expanded-mouse",
         "mouse",
         False,
-        detail=f"Clic sur «{NBSP}Rejouer{NBSP}» en attente",
+        detail=f"Clic sur «{NBSP}Retour au salon{NBSP}» en attente",
         actions=55,
         per_state=_BUSY,
         recent=5,
@@ -111,7 +120,7 @@ SCENES = [
         dry_run=True,
         actions=3,
         recent=3,
-        per_state={"replay": 3},
+        per_state={"back_to_lobby": 3},
     ),
     Scene(
         "expanded-not-yet",

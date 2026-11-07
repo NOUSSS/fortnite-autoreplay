@@ -88,7 +88,8 @@ avertissement : recadre sur les éléments textuels/colorés du bouton.
 | État | Bouton visé |
 | --- | --- |
 | `pass_battle` | « Passer » (écran de fin de partie / récompenses) |
-| `replay` | « Rejouer » |
+| `back_to_lobby` | « Retourner au salon » (fin de partie) |
+| `replay` | « Rejouer », désactivé : le bot retourne au salon puis clique sur « Prêt » |
 | `continue` | « Continuer » |
 | `ready` | « Prêt » (salon) |
 | `still_here_ready` | « Prêt » du dialogue « Vous êtes toujours là ? » |
@@ -99,6 +100,20 @@ Les deux templates du dialogue viennent d'une capture d'écran du jeu en
 demi-échelle). Sur cette capture, chacun score 1,00 sur son bouton et au plus
 0,69 sur l'écran de fin de partie et le salon (seuil 0,82). Si leurs scores baissent (nouvelle
 saison, autre résolution), les recapturer avec `capture_templates`.
+
+Le template de « Retourner au salon » vient de quatre frames de fin de partie
+sauvées par le bot (`captures/doubt-replay-*.jpg`, analyse à demi-échelle) :
+moyenne des quatre, recadrée sur le texte, au-dessus de l'annotation dessinée
+sous le bouton, puis agrandie x2 au plus proche voisin pour rejoindre le
+1920x1080 des autres templates : à `capture.scale` 0,5, la réduction redonne
+exactement le découpage. Chaque frame le retrouve à 1,00 (avec
+les trois autres seulement), au plus 0,70 ailleurs sur le même écran
+(« S'équiper d'un esprit ») et 0,45 en partie. Une capture nette avec
+`capture_templates --state back_to_lobby` reste préférable.
+
+Pour revenir à « Rejouer » : `enabled` à `true` sur `replay` et à `false` sur
+`back_to_lobby`, dans `config/default.json` (ou dans une copie complète de la
+liste `states` dans `config/local.json`, qui la remplace entière).
 
 Ajouter un état : entrée dans `config/default.json` (`slug`, `label`,
 `priority`) puis nouveau dossier `templates/<slug>/`.

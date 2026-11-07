@@ -139,8 +139,21 @@ class StateConfig:
 # États livrés : la boucle de rejeu Fortnite.
 DEFAULT_STATES: tuple[StateConfig, ...] = (
     StateConfig(slug="pass_battle", label="Passer", priority=100, cooldown_s=4.0),
+    # fin de partie : retour au salon puis « Prêt », plutôt que « Rejouer » (désactivé)
     StateConfig(
-        slug="replay", label="Rejouer", priority=90, cooldown_s=3.0, post_action_sleep_s=1.5
+        slug="replay",
+        label="Rejouer",
+        priority=90,
+        cooldown_s=3.0,
+        post_action_sleep_s=1.5,
+        enabled=False,
+    ),
+    StateConfig(
+        slug="back_to_lobby",
+        label="Retour au salon",
+        priority=90,
+        cooldown_s=3.0,
+        post_action_sleep_s=1.5,
     ),
     StateConfig(
         slug="continue", label="Continuer", priority=80, cooldown_s=3.0, post_action_sleep_s=1.5
