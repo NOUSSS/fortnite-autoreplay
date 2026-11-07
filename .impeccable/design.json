@@ -1,0 +1,472 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-07T00:00:00Z",
+  "title": "Design System: Fortnite Auto Replay",
+  "extensions": {
+    "colorMeta": {
+      "bg": {
+        "role": "neutral",
+        "displayName": "Gris fenêtre",
+        "canonical": "#202020",
+        "oklch": "oklch(24.4% 0.000 89.9)",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#A5A5A5",
+          "#C9C9C9",
+          "#EEEEEE"
+        ]
+      },
+      "layer": {
+        "role": "neutral",
+        "displayName": "Gris couche",
+        "canonical": "#2B2B2B",
+        "oklch": "oklch(28.9% 0.000 89.9)",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#A5A5A5",
+          "#C9C9C9",
+          "#EEEEEE"
+        ]
+      },
+      "layer-hover": {
+        "role": "neutral",
+        "displayName": "Couche survolée",
+        "canonical": "#323232",
+        "oklch": "oklch(31.7% 0.000 89.9)",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#A5A5A5",
+          "#C9C9C9",
+          "#EEEEEE"
+        ]
+      },
+      "layer-pressed": {
+        "role": "neutral",
+        "displayName": "Couche appuyée",
+        "canonical": "#272727",
+        "oklch": "oklch(27.3% 0.000 89.9)",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#A5A5A5",
+          "#C9C9C9",
+          "#EEEEEE"
+        ]
+      },
+      "stroke": {
+        "role": "neutral",
+        "displayName": "Filet",
+        "canonical": "#3A3A3A",
+        "oklch": "oklch(34.8% 0.000 89.9)",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#A5A5A5",
+          "#C9C9C9",
+          "#EEEEEE"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Texte",
+        "canonical": "#FFFFFF",
+        "oklch": "oklch(100.0% 0.000 89.9)",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#A5A5A5",
+          "#C9C9C9",
+          "#EEEEEE"
+        ]
+      },
+      "text-secondary": {
+        "role": "neutral",
+        "displayName": "Texte secondaire",
+        "canonical": "#C5C5C5",
+        "oklch": "oklch(82.3% 0.000 89.9)",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#A5A5A5",
+          "#C9C9C9",
+          "#EEEEEE"
+        ]
+      },
+      "text-tertiary": {
+        "role": "neutral",
+        "displayName": "Texte tertiaire",
+        "canonical": "#9E9E9E",
+        "oklch": "oklch(69.9% 0.000 89.9)",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#A5A5A5",
+          "#C9C9C9",
+          "#EEEEEE"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Bleu Fluent clair",
+        "canonical": "#60CDFF",
+        "oklch": "oklch(80.4% 0.122 230.8)",
+        "tonalRamp": [
+          "#000D16",
+          "#00293A",
+          "#004963",
+          "#006A8F",
+          "#098EBD",
+          "#5FB0D7",
+          "#97D3F1",
+          "#CDF6FF"
+        ]
+      },
+      "accent-hover": {
+        "role": "primary",
+        "displayName": "Bleu Fluent survolé",
+        "canonical": "#5BBAE8",
+        "oklch": "oklch(75.0% 0.111 231.9)",
+        "tonalRamp": [
+          "#010D15",
+          "#052939",
+          "#0E4861",
+          "#196A8C",
+          "#298DB9",
+          "#68AFD3",
+          "#9DD2EE",
+          "#D0F5FF"
+        ]
+      },
+      "accent-pressed": {
+        "role": "primary",
+        "displayName": "Bleu Fluent appuyé",
+        "canonical": "#56A8D1",
+        "oklch": "oklch(69.6% 0.100 232.4)",
+        "tonalRamp": [
+          "#020D14",
+          "#0A2937",
+          "#18485E",
+          "#276988",
+          "#3A8CB4",
+          "#70AECF",
+          "#A2D1EA",
+          "#D4F4FF"
+        ]
+      },
+      "on-accent": {
+        "role": "primary",
+        "displayName": "Noir sur accent",
+        "canonical": "#000000",
+        "oklch": "oklch(0.0% 0.000 0.0)",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#A5A5A5",
+          "#C9C9C9",
+          "#EEEEEE"
+        ]
+      },
+      "success": {
+        "role": "tertiary",
+        "displayName": "Vert succès",
+        "canonical": "#6CCB5F",
+        "oklch": "oklch(75.9% 0.172 141.3)",
+        "tonalRamp": [
+          "#020F01",
+          "#0B2E06",
+          "#194F11",
+          "#28741E",
+          "#3B9A2E",
+          "#71BA67",
+          "#A3DB9B",
+          "#D5FBCF"
+        ]
+      },
+      "caution": {
+        "role": "tertiary",
+        "displayName": "Jaune attention",
+        "canonical": "#FCE100",
+        "oklch": "oklch(90.4% 0.188 100.5)",
+        "tonalRamp": [
+          "#100B00",
+          "#2F2500",
+          "#514100",
+          "#766000",
+          "#9D8100",
+          "#BBA600",
+          "#DACB70",
+          "#FAF1B4"
+        ]
+      },
+      "critical": {
+        "role": "tertiary",
+        "displayName": "Rose critique",
+        "canonical": "#FF99A4",
+        "oklch": "oklch(79.1% 0.123 13.3)",
+        "tonalRamp": [
+          "#160608",
+          "#3B191D",
+          "#642F36",
+          "#914750",
+          "#BF616D",
+          "#DB8B93",
+          "#F6B6BB",
+          "#FFE1E4"
+        ]
+      },
+      "neutral": {
+        "role": "tertiary",
+        "displayName": "Gris neutre",
+        "canonical": "#9E9E9E",
+        "oklch": "oklch(69.9% 0.000 89.9)",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#A5A5A5",
+          "#C9C9C9",
+          "#EEEEEE"
+        ]
+      },
+      "caution-bg": {
+        "role": "tertiary",
+        "displayName": "Ocre sombre",
+        "canonical": "#433519",
+        "oklch": "oklch(33.7% 0.047 83.2)",
+        "tonalRamp": [
+          "#0E0B06",
+          "#2A241A",
+          "#4A4130",
+          "#6C6048",
+          "#908063",
+          "#B1A38B",
+          "#D2C8B5",
+          "#F5EEE0"
+        ]
+      },
+      "critical-bg": {
+        "role": "tertiary",
+        "displayName": "Brique sombre",
+        "canonical": "#442726",
+        "oklch": "oklch(31.0% 0.044 22.1)",
+        "tonalRamp": [
+          "#100909",
+          "#2E2121",
+          "#503C3B",
+          "#755958",
+          "#9B7877",
+          "#BA9D9B",
+          "#DAC3C1",
+          "#FBEAE9"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Title",
+        "purpose": "Mot d'état, intertitres de section, segment choisi."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Libellés, compteurs, journal, totaux, message des bandeaux."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Détail de l'en-tête, aide sous le sélecteur, rappel des raccourcis."
+      },
+      "icon": {
+        "displayName": "Icon",
+        "purpose": "Chevron et icônes de gravité ; la pastille d'état est son disque plein à 8 px."
+      }
+    },
+    "shadows": [],
+    "motion": [],
+    "sizes": [
+      {
+        "name": "window-width",
+        "value": "320px"
+      },
+      {
+        "name": "header-height",
+        "value": "44px"
+      },
+      {
+        "name": "row-height",
+        "value": "24px"
+      },
+      {
+        "name": "control-height",
+        "value": "28px"
+      },
+      {
+        "name": "segment-height",
+        "value": "32px"
+      },
+      {
+        "name": "dot",
+        "value": "8px"
+      }
+    ],
+    "scaling": "Valeurs à 96 ppp, multipliées par l'échelle d'affichage du système (GetDpiForSystem / 96).",
+    "window": {
+      "border": "1px #3A3A3A posé par DWM (DWMWA_BORDER_COLOR)",
+      "corners": "DWMWCP_ROUND, arrondi standard de Windows 11 (8px)",
+      "shadow": "aucune dessinée"
+    }
+  },
+  "components": [
+    {
+      "name": "Bouton d'accent",
+      "kind": "button",
+      "refersTo": "button-accent",
+      "description": "Action principale de l'en-tête (Pause, Lancer, Reprendre, Quitter) ; un seul par fenêtre.",
+      "html": "<button class=\"ds-btn-accent\">Reprendre</button>",
+      "css": ".ds-btn-accent { font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif; font-size: 14px; height: 28px; padding: 0 12px; min-width: 87px; background: #60CDFF; color: #000000; border: 1px solid #60CDFF; border-radius: 4px; cursor: pointer; } .ds-btn-accent:hover { background: #5BBAE8; border-color: #5BBAE8; } .ds-btn-accent:active { background: #56A8D1; border-color: #56A8D1; } .ds-btn-accent:focus-visible { outline: 1px solid #FFFFFF; outline-offset: 1px; }"
+    },
+    {
+      "name": "Bouton standard",
+      "kind": "button",
+      "refersTo": "button-standard",
+      "description": "Action secondaire sur couche avec filet (Quitter dans le pied).",
+      "html": "<button class=\"ds-btn-standard\">Quitter</button>",
+      "css": ".ds-btn-standard { font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif; font-size: 14px; height: 28px; padding: 0 12px; background: #2B2B2B; color: #FFFFFF; border: 1px solid #3A3A3A; border-radius: 4px; cursor: pointer; } .ds-btn-standard:hover { background: #323232; } .ds-btn-standard:active { background: #272727; } .ds-btn-standard:focus-visible { outline: 1px solid #FFFFFF; outline-offset: 1px; }"
+    },
+    {
+      "name": "Bouton discret",
+      "kind": "button",
+      "refersTo": "button-subtle",
+      "description": "Carré de 28 px sans surface au repos : chevron de repli.",
+      "html": "<button class=\"ds-btn-subtle\" aria-label=\"Replier\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 12 12\" aria-hidden=\"true\"><path d=\"M2.5 7.5 6 4l3.5 3.5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></button>",
+      "css": ".ds-btn-subtle { width: 28px; height: 28px; display: inline-grid; place-items: center; padding: 0; background: #202020; color: #C5C5C5; border: none; border-radius: 4px; cursor: pointer; } .ds-btn-subtle:hover { background: #323232; } .ds-btn-subtle:active { background: #272727; } .ds-btn-subtle:focus-visible { outline: 1px solid #FFFFFF; outline-offset: 1px; }"
+    },
+    {
+      "name": "Sélecteur à segments",
+      "kind": "chip",
+      "refersTo": "segmented",
+      "description": "Choix exclusif de la réponse au dialogue ; le segment choisi prend l'accent.",
+      "html": "<div class=\"ds-seg\" role=\"radiogroup\"><button class=\"ds-seg-item ds-seg-on\" role=\"radio\" aria-checked=\"true\">Prêt</button><button class=\"ds-seg-item\" role=\"radio\" aria-checked=\"false\">Pas encore</button><button class=\"ds-seg-item\" role=\"radio\" aria-checked=\"false\" disabled>Ignorer</button></div>",
+      "css": ".ds-seg { display: grid; grid-template-columns: repeat(3, 1fr); width: 296px; height: 32px; padding: 2px; gap: 4px; background: #2B2B2B; border: 1px solid #3A3A3A; border-radius: 4px; box-sizing: border-box; } .ds-seg-item { font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif; font-size: 14px; background: transparent; color: #FFFFFF; border: none; border-radius: 3px; cursor: pointer; } .ds-seg-item:hover { background: #323232; } .ds-seg-item:active { background: #272727; } .ds-seg-item:disabled { color: #9E9E9E; background: transparent; cursor: default; } .ds-seg-on, .ds-seg-on:hover { background: #60CDFF; color: #000000; font-family: 'Segoe UI Variable Text Semibold', 'Segoe UI Semibold', 'Segoe UI', sans-serif; font-size: 14px; font-weight: 600; } .ds-seg-item:focus-visible { outline: 1px solid #FFFFFF; outline-offset: -1px; }"
+    },
+    {
+      "name": "Bandeau critique",
+      "kind": "custom",
+      "refersTo": "notice-critical",
+      "description": "InfoBar d'erreur ou de blocage : fond teinté, icône de gravité, message et marche à suivre.",
+      "html": "<div class=\"ds-notice ds-notice-critical\" role=\"alert\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 12 12\" aria-hidden=\"true\"><circle cx=\"6\" cy=\"6\" r=\"5\" fill=\"none\" stroke=\"currentColor\"/><path d=\"M4.2 4.2l3.6 3.6M7.8 4.2l-3.6 3.6\" stroke=\"currentColor\"/></svg><span>«&nbsp;Rejouer&nbsp;» toujours visible après 3 clics. Le bot s’est mis en pause.</span></div>",
+      "css": ".ds-notice { font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif; font-size: 14px; display: flex; gap: 8px; align-items: baseline; width: 296px; padding: 12px; color: #FFFFFF; border-radius: 4px; box-sizing: border-box; line-height: 19px; } .ds-notice svg { flex: none; transform: translateY(1px); } .ds-notice-critical { background: #442726; } .ds-notice-critical svg { color: #FF99A4; }"
+    },
+    {
+      "name": "Bandeau d'information",
+      "kind": "custom",
+      "refersTo": "notice-info",
+      "description": "InfoBar neutre (simulation, arrêt) sur couche, icône en accent.",
+      "html": "<div class=\"ds-notice ds-notice-info\" role=\"status\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 12 12\" aria-hidden=\"true\"><circle cx=\"6\" cy=\"6\" r=\"5\" fill=\"none\" stroke=\"currentColor\"/><path d=\"M6 5.5v3\" stroke=\"currentColor\"/><circle cx=\"6\" cy=\"3.7\" r=\".6\" fill=\"currentColor\"/></svg><span>Simulation&nbsp;: le bot repère les boutons sans cliquer.</span></div>",
+      "css": ".ds-notice { font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif; font-size: 14px; display: flex; gap: 8px; align-items: baseline; width: 296px; padding: 12px; color: #FFFFFF; border-radius: 4px; box-sizing: border-box; line-height: 19px; } .ds-notice svg { flex: none; transform: translateY(1px); } .ds-notice-info { background: #2B2B2B; } .ds-notice-info svg { color: #60CDFF; }"
+    },
+    {
+      "name": "Ligne d'état",
+      "kind": "nav",
+      "refersTo": "header",
+      "description": "En-tête de 44 px qui se suffit replié : pastille, état, détail, action principale, chevron.",
+      "html": "<div class=\"ds-header\"><span class=\"ds-dot\"></span><strong class=\"ds-state\">Actif</strong><span class=\"ds-detail\">3&nbsp;clics</span><button class=\"ds-btn-accent\">Pause</button><button class=\"ds-btn-subtle\" aria-label=\"Replier\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 12 12\" aria-hidden=\"true\"><path d=\"M2.5 7.5 6 4l3.5 3.5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></button></div>",
+      "css": ".ds-header { display: flex; align-items: center; gap: 8px; width: 320px; height: 44px; padding: 0 12px; background: #202020; box-sizing: border-box; border-bottom: 1px solid #3A3A3A; } .ds-dot { width: 8px; height: 8px; border-radius: 50%; background: #6CCB5F; flex: none; } .ds-state { font-family: 'Segoe UI Variable Text Semibold', 'Segoe UI Semibold', 'Segoe UI', sans-serif; font-size: 14px; font-weight: 600; color: #FFFFFF; } .ds-detail { font-family: 'Segoe UI Variable Small', 'Segoe UI', sans-serif; font-size: 12px; color: #C5C5C5; margin-right: auto; } .ds-header .ds-btn-subtle { margin-left: -4px; } .ds-btn-accent { font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif; font-size: 14px; height: 28px; padding: 0 12px; min-width: 87px; background: #60CDFF; color: #000000; border: 1px solid #60CDFF; border-radius: 4px; cursor: pointer; } .ds-btn-accent:hover { background: #5BBAE8; border-color: #5BBAE8; } .ds-btn-accent:active { background: #56A8D1; border-color: #56A8D1; } .ds-btn-accent:focus-visible { outline: 1px solid #FFFFFF; outline-offset: 1px; } .ds-btn-subtle { width: 28px; height: 28px; display: inline-grid; place-items: center; padding: 0; background: #202020; color: #C5C5C5; border: none; border-radius: 4px; cursor: pointer; } .ds-btn-subtle:hover { background: #323232; } .ds-btn-subtle:active { background: #272727; } .ds-btn-subtle:focus-visible { outline: 1px solid #FFFFFF; outline-offset: 1px; }"
+    },
+    {
+      "name": "Compteurs de session",
+      "kind": "card",
+      "refersTo": "data-row",
+      "description": "Section plate : intertitre semi-gras, grille de deux colonnes de lignes de 24 px.",
+      "html": "<section class=\"ds-section\"><h3>Session</h3><div class=\"ds-grid\"><div class=\"ds-row\"><span>Passer</span><b>9</b></div><div class=\"ds-row\"><span>Rejouer</span><b>31</b></div><div class=\"ds-row\"><span>Continuer</span><b>12</b></div><div class=\"ds-row\"><span>Durée</span><b>47&nbsp;min</b></div></div></section>",
+      "css": ".ds-section { width: 296px; background: #202020; } .ds-section h3 { margin: 0 0 8px; font-family: 'Segoe UI Variable Text Semibold', 'Segoe UI Semibold', 'Segoe UI', sans-serif; font-size: 14px; font-weight: 600; line-height: 19px; color: #FFFFFF; } .ds-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; } .ds-row { font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif; font-size: 14px; display: flex; justify-content: space-between; align-items: center; height: 24px; } .ds-row span { color: #C5C5C5; } .ds-row b { font-weight: 400; color: #FFFFFF; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Le widget de la Game Bar",
+    "overview": "Un seul écran, une petite fenêtre sans bordure de 320 px posée sur le jeu. Le système est celui du thème sombre de Windows 11, exécuté avec soin plutôt que réinventé : couches grises à peine décalées, un filet d'un pixel, un accent bleu clair sur texte noir, Segoe UI Variable et les icônes Segoe Fluent. Il s'agit du standard de la catégorie, choisi tel quel.\n\nLa densité est celle d'un outil qu'on regarde du coin de l'œil. Tout part d'une ligne d'en-tête de 44 px qui se suffit repliée : pastille d'état, mot d'état, détail court, bouton d'action principal, chevron de repli. Déplié, le corps empile des sections plates séparées par l'espace, jamais par des cartes. La profondeur vient des couches de couleur, pas des ombres.\n\nLe rendu est mesuré à 96 ppp et chaque valeur de grille est multipliée par l'échelle d'affichage du système (`px()`), sur une grille de 4 px.",
+    "keyCharacteristics": [
+      "Thème sombre de Windows 11 : fond, couche, filet, accent sur texte noir.",
+      "Une ligne d'en-tête de 44 px qui tient seule, repliée.",
+      "Sections plates, séparées par 16 px d'espace et non par des cadres.",
+      "Deux tailles de texte (14 et 12 px) ; la hiérarchie passe par la graisse et la couleur.",
+      "Aucune ombre, aucune animation : le survol et l'appui changent la surface."
+    ],
+    "rules": [
+      {
+        "name": "La règle de la pastille",
+        "body": "Les couleurs d'état ne colorent qu'une pastille de 8 px ou l'icône d'un bandeau. Jamais un texte, un bouton ni un fond de section.",
+        "section": "colors"
+      },
+      {
+        "name": "La règle de l'accent qui agit",
+        "body": "L'accent marque ce qui agit ou ce qui est choisi : le bouton principal et le segment sélectionné. Un seul bouton d'accent par fenêtre.",
+        "section": "colors"
+      },
+      {
+        "name": "La règle des deux tailles",
+        "body": "14 et 12 px, rien d'autre. Un intertitre se distingue par la graisse, un texte secondaire par la couleur, jamais par une taille de plus.",
+        "section": "typography"
+      },
+      {
+        "name": "La règle du texte français",
+        "body": "Espace insécable avant « : ; ? ! » et dans les guillemets, séparateur de milliers en espace insécable, apostrophe typographique, ni capitales ni lettres espacées.",
+        "section": "typography"
+      },
+      {
+        "name": "La règle de la ligne qui se suffit",
+        "body": "L'en-tête porte seul l'état et l'action principale ; replié, il ne manque rien pour piloter le bot.",
+        "section": "layout"
+      },
+      {
+        "name": "La règle de la surface qui change",
+        "body": "Le survol et l'appui changent la couleur de surface du contrôle (couche survolée, couche appuyée, paliers de l'accent). Jamais de halo, d'ombre ni de déplacement.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** tirer chaque couleur, taille et écart des jetons ci-dessus, multipliés par l'échelle d'affichage.",
+      "**Do** séparer les sections par 16 px d'espace et un intertitre semi-gras, sans cadre.",
+      "**Do** réserver les couleurs d'état à la pastille et à l'icône des bandeaux.",
+      "**Do** donner aux contrôles voisins la même hauteur (28 px) et au bouton principal une largeur fixe sur tous ses libellés.",
+      "**Do** dire un état bloqué ou une erreur dans un bandeau, avec la marche à suivre."
+    ],
+    "donts": [
+      "**Don't** ajouter d'ombre, de halo ou de lueur à un bouton, au repos comme au survol.",
+      "**Don't** poser des cartes ou des fonds de section : le corps reste sur le fond de la fenêtre.",
+      "**Don't** ajouter une troisième taille de texte ni une police d'affichage.",
+      "**Don't** écrire un libellé en capitales ou en lettres espacées, ni ajouter « → » à un bouton.",
+      "**Don't** poser une icône colorée sur un carré de sa couleur assombrie."
+    ]
+  }
+}

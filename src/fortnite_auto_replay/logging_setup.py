@@ -20,10 +20,15 @@ def setup_logging(level: str = "INFO", *, to_file: bool = True) -> Path | None:
     for handler in list(root.handlers):
         root.removeHandler(handler)
 
-    console = logging.StreamHandler(sys.stderr)
-    console.setLevel(numeric)
-    console.setFormatter(logging.Formatter(FORMAT, datefmt="%H:%M:%S"))
-    root.addHandler(console)
+    if sys.stderr is not None:  # None sous pythonw (panneau lancé sans console)
+        console = logging.StreamHandler(sys.stderr)
+        console.setLevel(numeric)
+        console.setFormatter(logging.Formatter(FORMAT, datefmt="%H:%M:%S"))
+        root.addHandler(console)
+
+    # bibliothèques bavardes en DEBUG (dxcam lancé hors du thread principal par le panneau)
+    for noisy in ("comtypes", "dxcam"):
+        logging.getLogger(noisy).setLevel(logging.INFO)
 
     if not to_file:
         return None

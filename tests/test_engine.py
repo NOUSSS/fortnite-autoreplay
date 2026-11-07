@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -28,7 +29,12 @@ def _texture(seed: int, size: tuple[int, int]) -> np.ndarray:
 
 
 BACKGROUND = _texture(1, FRAME_SIZE)
-BUTTONS = {"replay": _texture(10, BUTTON_SIZE), "ready": _texture(11, BUTTON_SIZE)}
+BUTTONS = {
+    "replay": _texture(10, BUTTON_SIZE),
+    "ready": _texture(11, BUTTON_SIZE),
+    "still_here_ready": _texture(12, BUTTON_SIZE),
+    "still_here_not_yet": _texture(13, BUTTON_SIZE),
+}
 
 
 def make_frame(**positions: tuple[int, int]) -> Frame:
@@ -70,13 +76,20 @@ class FakeClicker:
 
 
 class FakeWindow:
-    """Renvoie les états de focus donnés, puis répète le dernier."""
+    """Renvoie les états de focus donnés, puis répète le dernier.
 
-    def __init__(self, *states: str) -> None:
+    ``cover`` = ce qui couvre tout point cliqué (``None`` : le jeu reçoit le clic).
+    """
+
+    def __init__(self, *states: str, cover: tuple[int, str] | None = None) -> None:
         self.states = list(states)
+        self.cover = cover
 
     def focus(self) -> Any:
         return self.states.pop(0) if len(self.states) > 1 else self.states[0]
+
+    def covering(self, x: int, y: int) -> tuple[int, str] | None:
+        return self.cover
 
 
 def _state(slug: str, priority: int) -> dict[str, Any]:
@@ -89,13 +102,16 @@ def _state(slug: str, priority: int) -> dict[str, Any]:
     }
 
 
-def make_config(tmp_path: Path, **engine: Any) -> config_mod.Config:
+def make_config(
+    tmp_path: Path, states: list[dict[str, Any]] | None = None, **engine: Any
+) -> config_mod.Config:
     engine_cfg: dict[str, Any] = {
         "confirm_frames": 2,
         "action_cooldown_s": 0.0,
         "start_paused": False,
         "max_ineffective_clicks": 0,
         "beep_on_stuck": False,
+        "sound_on_toggle": False,
         "doubt_margin": 0.0,
         "stats_file": "",
         "debug_dir": str(tmp_path / "captures"),
@@ -107,15 +123,16 @@ def make_config(tmp_path: Path, **engine: Any) -> config_mod.Config:
             "capture": {"target_fps": 60},
             "vision": {"threshold": 0.9},
             "engine": engine_cfg,
-            "states": [_state("replay", 90), _state("ready", 70)],
+            "states": states or [_state("replay", 90), _state("ready", 70)],
         },
     )
 
 
 def make_library(tmp_path: Path, templates: dict[str, np.ndarray] | None = None) -> TemplateLibrary:
-    for slug, image in (templates or BUTTONS).items():
+    templates = BUTTONS if templates is None else templates
+    for slug, image in templates.items():
         vision.save_image(tmp_path / "templates" / slug / f"{slug}_01.png", image)
-    return TemplateLibrary(tmp_path / "templates").load(["replay", "ready"])
+    return TemplateLibrary(tmp_path / "templates").load(list(templates))
 
 
 def make_engine(
@@ -126,12 +143,13 @@ def make_engine(
     templates: dict[str, np.ndarray] | None = None,
     dry_run: bool = False,
     alert: Callable[[], None] | None = None,
+    states: list[dict[str, Any]] | None = None,
     **engine: Any,
 ) -> tuple[Engine, FakeCapture, FakeClicker]:
     capture = FakeCapture(frames)
     clicker = FakeClicker()
     eng = Engine(
-        make_config(tmp_path, **engine),
+        make_config(tmp_path, states, **engine),
         capture,
         clicker,
         make_library(tmp_path, templates),
@@ -367,3 +385,100 @@ def test_unexpected_errors_pause_instead_of_crashing(tmp_path: Path) -> None:
     assert eng.paused
     assert eng.stats.errors == 2
     assert alerts == [True]
+
+
+# --- dialogue « Vous êtes toujours là ? » -----------------------------------
+def dialog_states() -> list[dict[str, Any]]:
+    return [
+        _state("replay", 90),
+        {**_state("still_here_ready", 110), "still_here": "ready"},
+        {**_state("still_here_not_yet", 110), "still_here": "not_yet"},
+    ]
+
+
+DIALOG = {"still_here_ready": (50, 40), "still_here_not_yet": (300, 40)}
+
+
+@pytest.mark.parametrize("answer", ["ready", "not_yet", "ignore"])
+def test_still_here_answer_picks_its_button(tmp_path: Path, answer: str) -> None:
+    frames = [make_frame(**DIALOG)] * 2
+    eng, _, clicker = make_engine(tmp_path, frames, states=dialog_states(), still_here=answer)
+    eng.run()
+    expected = [] if answer == "ignore" else [screen_center(*DIALOG[f"still_here_{answer}"])]
+    assert clicker.clicks == expected
+
+
+def test_still_here_answer_changes_while_running(tmp_path: Path) -> None:
+    frames = [make_frame(**DIALOG)] * 2
+    eng, _, clicker = make_engine(tmp_path, frames, states=dialog_states(), still_here="ready")
+    eng.set_still_here("not_yet")
+    eng.run()
+    assert clicker.clicks == [screen_center(*DIALOG["still_here_not_yet"])]
+    assert eng.status().still_here == "not_yet"
+
+
+def test_still_here_answer_needs_a_template(tmp_path: Path) -> None:
+    templates = {"replay": BUTTONS["replay"], "still_here_ready": BUTTONS["still_here_ready"]}
+    eng, _, _ = make_engine(tmp_path, [], states=dialog_states(), templates=templates)
+    assert eng.still_here_answers() == ["ready", "ignore"]
+    with pytest.raises(ValueError):
+        eng.set_still_here("not_yet")
+
+
+# --- état lu par le panneau ---------------------------------------------------
+def test_status_follows_pause_clicks_and_stop(tmp_path: Path) -> None:
+    frames = [make_frame(replay=(50, 40))] * 2
+    eng, _, _ = make_engine(tmp_path, frames, start_paused=True)
+    assert eng.status().phase == "paused"
+    eng.resume()
+    eng.run()
+    status = eng.status()
+    assert status.phase == "stopped"
+    assert status.actions == 1
+    assert status.per_state == {"replay": 1}
+    assert [(c.slug, c.label) for c in status.recent] == [("replay", "replay")]
+
+
+def test_status_explains_stuck_pause(tmp_path: Path) -> None:
+    frames = [make_frame(replay=(50, 40))] * 30
+    eng, _, _ = make_engine(tmp_path, frames, max_ineffective_clicks=2)
+    run_until(eng, lambda: eng.paused)
+    eng._finished = False  # on lit l'état tel qu'il était, boucle en pause
+    status = eng.status()
+    assert status.phase == "stuck"
+    assert "replay" in status.detail
+    assert "2 clics" in status.detail
+
+
+@pytest.mark.parametrize(
+    ("cover", "who"),
+    [((4242, "Discord.exe"), "Discord.exe"), ((os.getpid(), "python.exe"), "panneau")],
+)
+def test_covered_button_is_not_clicked(tmp_path: Path, cover: tuple[int, str], who: str) -> None:
+    frames = [make_frame(replay=(50, 40))] * 6
+    window = FakeWindow("foreground", cover=cover)
+    eng, _, clicker = make_engine(tmp_path, frames, window=window)
+    seen: list[str] = []
+
+    def covered() -> bool:
+        status = eng.status()
+        if status.phase == "covered":
+            seen.append(status.detail)
+        return bool(seen)
+
+    run_until(eng, covered)
+    assert clicker.clicks == []
+    assert seen
+    assert who in seen[0]
+
+
+def test_toggle_announces_pause_and_resume(tmp_path: Path) -> None:
+    cues: list[str] = []
+    capture = FakeCapture([])
+    eng = Engine(
+        make_config(tmp_path), capture, FakeClicker(), make_library(tmp_path), sound=cues.append
+    )
+    eng.toggle()
+    eng.toggle()
+    assert cues == ["pause", "resume"]
+    assert not eng.paused

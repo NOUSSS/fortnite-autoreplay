@@ -12,24 +12,30 @@ Garde-fous :
 - **clic sans effet** : si un bouton reste visible sans interruption après
   ``max_ineffective_clicks`` clics, le bot se met en pause et sauve la frame ;
 - **détection douteuse** : un score juste sous le seuil fait sauver la frame,
-  pour recadrer un template ou ajuster ``vision.threshold``.
+  pour recadrer un template ou ajuster ``vision.threshold`` ;
+- **bouton couvert** : si une autre fenêtre (le panneau, une notification) est
+  sous le point du clic, le clic est annulé : il partirait dans cette fenêtre.
+
+L'état courant se lit par :meth:`Engine.status`, depuis un autre thread (panneau).
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 import numpy as np
 
-from . import history, vision
+from . import history, sounds, vision
 from .capture import CaptureError, Frame
-from .config import Config, StateConfig
+from .config import STILL_HERE_ANSWERS, Config, StateConfig
 from .templates import Prepared, Template, TemplateLibrary
 
 if TYPE_CHECKING:
@@ -42,6 +48,14 @@ _PAUSE_POLL_S = 0.1
 _CAPTURE_RETRY_S = 0.2
 _CAPTURE_ERROR_LOG_S = 10.0  # une même erreur n'est répétée dans le journal qu'à cet intervalle
 _STEP_RETRY_S = 0.5
+_RECENT_CLICKS = 20
+_COVERED_SHOW_S = 3.0  # durée pendant laquelle un clic annulé reste signalé
+
+# actif | en pause | bloqué (clic sans effet) | bloqué (erreurs) | jeu absent |
+# jeu en arrière-plan | capture en échec | bouton couvert | arrêté
+Phase = Literal[
+    "active", "paused", "stuck", "errors", "no_game", "background", "capture", "covered", "stopped"
+]
 
 
 class FrameSource(Protocol):
@@ -54,6 +68,31 @@ class Clicker(Protocol):
 
 class FocusSource(Protocol):
     def focus(self) -> Focus: ...
+
+    def covering(self, x: int, y: int) -> tuple[int, str] | None:
+        """``None`` si le point écran tombe sur le jeu, sinon (pid, exécutable) qui le couvre."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class ClickRecord:
+    ts: float
+    slug: str
+    label: str
+
+
+@dataclass(frozen=True, slots=True)
+class Status:
+    """Instantané de l'état du bot, sûr à lire depuis un autre thread."""
+
+    phase: Phase
+    detail: str  # cause d'une pause automatique, d'une capture en échec, d'un clic annulé
+    started_at: float
+    actions: int
+    per_state: dict[str, int]
+    recent: tuple[ClickRecord, ...]  # du plus récent au plus ancien
+    still_here: str
+    dry_run: bool
 
 
 @dataclass(slots=True)
@@ -105,6 +144,10 @@ def _no_alert() -> None:
     pass
 
 
+def _no_sound(_cue: sounds.Cue) -> None:
+    pass
+
+
 def _better(best: Detection | None, other: Detection | None) -> Detection | None:
     if other is None:
         return best
@@ -124,6 +167,7 @@ class Engine:
         dry_run: bool = False,
         window: FocusSource | None = None,
         alert: Callable[[], None] | None = None,
+        sound: Callable[[sounds.Cue], None] | None = None,
     ) -> None:
         self.cfg = cfg
         self.capture = capture
@@ -131,14 +175,21 @@ class Engine:
         self.library = library
         self.dry_run = dry_run
 
-        self.states = [s for s in cfg.active_states() if library.for_state(s.slug)]
-        if not self.states:
+        # tous les états qui ont un template, réponses au dialogue comprises :
+        # la réponse choisie peut changer en cours de route (set_still_here)
+        self._all_states = [s for s in cfg.enabled_states() if library.for_state(s.slug)]
+        if not self._all_states:
             raise RuntimeError("aucun état avec template : impossible de démarrer")
+        self.states = self._select_states()
 
+        self._game = window  # pour vérifier qu'un clic tombe bien sur le jeu
         self._window = window if cfg.window.require_foreground else None
         if alert is None:
             alert = _beep if cfg.engine.beep_on_stuck else _no_alert
         self._alert = alert
+        if sound is None:
+            sound = sounds.cue if cfg.engine.sound_on_toggle else _no_sound
+        self._sound = sound
 
         self.stats = Stats()
         self._candidate: str | None = None
@@ -156,7 +207,16 @@ class Engine:
         self._last_full_scan = float("-inf")
         self._step_errors = 0  # erreurs inattendues consécutives
         self._step_error_logged_at = float("-inf")
+        self._covered: tuple[float, str] | None = None  # (instant, message) du dernier clic annulé
+        self._covered_logged_at = float("-inf")
+        self._recent: deque[ClickRecord] = deque(maxlen=_RECENT_CLICKS)
+        self._lock = threading.Lock()  # compteurs et clics récents, lus par status()
+        self._pause_reason: Literal["user", "stuck", "errors"] = "user"
+        self._pause_detail = ""
+        self._finished = False
         self._paused = threading.Event()
+        if cfg.engine.start_paused:
+            self._paused.set()
         self._stop = threading.Event()
         self._debug_dir = cfg.resolved_debug_dir()
         if cfg.engine.save_debug_frames:
@@ -167,17 +227,25 @@ class Engine:
     def paused(self) -> bool:
         return self._paused.is_set()
 
-    def pause(self) -> None:
+    def pause(self, reason: Literal["user", "stuck", "errors"] = "user", detail: str = "") -> None:
+        self._pause_reason, self._pause_detail = reason, detail
         self._paused.set()
         log.info("bot en pause")
 
     def resume(self) -> None:
+        self._pause_reason, self._pause_detail = "user", ""
         self._paused.clear()
         self._reset_tracking()
         log.info("bot actif")
 
     def toggle(self) -> None:
-        self.pause() if not self.paused else self.resume()
+        """Pause ou reprise (F8, bouton du panneau), annoncée par deux notes."""
+        if self.paused:
+            self.resume()
+            self._sound("resume")
+        else:
+            self.pause()
+            self._sound("pause")
 
     def stop(self) -> None:
         self._stop.set()
@@ -185,6 +253,53 @@ class Engine:
     @property
     def stopped(self) -> bool:
         return self._stop.is_set()
+
+    def _select_states(self) -> list[StateConfig]:
+        active = {s.slug for s in self.cfg.active_states()}
+        return [s for s in self._all_states if s.slug in active]
+
+    def still_here_answers(self) -> list[str]:
+        """Réponses au dialogue possibles : celles dont le bouton a un template, et ``ignore``."""
+        buttons = {s.still_here for s in self._all_states if s.still_here}
+        return [a for a in STILL_HERE_ANSWERS if a in buttons or a == "ignore"]
+
+    def set_still_here(self, answer: str) -> None:
+        """Change la réponse au dialogue « Vous êtes toujours là ? », bot en marche."""
+        if answer not in self.still_here_answers():
+            raise ValueError(f"réponse impossible : {answer!r} (pas de template ou inconnue)")
+        self.cfg.engine.still_here = answer
+        self.states = self._select_states()  # remplacée d'un bloc : sûr pour la boucle
+        log.info("dialogue « toujours là » : réponse %s", answer)
+
+    def status(self) -> Status:
+        phase: Phase
+        detail = ""
+        if self._finished:
+            phase = "stopped"
+        elif self._paused.is_set():
+            phase = "paused" if self._pause_reason == "user" else self._pause_reason
+            detail = self._pause_detail
+        elif self._focus == "missing":
+            phase = "no_game"
+        elif self._focus == "background":
+            phase = "background"
+        elif self._capture_error is not None:
+            phase, detail = "capture", self._capture_error
+        elif self._covered is not None and time.time() - self._covered[0] < _COVERED_SHOW_S:
+            phase, detail = "covered", self._covered[1]
+        else:
+            phase = "active"
+        with self._lock:
+            return Status(
+                phase=phase,
+                detail=detail,
+                started_at=self.stats.started_at,
+                actions=self.stats.actions,
+                per_state=dict(self.stats.per_state),
+                recent=tuple(reversed(self._recent)),
+                still_here=self.cfg.engine.still_here,
+                dry_run=self.dry_run,
+            )
 
     def _reset_tracking(self) -> None:
         """Oublie ce qui dépend des frames précédentes (après pause ou perte de focus)."""
@@ -308,24 +423,18 @@ class Engine:
             return False
         return now - self._last_action_per_state.get(state.slug, 0.0) >= state.cooldown_s
 
-    def _confirm(self, slug: str | None) -> bool:
-        if slug is None:
+    def _confirm(self, state: StateConfig | None) -> bool:
+        if state is None:
             self._candidate = None
             self._candidate_hits = 0
             return False
-        if slug == self._candidate:
+        if state.slug == self._candidate:
             self._candidate_hits += 1
         else:
-            self._candidate = slug
+            self._candidate = state.slug
             self._candidate_hits = 1
-        need = self.cfg.engine.confirm_frames if self._state(slug).require_confirm else 1
+        need = self.cfg.engine.confirm_frames if state.require_confirm else 1
         return self._candidate_hits >= need
-
-    def _state(self, slug: str) -> StateConfig:
-        for state in self.states:
-            if state.slug == slug:
-                return state
-        raise KeyError(slug)
 
     def _track_streak(self, seen: list[Detection]) -> None:
         """La série de clics s'arrête dès que le bouton cliqué disparaît."""
@@ -349,8 +458,31 @@ class Engine:
         )
         self.stats.stuck += 1
         self._alert()
-        self.pause()
+        self.pause(
+            "stuck",
+            f"«\u00a0{detection.state.label}\u00a0» toujours visible après {self._streak} clics",
+        )
         self._reset_tracking()
+
+    def _click_covered(self, state: StateConfig, x: int, y: int) -> bool:
+        """Vrai si une autre fenêtre que le jeu est sous le point : le clic y partirait."""
+        if self._game is None:
+            return False
+        cover = self._game.covering(x, y)
+        if cover is None:
+            self._covered = None
+            return False
+        pid, process = cover
+        who = "Le panneau" if pid == os.getpid() else (process or "Une autre fenêtre")
+        message = f"{who} couvre le bouton «\u00a0{state.label}\u00a0»"
+        now = time.time()
+        self._covered = (now, message)
+        if now - self._covered_logged_at >= _CAPTURE_ERROR_LOG_S:
+            log.warning("clic annulé en %dx%d : %s", x, y, message)
+            self._covered_logged_at = now
+        self._candidate = None  # nouvelle confirmation avant le prochain essai
+        self._candidate_hits = 0
+        return True
 
     def _act(self, detection: Detection, frame: Frame) -> bool:
         if not self._has_focus():  # le focus a pu partir pendant l'analyse
@@ -361,6 +493,8 @@ class Engine:
         else:
             x, y = detection.match.x, detection.match.y
         screen_x, screen_y = frame.to_screen(x, y)
+        if self._click_covered(state, screen_x, screen_y):
+            return False
         log.info(
             "état '%s' (%.2f) -> clic %dx en %sx%s",
             state.slug,
@@ -373,8 +507,10 @@ class Engine:
         now = time.time()
         self._last_action_at = now
         self._last_action_per_state[state.slug] = now
-        self.stats.actions += 1
-        self.stats.per_state[state.slug] = self.stats.per_state.get(state.slug, 0) + 1
+        with self._lock:
+            self.stats.actions += 1
+            self.stats.per_state[state.slug] = self.stats.per_state.get(state.slug, 0) + 1
+            self._recent.append(ClickRecord(now, state.slug, state.label))
         if self._streak_slug == state.slug:
             self._streak += 1
         else:
@@ -473,7 +609,7 @@ class Engine:
         if top is None:
             self._confirm(None)
             return
-        if not self._confirm(top.state.slug):
+        if not self._confirm(top.state):
             return
         if not self._cooldown_ok(top.state, time.time()):
             log.debug("'%s' détecté mais en cooldown", top.state.slug)
@@ -498,9 +634,9 @@ class Engine:
                 self._step_errors,
                 self.cfg.hotkeys.toggle,
             )
-            self._step_errors = 0
+            count, self._step_errors = self._step_errors, 0
             self._alert()
-            self.pause()
+            self.pause("errors", f"{count} erreurs de suite, détail dans logs/bot.log")
             self._reset_tracking()
 
     def _idle_expired(self) -> bool:
@@ -513,8 +649,6 @@ class Engine:
     def run(self) -> Stats:
         interval = 1.0 / self.cfg.capture.target_fps
         log.info("boucle démarrée (%.1f fps visés)", self.cfg.capture.target_fps)
-        if self.cfg.engine.start_paused:
-            self._paused.set()
         self._last_detection_at = time.time()
 
         try:
@@ -553,6 +687,7 @@ class Engine:
         finally:
             log.info("boucle terminée : %s", self.stats.as_dict())
             self._record_session()
+            self._finished = True
         return self.stats
 
     def _record_session(self) -> None:

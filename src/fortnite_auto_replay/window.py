@@ -28,6 +28,7 @@ Rect = tuple[int, int, int, int]  # left, top, right, bottom en coordonnées éc
 Focus = Literal["missing", "background", "foreground"]
 
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+_GA_ROOT = 2
 _DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
 _PROCESS_PER_MONITOR_DPI_AWARE = 2
 
@@ -104,6 +105,10 @@ class _Win32:
         user32.ClientToScreen.restype = wintypes.BOOL
         user32.GetForegroundWindow.argtypes = []
         user32.GetForegroundWindow.restype = hwnd
+        user32.WindowFromPoint.argtypes = [wintypes.POINT]
+        user32.WindowFromPoint.restype = hwnd
+        user32.GetAncestor.argtypes = [hwnd, wintypes.UINT]
+        user32.GetAncestor.restype = hwnd
 
         kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
         kernel32.OpenProcess.restype = wintypes.HANDLE
@@ -162,6 +167,13 @@ class _Win32:
     def foreground_pid(self) -> int:
         hwnd = self.user32.GetForegroundWindow()
         return self.window_pid(hwnd) if hwnd else 0
+
+    def window_at(self, x: int, y: int) -> int:
+        """Fenêtre de premier niveau sous le point écran, celle qui recevrait un clic."""
+        hwnd = self.user32.WindowFromPoint(wintypes.POINT(x, y))
+        if not hwnd:
+            return 0
+        return int(self.user32.GetAncestor(hwnd, _GA_ROOT) or hwnd)
 
     def enumerate(self) -> list[WindowCandidate]:
         """Fenêtres de premier niveau visibles (les invisibles sont écartées tôt)."""
@@ -280,3 +292,18 @@ class GameWindow:
         if found is None:
             return "missing"
         return "foreground" if self._api.foreground_pid() == found.pid else "background"
+
+    def covering(self, x: int, y: int) -> tuple[int, str] | None:
+        """Ce qui recevrait un clic au point écran (x, y), si ce n'est pas le jeu.
+
+        ``None`` quand le point tombe sur une fenêtre du jeu ; sinon le pid et
+        l'exécutable de la fenêtre qui le couvre (panneau, notification…).
+        """
+        found = self.locate()
+        hwnd = self._api.window_at(x, y)
+        if not hwnd:
+            return 0, ""
+        pid = self._api.window_pid(hwnd)
+        if found is not None and pid == found.pid:
+            return None
+        return pid, self._api.process_name(pid)

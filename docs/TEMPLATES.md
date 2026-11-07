@@ -91,6 +91,14 @@ avertissement : recadre sur les éléments textuels/colorés du bouton.
 | `replay` | « Rejouer » |
 | `continue` | « Continuer » |
 | `ready` | « Prêt » (salon) |
+| `still_here_ready` | « Prêt » du dialogue « Vous êtes toujours là ? » |
+| `still_here_not_yet` | « Pas encore » du même dialogue |
+
+Les deux templates du dialogue viennent d'une capture d'écran du jeu en
+1920x1080 (recadrée au pixel, coordonnées paires pour l'analyse à
+demi-échelle). Sur cette capture, chacun score 1,00 sur son bouton et au plus
+0,69 sur l'écran de fin de partie et le salon (seuil 0,82). Si leurs scores baissent (nouvelle
+saison, autre résolution), les recapturer avec `capture_templates`.
 
 Ajouter un état : entrée dans `config/default.json` (`slug`, `label`,
 `priority`) puis nouveau dossier `templates/<slug>/`.

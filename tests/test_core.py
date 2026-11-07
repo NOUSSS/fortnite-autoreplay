@@ -58,7 +58,7 @@ def test_frame_scale_mapping() -> None:
 def test_config_defaults_are_valid() -> None:
     cfg = config_mod.load_config(use_local=False)
     assert cfg.vision.threshold > 0.5
-    assert next(s.slug for s in cfg.active_states()) == "pass_battle"
+    assert next(s.slug for s in cfg.active_states()) == "still_here_ready"
 
 
 def test_config_rejects_bad_threshold() -> None:
@@ -98,3 +98,32 @@ def test_library_skips_uniform_template(tmp_path: Path) -> None:
     assert library.count() == 0
     assert library.states == []
     assert library.errors
+
+
+def test_only_chosen_still_here_button_is_active() -> None:
+    cfg = config_mod.load_config(use_local=False)
+    slugs = [s.slug for s in cfg.active_states()]
+    assert "still_here_ready" in slugs
+    assert "still_here_not_yet" not in slugs
+    cfg.engine.still_here = "ignore"
+    assert not any(s.still_here for s in cfg.active_states())
+    assert {"still_here_ready", "still_here_not_yet"} <= {s.slug for s in cfg.enabled_states()}
+
+
+def test_config_rejects_unknown_still_here_answer() -> None:
+    with pytest.raises(config_mod.ConfigError):
+        config_mod.load_config(use_local=False, overrides={"engine": {"still_here": "oui"}})
+
+
+def test_update_local_config_keeps_other_keys(tmp_path: Path) -> None:
+    local = tmp_path / "local.json"
+    local.write_text('{"vision": {"threshold": 0.85}, "engine": {"confirm_frames": 3}}')
+    config_mod.update_local_config({"engine": {"still_here": "not_yet"}}, local)
+    config_mod.update_local_config({"panel": {"position": [10, 20]}}, local)
+    data = json.loads(local.read_text(encoding="utf-8"))
+    assert data == {
+        "vision": {"threshold": 0.85},
+        "engine": {"confirm_frames": 3, "still_here": "not_yet"},
+        "panel": {"position": [10, 20]},
+    }
+    assert not local.with_name("local.json.tmp").exists()

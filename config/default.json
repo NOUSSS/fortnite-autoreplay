@@ -37,7 +37,9 @@
     "doubt_interval_s": 60.0,
     "doubt_max_snapshots": 20,
     "stats_file": "logs/sessions.jsonl",
-    "max_step_errors": 10
+    "max_step_errors": 10,
+    "still_here": "ready",
+    "sound_on_toggle": true
   },
   "window": {
     "enabled": true,
@@ -50,6 +52,12 @@
     "enabled": true,
     "toggle": "F8",
     "quit": "F9"
+  },
+  "panel": {
+    "topmost": true,
+    "exclude_from_capture": true,
+    "position": null,
+    "collapsed": false
   },
   "template_dir": "templates",
   "log_level": "INFO",
@@ -97,6 +105,30 @@
       "post_action_sleep_s": 2.0,
       "clicks": 1,
       "enabled": true
+    },
+    {
+      "slug": "still_here_ready",
+      "label": "Toujours là : Prêt",
+      "priority": 110,
+      "click": "center",
+      "require_confirm": true,
+      "cooldown_s": 3.0,
+      "post_action_sleep_s": 1.0,
+      "clicks": 1,
+      "enabled": true,
+      "still_here": "ready"
+    },
+    {
+      "slug": "still_here_not_yet",
+      "label": "Toujours là : Pas encore",
+      "priority": 110,
+      "click": "center",
+      "require_confirm": true,
+      "cooldown_s": 3.0,
+      "post_action_sleep_s": 1.0,
+      "clicks": 1,
+      "enabled": true,
+      "still_here": "not_yet"
     }
   ]
 }

@@ -5,7 +5,11 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $python = Join-Path $root ".venv\Scripts\python.exe"
 if (-not (Test-Path $python)) {
-    Write-Error "Environnement absent : lance d'abord .\install.ps1"
+    # pas de venv : Python du système, s'il a les dépendances (requirements.txt)
+    $python = (Get-Command python -ErrorAction SilentlyContinue).Source
+    if (-not $python) {
+        Write-Error "Python introuvable : lance d'abord .\install.ps1"
+    }
 }
 $env:PYTHONPATH = Join-Path $root "src"
 & $python -m fortnite_auto_replay run @args

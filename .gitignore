@@ -15,3 +15,7 @@ config/local.json
 
 # templates volontairement versionnés
 !templates/**/*.png
+
+# captures et maquettes de travail du design (régénérables)
+.impeccable/mocks/
+.impeccable/review/

@@ -41,7 +41,9 @@ aucune injection : uniquement de la vision et des entrées souris réelles.
 | `history.py` | Historique des sessions (`logs/sessions.jsonl`) et totaux |
 | `actions.py` | Clics souris, offsets, arières-plans interchangeables |
 | `hotkeys.py` | `F8`/`F9` via `GetAsyncKeyState`, sans dépendance |
-| `cli.py` | `run`, `check`, `config`, `window`, `stats` + surcharges en ligne de commande |
+| `sounds.py` | Deux notes sur `F8` (reprise, pause) |
+| `panel.py` | Panneau de contrôle tkinter, moteur dans un thread |
+| `cli.py` | `run`, `check`, `config`, `window`, `stats`, `panel` + surcharges en ligne de commande |
 
 ## Performance
 
@@ -91,6 +93,24 @@ capture n'apporterait rien. Tout le gain vient du matching.
   le bouton disparaît d'une frame. Au-delà de `max_ineffective_clicks`, pause.
 - **DPI** : le processus se déclare *per-monitor aware* au démarrage, pour que
   capture, fenêtres et clics parlent en pixels physiques (affichage à 125 %…).
+- **Dialogue « Vous êtes toujours là ? »** : deux états, un par bouton
+  (`still_here_ready`, `still_here_not_yet`). Seul celui de la réponse choisie
+  (`engine.still_here`) est recherché ; les deux templates sont chargés pour
+  pouvoir changer de réponse bot en marche (`Engine.set_still_here`).
+- **Clic couvert** : juste avant de cliquer, `GameWindow.covering` regarde
+  quelle fenêtre recevrait le clic (`WindowFromPoint`). Si ce n'est pas le jeu
+  (panneau, notification), le clic est annulé et l'état passe à « Clic annulé ».
+- **Panneau** : tkinter dans le thread principal, moteur dans un thread ; le
+  panneau lit `Engine.status()` (instantané figé, compteurs sous verrou) toutes
+  les 250 ms. La capture s'ouvre dans le thread du moteur (mss n'est utilisable
+  que dans le thread qui l'a créé). La fenêtre est `WS_EX_NOACTIVATE`, au-dessus
+  de tout et exclue des captures (`WDA_EXCLUDEFROMCAPTURE`) : le bot ne la voit
+  pas, et un clic dessus ne retire pas le focus au jeu.
+- **Premier plan rendu** : à la création de sa première fenêtre, Tk prend le
+  premier plan (constaté lancé depuis un terminal comme par WMI), avant qu'on
+  puisse poser `WS_EX_NOACTIVATE`. Le panneau note la fenêtre active avant de se
+  créer et lui rend le premier plan s'il l'a pris (`focus_step`), puis le
+  vérifie à chaque tour de 250 ms.
 - **Aucune valeur dans le code** : tout est configuration.
 
 ## Points d'extension prévus
@@ -100,4 +120,5 @@ capture n'apporterait rien. Tout le gain vient du matching.
   ajouter un `StateConfig` + un dossier de templates.
 - Détection OCR : remplacer `vision.best_match` par un backend dédié, sans
   toucher au moteur.
-- Interface graphique : `Engine` expose déjà `pause/resume/stop/stats`.
+- Autre interface : `Engine` expose `pause/resume/toggle/stop/status` et
+  `set_still_here` ; le panneau n'utilise rien d'autre.

@@ -35,6 +35,14 @@
 - [x] Une erreur inattendue ne tue plus la boucle (pause après plusieurs de suite)
 - [x] Outil de capture : même chaîne que le bot, délai pour écarter la souris, aucun écrasement
 
+## Fait (panneau et dialogue)
+
+- [x] Réponse automatique au dialogue « Vous êtes toujours là ? » (Prêt par défaut, Pas encore, Ignorer)
+- [x] Panneau de contrôle au-dessus du jeu : état, Lancer / Pause, réponse au dialogue, compteurs, derniers clics, totaux
+- [x] Panneau repliable sur une ligne, déplaçable, réglages gardés dans `config/local.json`
+- [x] Panneau sans prise de focus et invisible aux captures ; clic annulé si une fenêtre couvre le bouton
+- [x] Deux notes sur `F8` (reprise, pause)
+
 ## À faire
 
 - [ ] Capturer les templates réels sur l'écran de l'utilisateur
@@ -49,7 +57,8 @@
 - [ ] Compteur de parties (quel clic marque le début d'une partie ?)
 - [ ] Notification Discord quand le bot se met en pause
 - [ ] Packaging en exécutable (`pyinstaller`) et démarrage en administrateur
-- [ ] Interface de configuration (TUI ou fenêtre)
+- [ ] Raccourci sur le Bureau pour le panneau (à créer à la demande)
+- [ ] Panneau : vérifier en partie qu'un clic dessus laisse le focus au jeu
 
 ## Idées long terme
 

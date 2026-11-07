@@ -62,8 +62,9 @@ def _build_config(args: argparse.Namespace) -> config_mod.Config:
 
 
 def _prepare_library(cfg: config_mod.Config) -> TemplateLibrary:
+    """Templates de tous les états activés : la réponse au dialogue peut changer en route."""
     library = TemplateLibrary(cfg.resolved_template_dir())
-    library.load([s.slug for s in cfg.active_states()])
+    library.load([s.slug for s in cfg.enabled_states()])
     log.info(library.summary())
     for message in library.errors:
         log.warning("template en erreur : %s", message)
@@ -146,7 +147,7 @@ def cmd_check(args: argparse.Namespace) -> int:
             report: dict[str, list[dict[str, object]]] = {}
             matches: list[vision.Match] = []
             gray = vision.to_gray(frame.image)
-            for state in cfg.active_states():
+            for state in cfg.enabled_states():
                 entries: list[dict[str, object]] = []
                 prepared = library.prepared(
                     state.slug,
@@ -235,6 +236,43 @@ def cmd_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def _panel_error(message: str) -> int:
+    """Erreur de démarrage du panneau : lancé sans console, il doit l'afficher."""
+    log.error("panneau : %s", message)
+    try:
+        import tkinter  # noqa: PLC0415
+        from tkinter import messagebox  # noqa: PLC0415
+
+        root = tkinter.Tk()
+        root.withdraw()
+        messagebox.showerror(
+            "Fortnite Auto Replay",
+            f"Le panneau n\u2019a pas pu démarrer\u00a0: {message}.\n\nDétail dans logs/bot.log.",
+            parent=root,
+        )
+        root.destroy()
+    except Exception:  # pas d'affichage possible : le log suffit
+        log.exception("message d'erreur non affiché")
+    return 1
+
+
+def cmd_panel(args: argparse.Namespace) -> int:
+    """Panneau de contrôle au-dessus du jeu, moteur dans un thread."""
+    from . import panel  # noqa: PLC0415 - tkinter seulement pour cette commande
+
+    try:
+        cfg = _build_config(args)
+    except config_mod.ConfigError as exc:
+        return _panel_error(f"configuration invalide ({exc})")
+    library = _prepare_library(cfg)
+    if not library.states:
+        return _panel_error(f"aucun modèle de bouton dans {cfg.resolved_template_dir()}")
+    try:
+        return panel.run_panel(cfg, library, dry_run=args.dry_run)
+    except (InputError, RuntimeError) as exc:  # WindowError hérite de RuntimeError
+        return _panel_error(str(exc))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fnreplay",
@@ -259,6 +297,10 @@ def build_parser() -> argparse.ArgumentParser:
     win = sub.add_parser("window", help="afficher la fenêtre du jeu repérée")
     _add_common(win)
     win.set_defaults(func=cmd_window)
+
+    panel = sub.add_parser("panel", help="panneau de contrôle au-dessus du jeu")
+    _add_common(panel)
+    panel.set_defaults(func=cmd_panel)
 
     stats = sub.add_parser("stats", help="totaux des sessions enregistrées")
     _add_common(stats)

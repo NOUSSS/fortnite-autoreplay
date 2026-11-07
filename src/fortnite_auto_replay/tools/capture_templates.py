@@ -142,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     ensure_dpi_awareness()  # curseur et capture dans les mêmes pixels physiques
 
     cfg = load_config(args.config)
-    states = cfg.active_states()
+    states = cfg.enabled_states()  # les deux réponses au dialogue comprises
     if not states:
         log.error("aucun état activé dans la configuration")
         return 2

@@ -28,6 +28,11 @@ class ConfigError(ValueError):
     """Configuration absente, illisible ou incohérente."""
 
 
+# Réponses possibles au dialogue « Vous êtes toujours là ? » d'un groupe.
+STILL_HERE_BUTTONS = ("ready", "not_yet")  # un bouton du dialogue chacune
+STILL_HERE_ANSWERS = (*STILL_HERE_BUTTONS, "ignore")
+
+
 @dataclass(slots=True)
 class CaptureConfig:
     backend: str = "auto"  # auto | dxcam | mss | pil
@@ -102,10 +107,15 @@ class StateConfig:
     post_action_sleep_s: float = 0.8
     clicks: int = 1
     enabled: bool = True
+    # réponse au dialogue « Vous êtes toujours là ? » que donne ce bouton (ready |
+    # not_yet) ; l'état n'est actif que si c'est la réponse choisie (engine.still_here)
+    still_here: str = ""
 
     def validate(self) -> None:
         if self.click not in {"center", "template_origin"}:
             raise ConfigError(f"states.{self.slug}.click invalide : {self.click!r}")
+        if self.still_here not in {"", *STILL_HERE_BUTTONS}:
+            raise ConfigError(f"states.{self.slug}.still_here invalide : {self.still_here!r}")
         if self.clicks < 1:
             raise ConfigError(f"states.{self.slug}.clicks doit être >= 1")
         if self.cooldown_s < 0:
@@ -122,6 +132,23 @@ DEFAULT_STATES: tuple[StateConfig, ...] = (
         slug="continue", label="Continuer", priority=80, cooldown_s=3.0, post_action_sleep_s=1.5
     ),
     StateConfig(slug="ready", label="Prêt", priority=70, cooldown_s=5.0, post_action_sleep_s=2.0),
+    # dialogue modal, avec compte à rebours : il passe avant tout le reste
+    StateConfig(
+        slug="still_here_ready",
+        label="Toujours là\u00a0: Prêt",
+        priority=110,
+        cooldown_s=3.0,
+        post_action_sleep_s=1.0,
+        still_here="ready",
+    ),
+    StateConfig(
+        slug="still_here_not_yet",
+        label="Toujours là\u00a0: Pas encore",
+        priority=110,
+        cooldown_s=3.0,
+        post_action_sleep_s=1.0,
+        still_here="not_yet",
+    ),
 )
 
 
@@ -143,8 +170,16 @@ class EngineConfig:
     doubt_max_snapshots: int = 20  # par session
     stats_file: str = "logs/sessions.jsonl"  # "" = pas d'historique
     max_step_errors: int = 10  # erreurs inattendues de suite avant la pause ; 0 = jamais
+    # réponse au dialogue « Vous êtes toujours là ? » : ready | not_yet | ignore
+    still_here: str = "ready"
+    sound_on_toggle: bool = True  # deux notes, montantes à la reprise, descendantes à la pause
 
     def validate(self) -> None:
+        if self.still_here not in STILL_HERE_ANSWERS:
+            raise ConfigError(
+                f"engine.still_here doit valoir {', '.join(STILL_HERE_ANSWERS)} "
+                f"(reçu {self.still_here!r})"
+            )
         if self.confirm_frames < 1:
             raise ConfigError("engine.confirm_frames doit être >= 1")
         if self.max_actions < 0:
@@ -182,6 +217,22 @@ class HotkeyConfig:
 
 
 @dataclass(slots=True)
+class PanelConfig:
+    """Panneau de contrôle (``fnreplay panel``)."""
+
+    topmost: bool = True  # au-dessus de toutes les fenêtres, jeu compris
+    # invisible pour les captures d'écran (celle du bot comprise) : le bot ne le
+    # confond jamais avec le jeu, même posé par-dessus
+    exclude_from_capture: bool = True
+    position: list[int] | None = None  # [x, y] écran ; None = coin libre près du jeu
+    collapsed: bool = False  # réduit à sa ligne d'état
+
+    def validate(self) -> None:
+        if self.position is not None and len(self.position) != 2:
+            raise ConfigError("panel.position doit être [x, y] ou null")
+
+
+@dataclass(slots=True)
 class Config:
     capture: CaptureConfig = field(default_factory=CaptureConfig)
     vision: VisionConfig = field(default_factory=VisionConfig)
@@ -189,6 +240,7 @@ class Config:
     engine: EngineConfig = field(default_factory=EngineConfig)
     window: WindowConfig = field(default_factory=WindowConfig)
     hotkeys: HotkeyConfig = field(default_factory=HotkeyConfig)
+    panel: PanelConfig = field(default_factory=PanelConfig)
     states: list[StateConfig] = field(
         default_factory=lambda: [copy.copy(s) for s in DEFAULT_STATES]
     )
@@ -201,6 +253,7 @@ class Config:
         self.actions.validate()
         self.engine.validate()
         self.window.validate()
+        self.panel.validate()
         seen: set[str] = set()
         for state in self.states:
             state.validate()
@@ -208,9 +261,18 @@ class Config:
                 raise ConfigError(f"état dupliqué : {state.slug}")
             seen.add(state.slug)
 
-    def active_states(self) -> list[StateConfig]:
-        """États activés, du plus prioritaire au moins prioritaire."""
+    def enabled_states(self) -> list[StateConfig]:
+        """États activés, réponses au dialogue comprises (templates à charger)."""
         return sorted((s for s in self.states if s.enabled), key=lambda s: -s.priority)
+
+    def active_states(self) -> list[StateConfig]:
+        """États recherchés, du plus prioritaire au moins prioritaire.
+
+        Des boutons du dialogue « Vous êtes toujours là ? », seul celui de la
+        réponse choisie (``engine.still_here``) est recherché.
+        """
+        answer = self.engine.still_here
+        return [s for s in self.enabled_states() if s.still_here in ("", answer)]
 
     def resolved_template_dir(self) -> Path:
         return resolve_path(self.template_dir)
@@ -287,6 +349,7 @@ def load_config(
         engine=_to_dataclass(EngineConfig, raw.get("engine", {})),
         window=_to_dataclass(WindowConfig, raw.get("window", {})),
         hotkeys=_to_dataclass(HotkeyConfig, raw.get("hotkeys", {})),
+        panel=_to_dataclass(PanelConfig, raw.get("panel", {})),
         template_dir=raw.get("template_dir", "templates"),
         log_level=raw.get("log_level", "INFO"),
     )
@@ -311,6 +374,7 @@ def save_local_config(cfg: Config, path: str | Path = LOCAL_CONFIG_PATH) -> Path
         "engine": cfg.engine,
         "window": cfg.window,
         "hotkeys": cfg.hotkeys,
+        "panel": cfg.panel,
     }
     for name, section in sections.items():
         payload[name] = {f.name: getattr(section, f.name) for f in fields(section)}
@@ -318,6 +382,23 @@ def save_local_config(cfg: Config, path: str | Path = LOCAL_CONFIG_PATH) -> Path
     payload["template_dir"] = cfg.template_dir
     payload["log_level"] = cfg.log_level
     target.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return target
+
+
+def update_local_config(changes: dict[str, Any], path: str | Path = LOCAL_CONFIG_PATH) -> Path:
+    """Fusionne ``changes`` dans le fichier local, sans toucher au reste.
+
+    Seules les clés données sont écrites : les autres valeurs continuent de
+    suivre ``default.json``. Écriture atomique (fichier temporaire puis
+    remplacement), pour ne jamais laisser un JSON tronqué.
+    """
+    target = Path(path)
+    current = _read_json(target) if target.exists() else {}
+    merged = _deep_merge(current, changes)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(target.name + ".tmp")
+    temporary.write_text(json.dumps(merged, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    temporary.replace(target)
     return target
 
 
@@ -347,6 +428,7 @@ def describe(cfg: Config) -> str:
                 "start_paused": cfg.engine.start_paused,
                 "max_ineffective_clicks": cfg.engine.max_ineffective_clicks,
                 "doubt_margin": cfg.engine.doubt_margin,
+                "still_here": cfg.engine.still_here,
             },
             "window": {
                 "enabled": cfg.window.enabled,
