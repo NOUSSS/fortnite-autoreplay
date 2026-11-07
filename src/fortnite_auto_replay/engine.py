@@ -4,6 +4,15 @@ Machine à états volontairement simple : à chaque frame on cherche tous les
 boutons connus, on garde le plus prioritaire au-dessus du seuil, on exige
 plusieurs frames consécutives identiques, puis on clique si les cooldowns le
 permettent. Rien n'est bloquant : une détection ratée n'arrête pas le bot.
+
+Garde-fous :
+
+- **focus** : tant que la fenêtre du jeu n'est pas au premier plan, rien n'est
+  analysé ni cliqué (sinon les clics partiraient dans une autre fenêtre) ;
+- **clic sans effet** : si un bouton reste visible sans interruption après
+  ``max_ineffective_clicks`` clics, le bot se met en pause et sauve la frame ;
+- **détection douteuse** : un score juste sous le seuil fait sauver la frame,
+  pour recadrer un template ou ajuster ``vision.threshold``.
 """
 
 from __future__ import annotations
@@ -11,16 +20,40 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
 
-from . import vision
-from .actions import Actions
-from .capture import CaptureError, Frame, ScreenCapture
+import numpy as np
+
+from . import history, vision
+from .capture import CaptureError, Frame
 from .config import Config, StateConfig
-from .templates import Template, TemplateLibrary
+from .templates import Prepared, Template, TemplateLibrary
+
+if TYPE_CHECKING:
+    from .window import Focus
 
 log = logging.getLogger(__name__)
+
+_FOCUS_POLL_S = 0.25
+_PAUSE_POLL_S = 0.1
+_CAPTURE_RETRY_S = 0.2
+_CAPTURE_ERROR_LOG_S = 10.0  # une même erreur n'est répétée dans le journal qu'à cet intervalle
+_STEP_RETRY_S = 0.5
+
+
+class FrameSource(Protocol):
+    def grab(self) -> Frame: ...
+
+
+class Clicker(Protocol):
+    def click(self, x: int, y: int, *, clicks: int = 1) -> tuple[int, int]: ...
+
+
+class FocusSource(Protocol):
+    def focus(self) -> Focus: ...
 
 
 @dataclass(slots=True)
@@ -35,6 +68,9 @@ class Stats:
     frames: int = 0
     captures_failed: int = 0
     actions: int = 0
+    stuck: int = 0
+    doubts_saved: int = 0
+    errors: int = 0
     per_state: dict[str, int] = field(default_factory=dict)
     started_at: float = field(default_factory=time.time)
 
@@ -47,20 +83,47 @@ class Stats:
             "frames": self.frames,
             "captures_failed": self.captures_failed,
             "actions": self.actions,
+            "stuck": self.stuck,
+            "doubts_saved": self.doubts_saved,
+            "errors": self.errors,
             "per_state": dict(self.per_state),
             "uptime_s": round(self.uptime_s, 1),
         }
+
+
+def _beep() -> None:
+    """Alerte sonore système, sans fenêtre ni prise de focus."""
+    try:
+        import winsound  # noqa: PLC0415 - Windows uniquement
+
+        winsound.MessageBeep(winsound.MB_ICONHAND)
+    except Exception:  # pragma: no cover - pas de son disponible
+        log.debug("bip impossible")
+
+
+def _no_alert() -> None:
+    pass
+
+
+def _better(best: Detection | None, other: Detection | None) -> Detection | None:
+    if other is None:
+        return best
+    if best is None or other.match.score > best.match.score:
+        return other
+    return best
 
 
 class Engine:
     def __init__(
         self,
         cfg: Config,
-        capture: ScreenCapture,
-        actions: Actions,
+        capture: FrameSource,
+        actions: Clicker,
         library: TemplateLibrary,
         *,
         dry_run: bool = False,
+        window: FocusSource | None = None,
+        alert: Callable[[], None] | None = None,
     ) -> None:
         self.cfg = cfg
         self.capture = capture
@@ -72,15 +135,30 @@ class Engine:
         if not self.states:
             raise RuntimeError("aucun état avec template : impossible de démarrer")
 
+        self._window = window if cfg.window.require_foreground else None
+        if alert is None:
+            alert = _beep if cfg.engine.beep_on_stuck else _no_alert
+        self._alert = alert
+
         self.stats = Stats()
         self._candidate: str | None = None
         self._candidate_hits = 0
         self._last_action_at = 0.0
         self._last_action_per_state: dict[str, float] = {}
         self._last_seen: dict[str, tuple[int, int, int, int]] = {}
+        self._streak_slug: str | None = None  # dernier bouton cliqué, toujours visible depuis
+        self._streak = 0
+        self._last_doubt_at: dict[str, float] = {}
+        self._last_detection_at = time.time()
+        self._focus: Focus | None = None
+        self._capture_error: str | None = None
+        self._capture_error_logged_at = 0.0
+        self._last_full_scan = float("-inf")
+        self._step_errors = 0  # erreurs inattendues consécutives
+        self._step_error_logged_at = float("-inf")
         self._paused = threading.Event()
         self._stop = threading.Event()
-        self._debug_dir = Path(cfg.engine.debug_dir)
+        self._debug_dir = cfg.resolved_debug_dir()
         if cfg.engine.save_debug_frames:
             self._debug_dir.mkdir(parents=True, exist_ok=True)
 
@@ -95,8 +173,7 @@ class Engine:
 
     def resume(self) -> None:
         self._paused.clear()
-        self._candidate = None
-        self._candidate_hits = 0
+        self._reset_tracking()
         log.info("bot actif")
 
     def toggle(self) -> None:
@@ -109,51 +186,121 @@ class Engine:
     def stopped(self) -> bool:
         return self._stop.is_set()
 
-    # --- recherche ----------------------------------------------------
-    def _search(self, frame: Frame, state: StateConfig) -> Detection | None:
-        """Cherche les templates d'un état, en se limitant à la zone connue."""
-        best: Detection | None = None
-        offset_x = offset_y = 0
-        region = frame.image
-        if state.slug in self._last_seen:
-            pad = self.cfg.vision.padding
-            x, y, w, h = self._last_seen[state.slug]
-            offset_x, offset_y = x - pad, y - pad
-            region = vision.crop(frame.image, offset_x, offset_y, x + w + pad, y + h + pad)
-            if region.size == 0:
-                region = frame.image
-                offset_x = offset_y = 0
+    def _reset_tracking(self) -> None:
+        """Oublie ce qui dépend des frames précédentes (après pause ou perte de focus)."""
+        self._candidate = None
+        self._candidate_hits = 0
+        self._streak_slug = None
+        self._streak = 0
+        self._last_detection_at = time.time()
 
-        for template in self.library.for_state(state.slug):
-            match = vision.best_match(
-                region,
-                template.image,
-                label=f"{state.slug}:{template.name}",
-                threshold=self.cfg.vision.threshold,
-                scales=self.cfg.vision.scales,
-                backend=self.cfg.vision.backend,
-            )
-            if match is None:
-                continue
-            match.x += offset_x
-            match.y += offset_y
-            if best is None or match.score > best.match.score:
-                best = Detection(state=state, template=template, match=match)
+    # --- focus --------------------------------------------------------
+    def _has_focus(self) -> bool:
+        if self._window is None:
+            return True
+        focus = self._window.focus()
+        if focus != self._focus:
+            if focus == "foreground":
+                if self._focus is not None:
+                    log.info("jeu au premier plan : reprise")
+            elif focus == "missing":
+                log.info("fenêtre du jeu introuvable : en attente")
+            else:
+                log.info("le jeu n'est pas au premier plan : en attente")
+            self._focus = focus
+        return focus == "foreground"
+
+    # --- recherche ----------------------------------------------------
+    def _floor(self) -> float:
+        """Score minimal retenu : le seuil, moins la marge de doute."""
+        return max(0.0, self.cfg.vision.threshold - self.cfg.engine.doubt_margin)
+
+    def _prepared(self, state: StateConfig, frame: Frame) -> list[Prepared]:
+        return self.library.prepared(
+            state.slug,
+            (frame.width, frame.height),
+            frame.window_size,
+            frame.scale,
+            self.cfg.vision.zone_margin,
+        )
+
+    def _match(
+        self, state: StateConfig, item: Prepared, image: np.ndarray, offset: tuple[int, int]
+    ) -> Detection | None:
+        match = vision.best_match(
+            image,
+            item.image,
+            label=f"{state.slug}:{item.name}",
+            threshold=self._floor(),
+            scales=self.cfg.vision.scales,
+            backend=self.cfg.vision.backend,
+        )
+        if match is None:
+            return None
+        match.x += offset[0]
+        match.y += offset[1]
+        return Detection(state=state, template=item.template, match=match)
+
+    def _search(
+        self, gray: np.ndarray, frame: Frame, state: StateConfig, full_scan: bool
+    ) -> Detection | None:
+        """Meilleure correspondance d'un état au-dessus du plancher de doute.
+
+        Ordre : là où le bouton vient d'être vu, puis la zone attendue de chaque
+        template (ou toute la frame s'il n'en a pas, ou lors d'un balayage
+        complet). Un bouton absent de sa position connue la fait oublier.
+        """
+        prepared = self._prepared(state, frame)
+        best: Detection | None = None
+        known = self._last_seen.get(state.slug)
+        if known is not None:
+            pad = self.cfg.vision.padding
+            x, y, w, h = known
+            left, top = max(0, x - pad), max(0, y - pad)
+            region = vision.crop(gray, left, top, x + w + pad, y + h + pad)
+            if region.size:
+                for item in prepared:
+                    best = _better(best, self._match(state, item, region, (left, top)))
+                if best is not None and best.match.score >= self.cfg.vision.threshold:
+                    return best
+            del self._last_seen[state.slug]
+
+        for item in prepared:
+            if item.zone is None or full_scan or not self.cfg.vision.use_zones:
+                best = _better(best, self._match(state, item, gray, (0, 0)))
+            else:
+                left, top, right, bottom = item.zone
+                zone = gray[top:bottom, left:right]
+                best = _better(best, self._match(state, item, zone, (left, top)))
         return best
 
-    def _detect(self, frame: Frame) -> list[Detection]:
+    def _full_scan_due(self) -> bool:
+        interval = self.cfg.vision.full_scan_interval_s
+        if not interval:
+            return False
+        now = time.monotonic()
+        if now - self._last_full_scan < interval:
+            return False
+        self._last_full_scan = now
+        return True
+
+    def _detect(self, frame: Frame) -> tuple[list[Detection], list[Detection]]:
+        """Détections franches (score ≥ seuil) et douteuses (juste sous le seuil)."""
+        gray = vision.to_gray(frame.image)  # une seule conversion par frame
+        full_scan = self._full_scan_due()
         found: list[Detection] = []
+        doubtful: list[Detection] = []
         for state in self.states:
-            detection = self._search(frame, state)
-            if detection is not None:
-                self._last_seen[state.slug] = (
-                    detection.match.x,
-                    detection.match.y,
-                    detection.match.width,
-                    detection.match.height,
-                )
+            detection = self._search(gray, frame, state, full_scan)
+            if detection is None:
+                continue
+            match = detection.match
+            if match.score >= self.cfg.vision.threshold:
+                self._last_seen[state.slug] = (match.x, match.y, match.width, match.height)
                 found.append(detection)
-        return found
+            else:
+                doubtful.append(detection)
+        return found, doubtful
 
     # --- décision -----------------------------------------------------
     def _cooldown_ok(self, state: StateConfig, now: float) -> bool:
@@ -180,7 +327,34 @@ class Engine:
                 return state
         raise KeyError(slug)
 
-    def _act(self, detection: Detection, frame: Frame) -> None:
+    def _track_streak(self, seen: list[Detection]) -> None:
+        """La série de clics s'arrête dès que le bouton cliqué disparaît."""
+        if self._streak_slug is not None and all(d.state.slug != self._streak_slug for d in seen):
+            self._streak_slug = None
+            self._streak = 0
+
+    def _is_ineffective(self, state: StateConfig) -> bool:
+        limit = self.cfg.engine.max_ineffective_clicks
+        return bool(limit) and self._streak_slug == state.slug and self._streak >= limit
+
+    def _on_stuck(self, detection: Detection, frame: Frame) -> None:
+        slug = detection.state.slug
+        path = self._snapshot(frame, [detection], f"stuck-{slug}", ".png")
+        log.error(
+            "'%s' toujours visible après %d clics : pause (%s pour reprendre), frame : %s",
+            slug,
+            self._streak,
+            self.cfg.hotkeys.toggle,
+            path,
+        )
+        self.stats.stuck += 1
+        self._alert()
+        self.pause()
+        self._reset_tracking()
+
+    def _act(self, detection: Detection, frame: Frame) -> bool:
+        if not self._has_focus():  # le focus a pu partir pendant l'analyse
+            return False
         state = detection.state
         if state.click == "center":
             x, y = detection.match.center
@@ -201,76 +375,191 @@ class Engine:
         self._last_action_per_state[state.slug] = now
         self.stats.actions += 1
         self.stats.per_state[state.slug] = self.stats.per_state.get(state.slug, 0) + 1
+        if self._streak_slug == state.slug:
+            self._streak += 1
+        else:
+            self._streak_slug, self._streak = state.slug, 1
         self._candidate = None
         self._candidate_hits = 0
         self._last_seen.pop(state.slug, None)  # la scène change : on repart plein écran
-        time.sleep(state.post_action_sleep_s)
+        self._stop.wait(state.post_action_sleep_s)
         if self.cfg.engine.max_actions and self.stats.actions >= self.cfg.engine.max_actions:
             log.info("limite de %d actions atteinte", self.cfg.engine.max_actions)
             self.stop()
+        return True
 
-    # --- boucle -------------------------------------------------------
+    # --- frames sauvées -----------------------------------------------
+    @staticmethod
+    def _stamp() -> str:
+        now = time.time()
+        millis = int(now * 1000) % 1000
+        return time.strftime("%Y%m%d-%H%M%S", time.localtime(now)) + f"-{millis:03d}"
+
+    def _snapshot(
+        self, frame: Frame, detections: list[Detection], prefix: str, suffix: str
+    ) -> Path | None:
+        path = self._debug_dir / f"{prefix}-{self._stamp()}{suffix}"
+        try:
+            vision.save_image(path, vision.annotate(frame.image, [d.match for d in detections]))
+        except (vision.VisionError, OSError) as exc:
+            log.warning("frame non sauvée (%s)", exc)
+            return None
+        return path
+
     def _save_debug(self, frame: Frame, detections: list[Detection]) -> None:
-        stamp = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
+        stamp = self._stamp()
         vision.save_image(self._debug_dir / f"{stamp}_raw.png", frame.image)
         annotated = vision.annotate(frame.image, [d.match for d in detections])
         vision.save_image(self._debug_dir / f"{stamp}_annot.png", annotated)
 
+    def _save_doubts(self, frame: Frame, doubtful: list[Detection]) -> None:
+        cfg = self.cfg.engine
+        if self.stats.doubts_saved >= cfg.doubt_max_snapshots:
+            return
+        now = time.time()
+        due = [
+            d
+            for d in doubtful
+            if now - self._last_doubt_at.get(d.state.slug, float("-inf")) >= cfg.doubt_interval_s
+        ]
+        if not due:
+            return
+        slugs = "+".join(d.state.slug for d in due)
+        path = self._snapshot(frame, due, f"doubt-{slugs}", ".jpg")
+        if path is None:
+            return
+        for d in due:
+            self._last_doubt_at[d.state.slug] = now
+        self.stats.doubts_saved += 1
+        scores = ", ".join(f"{d.state.slug} {d.match.score:.3f}" for d in due)
+        log.info(
+            "détection douteuse (%s < seuil %.2f) : frame %s",
+            scores,
+            self.cfg.vision.threshold,
+            path,
+        )
+
+    # --- boucle -------------------------------------------------------
+    def _capture_failed(self, exc: CaptureError) -> None:
+        self.stats.captures_failed += 1
+        message = str(exc)
+        now = time.time()
+        if (
+            message != self._capture_error
+            or now - self._capture_error_logged_at >= _CAPTURE_ERROR_LOG_S
+        ):
+            log.warning("capture échouée : %s", message)
+            self._capture_error = message
+            self._capture_error_logged_at = now
+
+    def _capture_ok(self) -> None:
+        if self._capture_error is not None:
+            log.info("capture rétablie")
+            self._capture_error = None
+
+    def _step(self, frame: Frame) -> None:
+        found, doubtful = self._detect(frame)
+        found.sort(key=lambda d: (-d.state.priority, -d.match.score))
+
+        if self.cfg.engine.save_debug_frames and found:
+            self._save_debug(frame, found)
+        if doubtful:
+            self._save_doubts(frame, doubtful)
+        self._track_streak(found + doubtful)
+        if found:
+            self._last_detection_at = time.time()
+
+        top = found[0] if found else None
+        if top is None:
+            self._confirm(None)
+            return
+        if not self._confirm(top.state.slug):
+            return
+        if not self._cooldown_ok(top.state, time.time()):
+            log.debug("'%s' détecté mais en cooldown", top.state.slug)
+            return
+        if self._is_ineffective(top.state):
+            self._on_stuck(top, frame)
+            return
+        self._act(top, frame)
+
+    def _step_failed(self) -> None:
+        """Une erreur inattendue ne doit pas arrêter un bot laissé sans surveillance."""
+        self.stats.errors += 1
+        self._step_errors += 1
+        now = time.monotonic()
+        if self._step_errors == 1 or now - self._step_error_logged_at >= _CAPTURE_ERROR_LOG_S:
+            log.exception("erreur pendant l'analyse d'une frame (%d de suite)", self._step_errors)
+            self._step_error_logged_at = now
+        limit = self.cfg.engine.max_step_errors
+        if limit and self._step_errors >= limit:
+            log.error(
+                "%d erreurs de suite : pause (%s pour reprendre)",
+                self._step_errors,
+                self.cfg.hotkeys.toggle,
+            )
+            self._step_errors = 0
+            self._alert()
+            self.pause()
+            self._reset_tracking()
+
+    def _idle_expired(self) -> bool:
+        limit = self.cfg.engine.stop_after_idle_s
+        if limit and time.time() - self._last_detection_at > limit:
+            log.info("aucune détection depuis %.0fs : arrêt", limit)
+            return True
+        return False
+
     def run(self) -> Stats:
         interval = 1.0 / self.cfg.capture.target_fps
-        log.info(
-            "boucle démarrée (%.1f fps ciblé, %d fps réel max)",
-            self.cfg.capture.target_fps,
-            int(1 / interval),
-        )
+        log.info("boucle démarrée (%.1f fps visés)", self.cfg.capture.target_fps)
         if self.cfg.engine.start_paused:
             self._paused.set()
-        last_idle_check = time.time()
+        self._last_detection_at = time.time()
 
         try:
             while not self._stop.is_set():
                 started = time.time()
                 if self._paused.is_set():
-                    time.sleep(0.1)
+                    self._stop.wait(_PAUSE_POLL_S)
+                    continue
+                if not self._has_focus():
+                    self._reset_tracking()
+                    self._stop.wait(_FOCUS_POLL_S)
                     continue
 
                 try:
                     frame = self.capture.grab()
                 except CaptureError as exc:
-                    self.stats.captures_failed += 1
-                    log.warning("capture échouée : %s", exc)
-                    time.sleep(0.2)
+                    self._capture_failed(exc)
+                    self._stop.wait(_CAPTURE_RETRY_S)
                     continue
+                self._capture_ok()
 
                 self.stats.frames += 1
-                detections = self._detect(frame)
-                detections.sort(key=lambda d: (-d.state.priority, -d.match.score))
-
-                if self.cfg.engine.save_debug_frames and detections:
-                    self._save_debug(frame, detections)
-
-                top = detections[0] if detections else None
-                if top is not None and self._confirm(top.state.slug):
-                    if self._cooldown_ok(top.state, time.time()):
-                        self._act(top, frame)
-                    else:
-                        log.debug("'%s' détecté mais en cooldown", top.state.slug)
-                elif top is None:
-                    self._confirm(None)
-
-                if self.cfg.engine.stop_after_idle_s:
-                    if detections:
-                        last_idle_check = time.time()
-                    elif time.time() - last_idle_check > self.cfg.engine.stop_after_idle_s:
-                        log.info(
-                            "aucune détection depuis %.0fs : arrêt",
-                            self.cfg.engine.stop_after_idle_s,
-                        )
-                        break
+                try:
+                    self._step(frame)
+                except Exception:
+                    self._step_failed()
+                    self._stop.wait(_STEP_RETRY_S)
+                    continue
+                self._step_errors = 0
+                if self._idle_expired():
+                    break
 
                 elapsed = time.time() - started
                 if elapsed < interval:
-                    time.sleep(interval - elapsed)
+                    self._stop.wait(interval - elapsed)
         finally:
             log.info("boucle terminée : %s", self.stats.as_dict())
+            self._record_session()
         return self.stats
+
+    def _record_session(self) -> None:
+        path = self.cfg.resolved_stats_file()
+        if path is None or self.dry_run or self.stats.frames == 0:
+            return
+        try:
+            history.append_session(path, self.stats.started_at, self.stats.as_dict())
+        except OSError as exc:
+            log.warning("historique non écrit dans %s (%s)", path, exc)

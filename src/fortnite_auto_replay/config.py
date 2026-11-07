@@ -33,8 +33,9 @@ class CaptureConfig:
     backend: str = "auto"  # auto | dxcam | mss | pil
     monitor: int = 1
     roi: list[int] | None = None  # [left, top, width, height], None = plein écran
-    target_fps: float = 8.0
-    scale: float = 1.0  # réduction appliquée après capture (0.5 = 2x plus rapide)
+    target_fps: float = 12.0
+    # réduction appliquée après capture : 0.5 divise par ~5 le coût du matching
+    scale: float = 0.5
 
     def validate(self) -> None:
         if self.backend not in {"auto", "dxcam", "mss", "pil"}:
@@ -52,7 +53,10 @@ class VisionConfig:
     backend: str = "auto"  # auto | opencv | numpy
     threshold: float = 0.82
     scales: tuple[float, ...] = (1.0,)
-    padding: int = 8  # marge autour de la zone de clic, pour la recherche en pyramide
+    padding: int = 8  # marge (px de frame) autour d'un bouton déjà vu, recherché au même endroit
+    use_zones: bool = True  # chercher chaque template dans sa zone attendue (JSON du template)
+    zone_margin: float = 0.12  # marge de la zone attendue, en fraction de la frame
+    full_scan_interval_s: float = 2.0  # balayage complet périodique malgré les zones ; 0 = jamais
 
     def validate(self) -> None:
         if self.backend not in {"auto", "opencv", "numpy"}:
@@ -63,6 +67,10 @@ class VisionConfig:
             raise ConfigError("vision.scales ne peut pas être vide")
         if any(not 0.3 <= s <= 2.0 for s in self.scales):
             raise ConfigError("vision.scales doit rester dans [0.3, 2.0]")
+        if not 0.0 <= self.zone_margin <= 1.0:
+            raise ConfigError("vision.zone_margin doit être dans [0, 1]")
+        if self.full_scan_interval_s < 0:
+            raise ConfigError("vision.full_scan_interval_s doit être >= 0")
 
 
 @dataclass(slots=True)
@@ -126,12 +134,44 @@ class EngineConfig:
     debug_dir: str = "captures"
     start_paused: bool = True
     stop_after_idle_s: float = 0.0  # 0 = jamais
+    # pause si le même bouton reste visible après N clics (clic sans effet) ; 0 = jamais
+    max_ineffective_clicks: int = 5
+    beep_on_stuck: bool = True
+    # frame sauvée quand un score tombe dans [threshold - doubt_margin, threshold[ ; 0 = jamais
+    doubt_margin: float = 0.06
+    doubt_interval_s: float = 60.0  # au plus une sauvegarde par état et par intervalle
+    doubt_max_snapshots: int = 20  # par session
+    stats_file: str = "logs/sessions.jsonl"  # "" = pas d'historique
+    max_step_errors: int = 10  # erreurs inattendues de suite avant la pause ; 0 = jamais
 
     def validate(self) -> None:
         if self.confirm_frames < 1:
             raise ConfigError("engine.confirm_frames doit être >= 1")
         if self.max_actions < 0:
             raise ConfigError("engine.max_actions doit être >= 0")
+        if self.max_ineffective_clicks < 0:
+            raise ConfigError("engine.max_ineffective_clicks doit être >= 0")
+        if not 0.0 <= self.doubt_margin <= 0.3:
+            raise ConfigError("engine.doubt_margin doit être dans [0, 0.3]")
+        if self.doubt_interval_s < 0 or self.doubt_max_snapshots < 0:
+            raise ConfigError("engine.doubt_interval_s et doubt_max_snapshots doivent être >= 0")
+        if self.max_step_errors < 0:
+            raise ConfigError("engine.max_step_errors doit être >= 0")
+
+
+@dataclass(slots=True)
+class WindowConfig:
+    """Fenêtre du jeu : sert de zone de capture et de garde avant chaque clic."""
+
+    enabled: bool = True
+    process_names: list[str] = field(default_factory=lambda: ["FortniteClient-Win64-Shipping.exe"])
+    window_class: str = "UnrealWindow"  # "" = toutes les classes
+    use_as_roi: bool = True  # capturer la zone client du jeu plutôt que le moniteur
+    require_foreground: bool = True  # ne rien faire tant que le jeu n'a pas le focus
+
+    def validate(self) -> None:
+        if self.enabled and not self.process_names:
+            raise ConfigError("window.process_names ne peut pas être vide")
 
 
 @dataclass(slots=True)
@@ -147,6 +187,7 @@ class Config:
     vision: VisionConfig = field(default_factory=VisionConfig)
     actions: ActionConfig = field(default_factory=ActionConfig)
     engine: EngineConfig = field(default_factory=EngineConfig)
+    window: WindowConfig = field(default_factory=WindowConfig)
     hotkeys: HotkeyConfig = field(default_factory=HotkeyConfig)
     states: list[StateConfig] = field(
         default_factory=lambda: [copy.copy(s) for s in DEFAULT_STATES]
@@ -159,6 +200,7 @@ class Config:
         self.vision.validate()
         self.actions.validate()
         self.engine.validate()
+        self.window.validate()
         seen: set[str] = set()
         for state in self.states:
             state.validate()
@@ -171,8 +213,19 @@ class Config:
         return sorted((s for s in self.states if s.enabled), key=lambda s: -s.priority)
 
     def resolved_template_dir(self) -> Path:
-        path = Path(self.template_dir)
-        return path if path.is_absolute() else PROJECT_ROOT / path
+        return resolve_path(self.template_dir)
+
+    def resolved_debug_dir(self) -> Path:
+        return resolve_path(self.engine.debug_dir)
+
+    def resolved_stats_file(self) -> Path | None:
+        return resolve_path(self.engine.stats_file) if self.engine.stats_file else None
+
+
+def resolve_path(value: str) -> Path:
+    """Chemin de config : absolu tel quel, relatif à la racine du projet sinon."""
+    path = Path(value)
+    return path if path.is_absolute() else PROJECT_ROOT / path
 
 
 def _to_dataclass(cls: type, raw: dict[str, Any]) -> Any:
@@ -232,6 +285,7 @@ def load_config(
         vision=_to_dataclass(VisionConfig, raw.get("vision", {})),
         actions=_to_dataclass(ActionConfig, raw.get("actions", {})),
         engine=_to_dataclass(EngineConfig, raw.get("engine", {})),
+        window=_to_dataclass(WindowConfig, raw.get("window", {})),
         hotkeys=_to_dataclass(HotkeyConfig, raw.get("hotkeys", {})),
         template_dir=raw.get("template_dir", "templates"),
         log_level=raw.get("log_level", "INFO"),
@@ -255,6 +309,7 @@ def save_local_config(cfg: Config, path: str | Path = LOCAL_CONFIG_PATH) -> Path
         "vision": cfg.vision,
         "actions": cfg.actions,
         "engine": cfg.engine,
+        "window": cfg.window,
         "hotkeys": cfg.hotkeys,
     }
     for name, section in sections.items():
@@ -279,6 +334,8 @@ def describe(cfg: Config) -> str:
                 "backend": cfg.vision.backend,
                 "threshold": cfg.vision.threshold,
                 "scales": list(cfg.vision.scales),
+                "use_zones": cfg.vision.use_zones,
+                "full_scan_interval_s": cfg.vision.full_scan_interval_s,
             },
             "actions": {
                 "backend": cfg.actions.backend,
@@ -288,6 +345,14 @@ def describe(cfg: Config) -> str:
                 "confirm_frames": cfg.engine.confirm_frames,
                 "action_cooldown_s": cfg.engine.action_cooldown_s,
                 "start_paused": cfg.engine.start_paused,
+                "max_ineffective_clicks": cfg.engine.max_ineffective_clicks,
+                "doubt_margin": cfg.engine.doubt_margin,
+            },
+            "window": {
+                "enabled": cfg.window.enabled,
+                "process_names": cfg.window.process_names,
+                "use_as_roi": cfg.window.use_as_roi,
+                "require_foreground": cfg.window.require_foreground,
             },
             "states": [
                 {"slug": s.slug, "label": s.label, "priority": s.priority, "enabled": s.enabled}

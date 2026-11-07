@@ -5,9 +5,10 @@ boutons du jeu par *template matching* et clique dessus.
 
 Boucle visée : **Rejouer → Continuer → Prêt → (en jeu) → Rejouer → ...**
 
-> Statut : **fondations**. La structure, la capture, la vision, les clics, la
-> machine à états, le CLI et les tests sont en place. Il reste à capturer les
-> templates réels (voir `docs/TEMPLATES.md`) et à affiner les seuils.
+> Statut : **fondations, garde-fous, performance**. Capture, vision, clics,
+> machine à états, suivi de la fenêtre du jeu, zones de recherche par template,
+> pause sur clic sans effet, historique et tests sont en place. Il reste à capturer les templates réels (voir
+> `docs/TEMPLATES.md`) et à affiner les seuils.
 
 ## Installation
 
@@ -18,8 +19,9 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-Fortnite doit tourner en **mode fenêtré sans bordure** (ou plein écran) et être au
-premier plan. Lance le bot en administrateur si les clics ne passent pas.
+Fortnite peut tourner en **fenêtré sans bordure**, fenêtré ou plein écran : le bot
+repère sa fenêtre et n'analyse que sa zone client. Il n'agit que lorsque le jeu
+est au premier plan. Lance le bot en administrateur si les clics ne passent pas.
 
 ## Utilisation
 
@@ -32,6 +34,10 @@ python -m fortnite_auto_replay run --dry-run --debug
 
 # 3. lancer pour de vrai
 python -m fortnite_auto_replay run
+
+# diagnostic
+python -m fortnite_auto_replay window   # fenêtre du jeu repérée et focus
+python -m fortnite_auto_replay stats    # totaux des sessions passées
 ```
 
 Raccourcis globaux : `F8` = démarrer / mettre en pause, `F9` = quitter.
@@ -40,13 +46,20 @@ Le bot démarre en pause par sécurité.
 ## Comment ça marche
 
 ```
-capture.py ──► vision.py ──► engine.py ──► actions.py
- (DXGI/mss)    (matching)    (états+décisions)   (clic)
+window.py ──► capture.py ──► vision.py ──► engine.py ──► actions.py
+ (fenêtre,     (DXGI/mss)     (matching)    (états+décisions)   (clic)
+  focus)
 ```
 
-- `capture.py` : capture d'écran rapide (dxcam → mss → PIL), avec ROI et FPS cible.
+- `window.py` : repère la fenêtre du jeu (exécutable + classe), donne sa zone
+  client et dit si elle a le focus.
+- `capture.py` : capture d'écran rapide (dxcam → mss → PIL), calée sur la zone
+  client du jeu (ou sur le moniteur avec `--no-window`), à demi-échelle.
+- `templates.py` : templates par état ; leur JSON (écrit par l'outil de capture)
+  donne la zone où chercher et l'échelle à appliquer.
 - `vision.py` : matching multi-échelle + `matchTemplate`, retourne score et position.
-- `engine.py` : machine à états, confirmations anti-faux-positifs, cooldowns, stats.
+- `engine.py` : machine à états, confirmations anti-faux-positifs, cooldowns,
+  garde de focus, pause sur clic sans effet, frames douteuses, historique.
 - `actions.py` : clics (`pydirectinput` → SendInput via ctypes → pyautogui).
 
 Rien n'est codé en dur : seuils, ROI, délais et zones de clic sont dans
@@ -55,7 +68,12 @@ Rien n'est codé en dur : seuils, ROI, délais et zones de clic sont dans
 ## Sécurité / limites connues
 
 - Ne joue pas : il faut lancer la partie à la main la première fois.
-- Fortnite doit rester au premier plan ; sinon les clics partent ailleurs.
+- Tant que Fortnite n'est pas au premier plan, le bot attend : il ne clique
+  jamais dans une autre fenêtre. `--no-window` retire ce garde-fou.
+- Si un bouton reste affiché après `engine.max_ineffective_clicks` clics, le bot
+  se met en pause (bip, frame `captures/stuck-*.png`) : `F8` pour reprendre.
+- Un score juste sous le seuil sauve une frame `captures/doubt-*.jpg` : c'est le
+  signe qu'un template est à recadrer ou que `vision.threshold` est trop haut.
 - Si un écran de résultat diffère (nouvel événement, nouvelle saison), il faut
   refaire les templates.
 - Anti-cheat : uniquement des entrées souris clavier classiques, rien d'injecté.

@@ -7,10 +7,11 @@ __pycache__/
 .mypy_cache/
 
 # données locales
-captures/*.png
+captures/*
+!captures/.gitkeep
 logs/*
-config/local.json
 !logs/.gitkeep
+config/local.json
 
 # templates volontairement versionnés
 !templates/**/*.png

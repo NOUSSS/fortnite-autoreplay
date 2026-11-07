@@ -1,8 +1,13 @@
 """Capture d'écran avec repli en cascade et régions d'intérêt.
 
-Ordre de préférence : ``dxcam`` (DXGI, très rapide) → ``mss`` (BitBlt rapide) →
-``PIL.ImageGrab`` (lent mais toujours disponible). Un backend indisponible est
-ignoré au profit du suivant.
+Ordre de préférence : ``dxcam`` (Desktop Duplication, ~0,2 ms par capture) →
+``mss`` (BitBlt, ~17 ms) → ``PIL.ImageGrab`` (lent mais toujours disponible).
+Un backend indisponible est ignoré au profit du suivant.
+
+Chaque backend annonce la zone d'écran qu'il sait capturer (``bounds`` : un
+seul écran pour dxcam, tout le bureau pour mss et PIL). La région demandée y
+est rognée avant la capture, et la frame prend l'origine de la région rognée :
+la conversion frame → écran reste exacte même si le jeu déborde de l'écran.
 """
 
 from __future__ import annotations
@@ -11,14 +16,22 @@ import ctypes
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, NoReturn, Protocol
 
 import numpy as np
 from typing_extensions import Self
 
 from .config import CaptureConfig
 
+if TYPE_CHECKING:
+    from .window import GameWindow
+
 log = logging.getLogger(__name__)
+
+Rect = tuple[int, int, int, int]  # left, top, right, bottom en coordonnées écran
+
+_REOPEN_AFTER = 3  # échecs de capture consécutifs avant de rouvrir le backend
+_FIRST_FRAME_TRIES = 20  # dxcam : attente de la toute première frame (x 10 ms)
 
 
 class CaptureError(RuntimeError):
@@ -34,6 +47,8 @@ class Frame:
     top: int
     scale: float
     ts: float
+    # taille de la zone client du jeu quand la frame la couvre en entier, sinon None
+    window_size: tuple[int, int] | None = None
 
     def to_screen(self, x: float, y: float) -> tuple[int, int]:
         """Convertit une coordonnée interne de frame en coordonnée écran."""
@@ -46,6 +61,26 @@ class Frame:
     @property
     def width(self) -> int:
         return int(self.image.shape[1])
+
+
+def intersect(a: Rect, b: Rect) -> Rect | None:
+    left, top = max(a[0], b[0]), max(a[1], b[1])
+    right, bottom = min(a[2], b[2]), min(a[3], b[3])
+    if right <= left or bottom <= top:
+        return None
+    return left, top, right, bottom
+
+
+def _contains(rect: Rect, x: float, y: float) -> bool:
+    return rect[0] <= x < rect[2] and rect[1] <= y < rect[3]
+
+
+def _center(rect: Rect) -> tuple[float, float]:
+    return (rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2
+
+
+def _area(rect: Rect | None) -> int:
+    return 0 if rect is None else (rect[2] - rect[0]) * (rect[3] - rect[1])
 
 
 def _virtual_screen() -> tuple[int, int, int, int]:
@@ -62,27 +97,39 @@ def _virtual_screen() -> tuple[int, int, int, int]:
     return left, top, width, height
 
 
+def _mss_instance() -> Any:
+    import mss  # noqa: PLC0415
+
+    factory = getattr(mss, "MSS", None) or mss.mss  # mss.mss est déprécié depuis mss 10
+    return factory()
+
+
 def monitor_bounds(index: int) -> tuple[int, int, int, int]:
     """Rectangle (left, top, width, height) du moniteur ``index`` (0 = tous)."""
     try:
-        import mss  # noqa: PLC0415
-
-        with mss.mss() as sct:
-            monitors = sct.monitors
-            if index >= len(monitors):
-                raise CaptureError(f"moniteur {index} demandé, {len(monitors) - 1} disponible(s)")
-            mon = monitors[index]
-            return mon["left"], mon["top"], mon["width"], mon["height"]
+        sct = _mss_instance()
     except ImportError:
         if index > 1:
             raise CaptureError("mss absent : seul le moniteur principal est adressable") from None
         return _virtual_screen()
+    with sct:
+        monitors = sct.monitors
+        if index >= len(monitors):
+            raise CaptureError(f"moniteur {index} demandé, {len(monitors) - 1} disponible(s)")
+        mon = monitors[index]
+        return mon["left"], mon["top"], mon["width"], mon["height"]
+
+
+def _desktop_rect() -> Rect:
+    left, top, width, height = monitor_bounds(0)
+    return left, top, left + width, top + height
 
 
 class _Backend(Protocol):
     name: str
+    bounds: Rect  # zone d'écran que ce backend sait capturer
 
-    def grab(self, region: tuple[int, int, int, int]) -> np.ndarray: ...
+    def grab(self, region: Rect) -> np.ndarray: ...
 
     def close(self) -> None: ...
 
@@ -90,14 +137,15 @@ class _Backend(Protocol):
 class _PilBackend:
     name = "pil"
 
-    def __init__(self) -> None:
+    def __init__(self, target: Rect) -> None:
         from PIL import ImageGrab  # noqa: PLC0415
 
+        del target
         self._grab = ImageGrab.grab
+        self.bounds = _desktop_rect()
 
-    def grab(self, region: tuple[int, int, int, int]) -> np.ndarray:
-        left, top, right, bottom = region
-        image = self._grab(bbox=(left, top, right, bottom), all_screens=True)
+    def grab(self, region: Rect) -> np.ndarray:
+        image = self._grab(bbox=region, all_screens=True)
         return np.asarray(image.convert("RGB"))[:, :, ::-1].copy()
 
     def close(self) -> None:
@@ -107,12 +155,18 @@ class _PilBackend:
 class _MssBackend:
     name = "mss"
 
-    def __init__(self) -> None:
-        import mss  # noqa: PLC0415
+    def __init__(self, target: Rect) -> None:
+        del target
+        self._sct = _mss_instance()
+        mon = self._sct.monitors[0]
+        self.bounds = (
+            mon["left"],
+            mon["top"],
+            mon["left"] + mon["width"],
+            mon["top"] + mon["height"],
+        )
 
-        self._sct = mss.mss()
-
-    def grab(self, region: tuple[int, int, int, int]) -> np.ndarray:
+    def grab(self, region: Rect) -> np.ndarray:
         left, top, right, bottom = region
         shot = self._sct.grab(
             {"left": left, "top": top, "width": right - left, "height": bottom - top}
@@ -128,41 +182,95 @@ class _MssBackend:
         self._sct.close()
 
 
+@dataclass(frozen=True, slots=True)
+class DxgiOutput:
+    device: int
+    output: int
+    rect: Rect
+
+
+def pick_output(outputs: list[DxgiOutput], target: Rect) -> DxgiOutput:
+    """Écran qui contient le centre de ``target``, sinon celui qui en couvre le plus."""
+    if not outputs:
+        raise CaptureError("dxcam : aucune sortie d'écran")
+    cx, cy = _center(target)
+    for candidate in outputs:
+        if _contains(candidate.rect, cx, cy):
+            return candidate
+    best = max(outputs, key=lambda o: _area(intersect(o.rect, target)))
+    if _area(intersect(best.rect, target)) == 0:
+        raise CaptureError(f"aucun écran ne contient la zone {target}")
+    return best
+
+
+def _dxgi_outputs(module: Any) -> list[DxgiOutput]:
+    # la fabrique interne évite DXFactory(), qui affiche un message à chaque appel
+    factory = vars(module).get("__factory") or module.DXFactory()
+    found: list[DxgiOutput] = []
+    for device_idx, outputs in enumerate(factory.outputs):
+        for output_idx, output in enumerate(outputs):
+            output.update_desc()
+            c = output.desc.DesktopCoordinates
+            rect = (int(c.left), int(c.top), int(c.right), int(c.bottom))
+            found.append(DxgiOutput(device_idx, output_idx, rect))
+    return found
+
+
 class _DxcamBackend:
-    """Capture DXGI. La région est découpée côté numpy : le ``grab(region=...)``
-    de dxcam 0.0.5 plante avec numpy 2, le grab plein écran fonctionne."""
+    """Desktop Duplication sur l'écran qui contient la zone visée.
+
+    Desktop Duplication ne livre une image que si l'écran a changé : quand il
+    est immobile, ``grab()`` renvoie ``None`` et on réutilise la dernière image,
+    qui est alors toujours exacte.
+    """
 
     name = "dxcam"
 
-    def __init__(self, monitor_rect: tuple[int, int, int, int], *, cfg_index: int = 0) -> None:
-        import dxcam  # noqa: PLC0415 - dépendance optionnelle
+    def __init__(self, target: Rect, *, camera: Any = None, bounds: Rect | None = None) -> None:
+        if camera is None:
+            import dxcam  # noqa: PLC0415 - dépendance optionnelle
 
-        self._origin = (monitor_rect[0], monitor_rect[1])
-        self._camera = dxcam.create(output_idx=max(0, cfg_index - 1), output_color="BGR")
-        if self._camera is None:  # pragma: no cover - pas de sortie DXGI
-            raise CaptureError("dxcam n'a pas pu créer de sortie")
+            chosen = pick_output(_dxgi_outputs(dxcam), target)
+            camera = dxcam.create(
+                device_idx=chosen.device, output_idx=chosen.output, output_color="BGR"
+            )
+            if camera is None:  # pragma: no cover - pas de sortie DXGI
+                raise CaptureError("dxcam n'a pas pu créer de sortie")
+            bounds = chosen.rect
+        if bounds is None:
+            raise CaptureError("dxcam : zone de l'écran inconnue")
+        self._camera = camera
+        self.bounds = bounds
+        self._last: np.ndarray | None = None
 
-    def grab(self, region: tuple[int, int, int, int]) -> np.ndarray:
-        frame: Any = None
-        for _ in range(3):
+    def _latest(self) -> np.ndarray:
+        frame = self._camera.grab()
+        if frame is not None:
+            self._last = frame
+            return frame
+        if self._last is not None:
+            return self._last  # écran immobile depuis la dernière image
+        for _ in range(_FIRST_FRAME_TRIES):
+            time.sleep(0.01)
             frame = self._camera.grab()
             if frame is not None:
-                break
-            time.sleep(0.005)
-        if frame is None:
-            raise CaptureError("dxcam : aucune frame disponible")
+                self._last = frame
+                return frame
+        raise CaptureError("dxcam : aucune image reçue de l'écran")
 
-        left = max(0, region[0] - self._origin[0])
-        top = max(0, region[1] - self._origin[1])
-        right = min(frame.shape[1], region[2] - self._origin[0])
-        bottom = min(frame.shape[0], region[3] - self._origin[1])
-        crop = frame[top:bottom, left:right]
+    def grab(self, region: Rect) -> np.ndarray:
+        frame = self._latest()
+        left, top, right, bottom = self.bounds
+        if frame.shape[0] != bottom - top or frame.shape[1] != right - left:
+            self._last = None
+            raise CaptureError("dxcam : la résolution de l'écran a changé")
+        crop = frame[region[1] - top : region[3] - top, region[0] - left : region[2] - left]
         if crop.size == 0:
-            raise CaptureError("dxcam : région hors écran")
+            raise CaptureError("dxcam : zone visée hors de l'écran capturé")
         return np.ascontiguousarray(crop)
 
     def close(self) -> None:
-        # ``release()`` de dxcam 0.0.5 plante (access violation comtypes) sur
+        # ``release()`` de dxcam a planté (access violation comtypes) sur
         # Python 3.13 : on laisse le processus se terminer dessus.
         log.debug("dxcam non libéré volontairement (release instable)")
 
@@ -183,52 +291,113 @@ def _build_chain(requested: str) -> list[str]:
     return [requested] + [name for name in _ORDER if name != requested]
 
 
+def apply_roi(base: Rect, roi: list[int] | None) -> Rect:
+    """Région ``(left, top, right, bottom)`` : ``base`` restreinte par ``roi``.
+
+    ``roi`` = ``[left, top, width, height]`` relatif au coin de ``base`` ; il est
+    rogné pour ne jamais sortir de ``base``.
+    """
+    left, top, right, bottom = base
+    if not roi:
+        return base
+    rx, ry, rw, rh = roi
+    new_left = min(max(left, left + rx), right)
+    new_top = min(max(top, top + ry), bottom)
+    new_right = max(new_left, min(right, left + rx + rw))
+    new_bottom = max(new_top, min(bottom, top + ry + rh))
+    if new_right - new_left <= 0 or new_bottom - new_top <= 0:
+        raise CaptureError(f"capture.roi {roi} sort de la zone capturée {base}")
+    return new_left, new_top, new_right, new_bottom
+
+
 class ScreenCapture:
-    """Capture continue d'une région, avec repli automatique de backend."""
+    """Capture continue d'une région, avec repli et réouverture de backend.
 
-    def __init__(self, cfg: CaptureConfig) -> None:
+    Avec ``window``, la région suit la zone client du jeu à chaque capture
+    (``capture.roi`` devient alors relatif à cette zone) ; sinon elle couvre le
+    moniteur ``capture.monitor``. Si le jeu passe sur un autre écran, ou après
+    plusieurs échecs de suite, le backend est rouvert sur le bon écran.
+    """
+
+    def __init__(self, cfg: CaptureConfig, *, window: GameWindow | None = None) -> None:
         self._cfg = cfg
+        self._window = window
         self._backend: _Backend | None = None
-        self._monitor_rect = monitor_bounds(cfg.monitor)
-        self._region = self._resolve_region(cfg)
-        self._backend = self._open_backend(cfg.backend)
+        self._failures = 0
+        left, top, width, height = monitor_bounds(cfg.monitor)
+        self._static_region = apply_roi((left, top, left + width, top + height), cfg.roi)
+        initial = window.region() if window is not None else None
+        self._backend = self._open_backend(initial or self._static_region)
 
-    def _resolve_region(self, cfg: CaptureConfig) -> tuple[int, int, int, int]:
-        left, top, width, height = self._monitor_rect
-        if cfg.roi:
-            rx, ry, rw, rh = cfg.roi
-            left, top, width, height = left + rx, top + ry, rw, rh
-        return left, top, left + width, top + height
-
-    def _open_backend(self, requested: str) -> _Backend:
+    def _open_backend(self, target: Rect) -> _Backend:
         errors: list[str] = []
-        for name in _build_chain(requested):
-            factory = _FACTORIES[name]
+        for name in _build_chain(self._cfg.backend):
             try:
-                if name == "dxcam":
-                    # output_idx est l'index DXGI (0 = premier écran), pas l'index mss.
-                    backend = factory(self._monitor_rect, cfg_index=self._cfg.monitor or 0)
-                else:
-                    backend = factory()
+                backend = _FACTORIES[name](target)
             except Exception as exc:
                 errors.append(f"{name}: {exc}")
                 log.debug("backend de capture %s indisponible (%s)", name, exc)
                 continue
-            log.info("backend de capture : %s", name)
+            log.info("backend de capture : %s, écran %s", name, backend.bounds)
             return backend
         raise CaptureError("aucun backend de capture disponible -> " + " | ".join(errors))
+
+    def _reopen(self, target: Rect) -> _Backend:
+        if self._backend is not None:
+            self._backend.close()
+            self._backend = None
+        self._backend = self._open_backend(target)
+        return self._backend
 
     @property
     def backend_name(self) -> str:
         return self._backend.name if self._backend else "none"
 
-    @property
-    def region(self) -> tuple[int, int, int, int]:
-        return self._region
+    def _target(self) -> tuple[Rect, tuple[int, int] | None]:
+        """Zone à capturer et, si elle couvre toute la zone client du jeu, sa taille."""
+        if self._window is None:
+            return self._static_region, None
+        rect = self._window.region()
+        if rect is None:
+            raise CaptureError("fenêtre du jeu introuvable ou réduite")
+        size = (rect[2] - rect[0], rect[3] - rect[1])
+        return apply_roi(rect, self._cfg.roi), (None if self._cfg.roi else size)
+
+    def _backend_for(self, target: Rect) -> _Backend:
+        backend = self._backend
+        if backend is None:
+            return self._reopen(target)
+        if backend.name == "dxcam" and not _contains(backend.bounds, *_center(target)):
+            log.info("le jeu a changé d'écran : capture rouverte")
+            return self._reopen(target)
+        return backend
+
+    def _grab_failed(self, exc: Exception, target: Rect) -> NoReturn:
+        self._failures += 1
+        message = str(exc) if isinstance(exc, CaptureError) else f"{type(exc).__name__}: {exc}"
+        if self._failures >= _REOPEN_AFTER:
+            log.warning("%d captures ratées de suite : réouverture du backend", self._failures)
+            self._failures = 0
+            try:
+                self._reopen(target)
+            except CaptureError as reopen_exc:
+                message += f" ; réouverture impossible : {reopen_exc}"
+        raise CaptureError(message) from exc
 
     def grab(self) -> Frame:
-        assert self._backend is not None
-        image = self._backend.grab(self._region)
+        target, window_size = self._target()
+        backend = self._backend_for(target)
+        region = intersect(target, backend.bounds)
+        if region is None:
+            raise CaptureError(f"la zone visée {target} est hors de l'écran {backend.bounds}")
+        if region != target:
+            window_size = None  # le jeu déborde de l'écran : la frame n'en montre qu'une partie
+        try:
+            image = backend.grab(region)
+        except Exception as exc:
+            self._grab_failed(exc, target)
+        self._failures = 0
+
         scale = 1.0
         if self._cfg.scale < 1.0:
             from .vision import resize  # noqa: PLC0415 - évite la dépendance circulaire
@@ -236,7 +405,12 @@ class ScreenCapture:
             image = resize(image, self._cfg.scale)
             scale = self._cfg.scale
         return Frame(
-            image=image, left=self._region[0], top=self._region[1], scale=scale, ts=time.time()
+            image=image,
+            left=region[0],
+            top=region[1],
+            scale=scale,
+            ts=time.time(),
+            window_size=window_size,
         )
 
     def close(self) -> None:

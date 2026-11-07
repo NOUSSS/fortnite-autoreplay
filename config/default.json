@@ -3,14 +3,17 @@
     "backend": "auto",
     "monitor": 1,
     "roi": null,
-    "target_fps": 8.0,
-    "scale": 1.0
+    "target_fps": 12.0,
+    "scale": 0.5
   },
   "vision": {
     "backend": "auto",
     "threshold": 0.82,
     "scales": [1.0],
-    "padding": 8
+    "padding": 8,
+    "use_zones": true,
+    "zone_margin": 0.12,
+    "full_scan_interval_s": 2.0
   },
   "actions": {
     "backend": "auto",
@@ -27,7 +30,21 @@
     "save_debug_frames": false,
     "debug_dir": "captures",
     "start_paused": true,
-    "stop_after_idle_s": 0.0
+    "stop_after_idle_s": 0.0,
+    "max_ineffective_clicks": 5,
+    "beep_on_stuck": true,
+    "doubt_margin": 0.06,
+    "doubt_interval_s": 60.0,
+    "doubt_max_snapshots": 20,
+    "stats_file": "logs/sessions.jsonl",
+    "max_step_errors": 10
+  },
+  "window": {
+    "enabled": true,
+    "process_names": ["FortniteClient-Win64-Shipping.exe"],
+    "window_class": "UnrealWindow",
+    "use_as_roi": true,
+    "require_foreground": true
   },
   "hotkeys": {
     "enabled": true,
