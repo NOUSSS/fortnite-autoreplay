@@ -3,7 +3,12 @@
 Une petite fenêtre sans bordure, toujours au-dessus du jeu :
 
 - elle ne prend jamais le focus (``WS_EX_NOACTIVATE``) : un clic sur le
-  panneau ne doit pas le retirer au jeu, ni à la fenêtre où l'on travaille ;
+  panneau ne doit pas le retirer au jeu, ni à la fenêtre où l'on travaille.
+  Si elle le prend quand même, elle le rend à la fenêtre d'avant, ou au jeu ;
+- en pleine partie (jeu au premier plan, curseur caché ou bloqué dans le jeu),
+  la souris la traverse : un tir dont le curseur caché passe sur elle reste au
+  jeu, au lieu de cliquer ou de déplacer le panneau ;
+- un seul panneau à la fois : en lancer un ferme celui qui tournait ;
 - les captures d'écran ne la voient pas (``WDA_EXCLUDEFROMCAPTURE``) : posée sur
   le jeu, elle ne cache aucun bouton au bot. Un clic qui tomberait sur elle est
   annulé par le moteur (``GameWindow.covering``) ;
@@ -45,6 +50,8 @@ NBSP = "\u00a0"
 _POLL_MS = 250
 _STALL_S = 20.0  # moteur sans tour de boucle depuis ce délai : bloqué
 _JOIN_S = 3.0  # attente de l'arrêt du moteur à la fermeture
+_REPLACE_S = 8.0  # attente de la fermeture d'un panneau déjà ouvert (moteur compris)
+_LOCK_POLL_S = 0.25  # entre deux essais du verrou des panneaux
 
 Area = tuple[int, int, int, int]  # left, top, right, bottom en pixels écran
 
@@ -241,6 +248,34 @@ def focus_step(foreground: int, ours: bool, other: int) -> tuple[int, int]:
     return 0, foreground
 
 
+def give_back_targets(other: int, game: int) -> list[int]:
+    """À qui rendre le premier plan : la fenêtre d'avant, sinon le jeu.
+
+    La fenêtre d'avant peut avoir disparu (console du lanceur, par exemple) :
+    sans le jeu en second choix, le panneau garderait le premier plan.
+    """
+    return [hwnd for hwnd in dict.fromkeys((other, game)) if hwnd]
+
+
+def mouse_through(
+    game_front: bool, hidden: bool, clipped: bool, on_panel: bool, previous: bool
+) -> bool:
+    """Le panneau doit-il laisser passer la souris ? Oui quand le jeu la tient.
+
+    En partie, Fortnite cache le curseur ou le bloque dans sa fenêtre ; le
+    curseur caché se promène quand même dessous, et un tir sur le panneau le
+    cliquerait. Au-dessus du panneau, c'est lui qui montre son curseur : l'état
+    d'avant est gardé tant que la souris y reste.
+    """
+    if not game_front:
+        return False
+    if clipped:
+        return True
+    if on_panel:
+        return previous
+    return hidden
+
+
 # --- pilotage -----------------------------------------------------------------
 class Controller(Protocol):
     """Ce dont le panneau a besoin : le moteur réel ou une démonstration."""
@@ -366,12 +401,34 @@ class EngineController:
 _GWL_EXSTYLE = -20
 _WS_EX_NOACTIVATE = 0x08000000
 _WS_EX_TOOLWINDOW = 0x00000080
+_WS_EX_LAYERED = 0x00080000
+_WS_EX_TRANSPARENT = 0x00000020
+_LWA_ALPHA = 0x2
+_RDW_INVALIDATE_ALL = 0x0001 | 0x0080 | 0x0400  # INVALIDATE | ALLCHILDREN | FRAME
+_CURSOR_SHOWING = 0x1
+_SM_VIRTUAL_SCREEN = (76, 77, 78, 79)  # x, y, largeur, hauteur
+_WM_CLOSE = 0x0010
+_SYNCHRONIZE = 0x00100000
+_WAIT_OBJECT_0 = 0
+_WAIT_ABANDONED = 0x80  # verrou d'un processus mort : acquis quand même
+_LOCK_NAME = "Local\\FortniteAutoReplay.panel"
+TITLE = "Fortnite Auto Replay"
+_TK_CLASS = "TkTopLevel"
 _WDA_EXCLUDEFROMCAPTURE = 0x11
 _DWMWA_WINDOW_CORNER_PREFERENCE = 33
 _DWMWA_BORDER_COLOR = 34
 _DWMWCP_ROUND = 2
 _MONITOR_DEFAULTTONEAREST = 2
 _GA_ROOT = 2
+
+
+class _CursorInfo(ctypes.Structure):
+    _fields_ = (
+        ("cbSize", wintypes.DWORD),
+        ("flags", wintypes.DWORD),
+        ("hCursor", wintypes.HANDLE),
+        ("ptScreenPos", wintypes.POINT),
+    )
 
 
 class _MonitorInfo(ctypes.Structure):
@@ -386,6 +443,9 @@ class _MonitorInfo(ctypes.Structure):
 def _colorref(color: str) -> int:
     red, green, blue = (int(color[i : i + 2], 16) for i in (1, 3, 5))
     return red | green << 8 | blue << 16
+
+
+_ENUM_PROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
 
 class Win32:
@@ -414,7 +474,48 @@ class Win32:
         user32.IsWindow.restype = wintypes.BOOL
         user32.GetWindowThreadProcessId.argtypes = [hwnd, ctypes.POINTER(wintypes.DWORD)]
         user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.IsWindowVisible.argtypes = [hwnd]
+        user32.IsWindowVisible.restype = wintypes.BOOL
+        user32.GetCursorInfo.argtypes = [ctypes.POINTER(_CursorInfo)]
+        user32.GetCursorInfo.restype = wintypes.BOOL
+        user32.GetClipCursor.argtypes = [ctypes.POINTER(wintypes.RECT)]
+        user32.GetClipCursor.restype = wintypes.BOOL
+        user32.GetSystemMetrics.argtypes = [ctypes.c_int]
+        user32.GetSystemMetrics.restype = ctypes.c_int
+        user32.GetWindowRect.argtypes = [hwnd, ctypes.POINTER(wintypes.RECT)]
+        user32.GetWindowRect.restype = wintypes.BOOL
+        user32.SetLayeredWindowAttributes.argtypes = [
+            hwnd,
+            wintypes.DWORD,
+            wintypes.BYTE,
+            wintypes.DWORD,
+        ]
+        user32.SetLayeredWindowAttributes.restype = wintypes.BOOL
+        user32.RedrawWindow.argtypes = [hwnd, ctypes.c_void_p, ctypes.c_void_p, wintypes.UINT]
+        user32.RedrawWindow.restype = wintypes.BOOL
+        user32.EnumWindows.argtypes = [_ENUM_PROC, wintypes.LPARAM]
+        user32.EnumWindows.restype = wintypes.BOOL
+        user32.GetClassNameW.argtypes = [hwnd, wintypes.LPWSTR, ctypes.c_int]
+        user32.GetClassNameW.restype = ctypes.c_int
+        user32.GetWindowTextW.argtypes = [hwnd, wintypes.LPWSTR, ctypes.c_int]
+        user32.GetWindowTextW.restype = ctypes.c_int
+        user32.PostMessageW.argtypes = [hwnd, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+        user32.PostMessageW.restype = wintypes.BOOL
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+        kernel32.CreateMutexW.restype = wintypes.HANDLE
+        kernel32.ReleaseMutex.argtypes = [wintypes.HANDLE]
+        kernel32.ReleaseMutex.restype = wintypes.BOOL
         self.user32 = user32
+        self.kernel32 = kernel32
+        self._lock: int | None = None  # verrou des panneaux, tenu jusqu'à la fermeture
+        self._locked = False
         self.dwm: ctypes.WinDLL | None
         try:
             dwm = ctypes.WinDLL("dwmapi")
@@ -442,15 +543,118 @@ class Win32:
     def foreground(self) -> int:
         return int(self.user32.GetForegroundWindow() or 0)
 
-    def ours(self, hwnd: int) -> bool:
-        """La fenêtre appartient-elle à ce processus (panneau, racine Tk cachée) ?"""
+    def pid(self, hwnd: int) -> int:
         pid = wintypes.DWORD()
         self.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        return pid.value == os.getpid()
+        return int(pid.value)
+
+    def ours(self, hwnd: int) -> bool:
+        """La fenêtre appartient-elle à ce processus (panneau, racine Tk cachée) ?"""
+        return self.pid(hwnd) == os.getpid()
 
     def give_back(self, hwnd: int) -> bool:
-        """Rend le premier plan à une fenêtre qui l'avait, si elle existe encore."""
-        return bool(hwnd and self.user32.IsWindow(hwnd) and self.user32.SetForegroundWindow(hwnd))
+        """Rend le premier plan à une fenêtre visible d'un autre processus."""
+        user32 = self.user32
+        return bool(
+            hwnd
+            and user32.IsWindow(hwnd)
+            and user32.IsWindowVisible(hwnd)
+            and not self.ours(hwnd)
+            and user32.SetForegroundWindow(hwnd)
+        )
+
+    def cursor_state(self) -> tuple[int, int, bool, bool]:
+        """Position du curseur, caché ou non, bloqué ou non dans une zone (``ClipCursor``)."""
+        info = _CursorInfo()
+        info.cbSize = ctypes.sizeof(_CursorInfo)
+        if not self.user32.GetCursorInfo(ctypes.byref(info)):
+            return 0, 0, False, False
+        hidden = not info.flags & _CURSOR_SHOWING or not info.hCursor
+        clip = wintypes.RECT()
+        if not self.user32.GetClipCursor(ctypes.byref(clip)):
+            return info.ptScreenPos.x, info.ptScreenPos.y, hidden, False
+        x, y, width, height = (self.user32.GetSystemMetrics(i) for i in _SM_VIRTUAL_SCREEN)
+        clipped = (clip.left, clip.top, clip.right, clip.bottom) != (x, y, x + width, y + height)
+        return info.ptScreenPos.x, info.ptScreenPos.y, hidden, clipped
+
+    def window_rect(self, hwnd: int) -> tuple[int, int, int, int]:
+        rect = wintypes.RECT()
+        if not self.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return 0, 0, 0, 0
+        return rect.left, rect.top, rect.right, rect.bottom
+
+    def set_mouse_through(self, hwnd: int, through: bool) -> None:
+        """La souris traverse-t-elle la fenêtre (``WS_EX_LAYERED | WS_EX_TRANSPARENT``) ?"""
+        user32 = self.user32
+        extended = self.ex_style(hwnd)
+        if not through:
+            user32.SetWindowLongPtrW(hwnd, _GWL_EXSTYLE, extended & ~_WS_EX_TRANSPARENT)
+            return
+        if not extended & _WS_EX_LAYERED:
+            # fenêtre en couches opaque : sans l'alpha posé aussitôt, elle disparaîtrait
+            extended |= _WS_EX_LAYERED
+            user32.SetWindowLongPtrW(hwnd, _GWL_EXSTYLE, extended)
+            user32.SetLayeredWindowAttributes(hwnd, 0, 255, _LWA_ALPHA)
+            user32.RedrawWindow(hwnd, None, None, _RDW_INVALIDATE_ALL)
+        user32.SetWindowLongPtrW(hwnd, _GWL_EXSTYLE, extended | _WS_EX_TRANSPARENT)
+
+    def other_panels(self) -> list[tuple[int, int]]:
+        """Panneaux d'autres processus encore ouverts : (fenêtre, pid)."""
+        found: list[tuple[int, int]] = []
+        own = os.getpid()
+        name = ctypes.create_unicode_buffer(64)
+
+        def visit(hwnd: int, _param: int) -> bool:
+            if self.user32.GetClassNameW(hwnd, name, 64) and name.value == _TK_CLASS:
+                self.user32.GetWindowTextW(hwnd, name, 64)
+                pid = self.pid(hwnd)
+                if name.value == TITLE and pid != own:
+                    found.append((int(hwnd), pid))
+            return True
+
+        self.user32.EnumWindows(_ENUM_PROC(visit), 0)
+        return found
+
+    def close_and_wait(self, hwnd: int, pid: int, timeout_s: float) -> bool:
+        """Demande à une fenêtre de se fermer (``WM_CLOSE``) ; vrai si son processus s'arrête."""
+        process = self.kernel32.OpenProcess(_SYNCHRONIZE, False, pid)
+        if not self.user32.PostMessageW(hwnd, _WM_CLOSE, 0, 0):  # droits plus élevés (UIPI)
+            if process:
+                self.kernel32.CloseHandle(process)
+            return False
+        if not process:  # processus inaccessible : on suit sa fenêtre à la place
+            deadline = time.monotonic() + timeout_s
+            while self.user32.IsWindow(hwnd) and time.monotonic() < deadline:
+                time.sleep(0.1)
+            return not self.user32.IsWindow(hwnd)
+        try:
+            result = self.kernel32.WaitForSingleObject(process, int(timeout_s * 1000))
+            return result == _WAIT_OBJECT_0
+        finally:
+            self.kernel32.CloseHandle(process)
+
+    def take_lock(self, wait_s: float) -> bool:
+        """Prend le verrou des panneaux (un seul à la fois) ; faux s'il est tenu ailleurs."""
+        if self._locked:
+            return True
+        if self._lock is None:
+            self._lock = self.kernel32.CreateMutexW(None, False, _LOCK_NAME) or None
+            if self._lock is None:  # créé par un panneau aux droits plus élevés
+                time.sleep(wait_s)
+                return False
+        result = self.kernel32.WaitForSingleObject(self._lock, int(wait_s * 1000))
+        self._locked = result in {_WAIT_OBJECT_0, _WAIT_ABANDONED}
+        return self._locked
+
+    def release_lock(self) -> None:
+        """Rend le verrou, une fois le moteur arrêté et sa session enregistrée."""
+        if self._lock is None:
+            return
+        if self._locked:
+            self.kernel32.ReleaseMutex(self._lock)
+            self._locked = False
+        self.kernel32.CloseHandle(self._lock)
+        self._lock = None
 
     def ex_style(self, hwnd: int) -> int:
         return int(self.user32.GetWindowLongPtrW(hwnd, _GWL_EXSTYLE))
@@ -713,14 +917,18 @@ class Panel:
         home: tuple[int, int] = (0, 0),
         persist: bool = True,
         win32: Win32 | None = None,
+        game: Callable[[], int] | None = None,
     ) -> None:
         self.root = root
         self.controller = controller
         self.persist = persist
         self.hotkeys = hotkeys
         self.win32 = win32 or Win32()
+        self._game = game or _no_game  # fenêtre du jeu, 0 si absente
         # fenêtre active avant le panneau, à qui rendre le premier plan s'il le prend
         _, self._other = focus_step(self.win32.foreground(), False, 0)
+        self._holding = False  # premier plan gardé faute de pouvoir le rendre (déjà signalé)
+        self._through = False  # la souris traverse le panneau (partie en cours)
         self.scale = self.win32.scale()
         self.collapsed = cfg.collapsed
         self.width = self.px(WIDTH)
@@ -736,7 +944,7 @@ class Panel:
         root.overrideredirect(True)
         root.configure(bg=C.bg)
         root.attributes("-topmost", cfg.topmost)
-        root.title("Fortnite Auto Replay")
+        root.title(TITLE)
         self._fonts()
         self._build()
         self._render(controller.status())
@@ -993,6 +1201,7 @@ class Panel:
             return
         try:
             self._guard_focus()
+            self._guard_mouse()
             self.controller.check_stall()
             self._render(self.controller.status())
         except Exception:  # un rendu raté ne doit pas figer le panneau pour de bon
@@ -1001,14 +1210,41 @@ class Panel:
             self.root.after(_POLL_MS, self._poll)
 
     def _guard_focus(self) -> None:
-        """Le panneau ne garde jamais le premier plan : il le rend à la fenêtre d'avant."""
+        """Le panneau ne garde jamais le premier plan : rendu à la fenêtre d'avant, ou au jeu."""
         foreground = self.win32.foreground()
         ours = bool(foreground) and self.win32.ours(foreground)
-        restore, self._other = focus_step(foreground, ours, self._other)
-        if restore and self.win32.give_back(restore):
-            log.info("le panneau avait pris le premier plan : rendu à la fenêtre précédente")
-        elif restore:
+        _, self._other = focus_step(foreground, ours, self._other)
+        if not ours:
+            self._holding = False
+            return
+        for target in give_back_targets(self._other, self._game()):
+            if self.win32.give_back(target):
+                who = "au jeu" if target != self._other else "à la fenêtre précédente"
+                log.info("le panneau avait pris le premier plan : rendu %s", who)
+                self._other = target
+                self._holding = False
+                return
+        if not self._holding:  # une fois par épisode, pas une ligne toutes les 250 ms
             log.warning("le panneau a le premier plan et ne peut pas le rendre")
+            self._holding = True
+
+    def _guard_mouse(self) -> None:
+        """En pleine partie, la souris traverse le panneau (voir :func:`mouse_through`)."""
+        if self._drag is not None:  # déplacement en cours : la souris est au panneau
+            return
+        game = self._game()
+        through = False
+        if game:
+            foreground = self.win32.foreground()
+            front = bool(foreground) and self.win32.pid(foreground) == self.win32.pid(game)
+            x, y, hidden, clipped = self.win32.cursor_state()
+            left, top, right, bottom = self.win32.window_rect(self.hwnd)
+            on_panel = left <= x < right and top <= y < bottom
+            through = mouse_through(front, hidden, clipped, on_panel, self._through)
+        if through != self._through:
+            self.win32.set_mouse_through(self.hwnd, through)
+            self._through = through
+            log.debug("panneau %s", "traversé par la souris" if through else "de nouveau cliquable")
 
     def _render(self, status: Status) -> None:
         look = LOOKS[status.phase]
@@ -1100,7 +1336,20 @@ class Panel:
 
 # --- lancement ------------------------------------------------------------------
 def run_panel(cfg: Config, library: TemplateLibrary, *, dry_run: bool = False) -> int:
-    """Ouvre le panneau, lance le moteur dans son thread, attend la fermeture."""
+    """Ouvre le panneau, lance le moteur dans son thread, attend la fermeture.
+
+    Lève ``RuntimeError`` si un autre panneau reste ouvert.
+    """
+    win32 = Win32()
+    try:  # verrou rendu aussi en cas d'échec : le message d'erreur peut rester ouvert
+        # avant de lire l'historique : l'ancien panneau y écrit sa session en se fermant
+        replace_other_panels(win32)
+        return _open_panel(cfg, library, win32, dry_run=dry_run)
+    finally:
+        win32.release_lock()
+
+
+def _open_panel(cfg: Config, library: TemplateLibrary, win32: Win32, *, dry_run: bool) -> int:
     from .cli import game_in_front  # noqa: PLC0415 - le panneau est lancé par la CLI
     from .hotkeys import HotkeyListener  # noqa: PLC0415 - inutile hors panneau
 
@@ -1108,7 +1357,6 @@ def run_panel(cfg: Config, library: TemplateLibrary, *, dry_run: bool = False) -
     actions = Actions(cfg.actions, dry_run=dry_run)
     engine = Engine(cfg, _NotOpenYet(), actions, library, dry_run=dry_run, window=window)
     controller = EngineController(engine, cfg, window)
-    win32 = Win32()
     region = window.region() if window is not None else None
     home = default_home(region or win32.work_area(0, 0), win32.scale())
 
@@ -1120,6 +1368,7 @@ def run_panel(cfg: Config, library: TemplateLibrary, *, dry_run: bool = False) -
         hotkeys=(cfg.hotkeys.toggle, cfg.hotkeys.quit),
         home=home,
         win32=win32,
+        game=window.hwnd if window is not None else None,
     )
     listener: HotkeyListener | None = None
     if cfg.hotkeys.enabled:
@@ -1140,6 +1389,60 @@ def run_panel(cfg: Config, library: TemplateLibrary, *, dry_run: bool = False) -
         with contextlib.suppress(tk.TclError):  # déjà détruite
             root.destroy()
     return 0
+
+
+def _no_game() -> int:
+    return 0
+
+
+class _PanelFinder(Protocol):
+    def other_panels(self) -> list[tuple[int, int]]: ...
+
+    def close_and_wait(self, hwnd: int, pid: int, timeout_s: float) -> bool: ...
+
+    def take_lock(self, wait_s: float) -> bool: ...
+
+
+def replace_other_panels(
+    win32: _PanelFinder,
+    timeout_s: float = _REPLACE_S,
+    *,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> None:
+    """Ferme les panneaux déjà ouverts : deux bots cliqueraient chacun de leur côté.
+
+    Rend la main avec le verrou des panneaux, que l'ancien ne lâche qu'une fois
+    son moteur arrêté et sa session enregistrée. Un panneau encore en train de
+    démarrer (verrou pris, fenêtre pas encore créée) est fermé dès qu'elle
+    paraît. Lève ``RuntimeError`` si l'un d'eux ne se ferme pas à temps.
+    """
+    deadline = clock() + timeout_s
+    asked: set[int] = set()
+    while True:
+        for hwnd, pid in win32.other_panels():
+            if hwnd in asked:
+                continue
+            asked.add(hwnd)
+            if win32.close_and_wait(hwnd, pid, max(0.0, deadline - clock())):
+                log.info("panneau déjà ouvert (pid %d) : fermé pour laisser place au nouveau", pid)
+        left = win32.other_panels()
+        if win32.take_lock(0.0 if left else _LOCK_POLL_S) and not left:
+            return
+        if clock() >= deadline:
+            raise RuntimeError(_still_open(left))
+        if left:
+            sleep(_LOCK_POLL_S)
+
+
+def _still_open(left: list[tuple[int, int]]) -> str:
+    if not left:
+        return "un autre panneau est déjà en train de démarrer"
+    pids = ", ".join(str(pid) for _, pid in left)
+    return (
+        f"un autre panneau reste ouvert (pid {pids}){NBSP}; "
+        "fermez-le avec son bouton Quitter, puis relancez"
+    )
 
 
 def _hotkey_quit(controller: EngineController) -> None:

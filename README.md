@@ -64,7 +64,12 @@ Une petite fenêtre s'ouvre au-dessus du jeu et lance le moteur :
 Le panneau se déplace en le tirant par son en-tête ; sa position, son état
 replié et la réponse au dialogue sont gardés dans `config/local.json`. Il ne
 garde jamais le focus : s'il le prend (un instant à son ouverture), il le rend
-aussitôt à la fenêtre d'avant, le jeu en général. Il est invisible pour les
+aussitôt à la fenêtre d'avant, ou au jeu si elle n'existe plus. Pendant une
+partie (jeu au premier plan, curseur masqué ou retenu dans sa fenêtre), la
+souris le traverse : un clic ou un geste de visée passé dessus va au jeu et ne
+peut ni l'activer ni le déplacer. Un seul panneau tourne à la fois : en lancer
+un nouveau ferme l'ancien, même caché hors écran ; si l'ancien refuse (lancé en
+administrateur, par exemple), un message le dit. Il est invisible pour les
 captures d'écran (le bot ne le voit pas), et si un bouton à cliquer se trouve
 sous lui, le clic est annulé et le bandeau demande de le déplacer. Il reste
 au-dessus du jeu en **plein écran fenêtré** ; en plein écran exclusif, Windows
@@ -117,12 +122,16 @@ Rien n'est codé en dur : seuils, ROI, délais et zones de clic sont dans
   avant ; `--no-window` retire ce garde-fou.
 - Au second plan, Fortnite ne voit un bouton survolé que si le vrai curseur est
   dessus. En mode `actions.background: "cursor"` (défaut), le bot pose le
-  curseur sur le bouton le temps du clic (environ 0,2 s) puis le remet au même
+  curseur sur le bouton le temps du clic (environ 0,25 s) puis le remet au même
   pixel, en gardant le déplacement si la souris a bougé entre-temps ; il attend
   pour cela que la souris reste immobile
   `actions.mouse_idle_s` et qu'aucun bouton ne soit enfoncé (« Clic en
   attente » sinon). Le mode `"message"` ne touche jamais au curseur, au risque
   que le jeu ignore le clic.
+- Au second plan, Fortnite se met en veille (30 images par seconde) et peut
+  ignorer les clics. Le temps du clic, le bot lui annonce qu'il est l'application
+  active (`WM_ACTIVATEAPP`), sans activer sa fenêtre ni prendre le focus, puis
+  le remet en veille. `actions.background_activate: false` retire ce réveil.
 - Avant chaque clic, le bot vérifie que le point visé est bien sur le jeu : si
   une autre fenêtre le couvre (panneau, notification, overlay), il n'y clique
   pas.

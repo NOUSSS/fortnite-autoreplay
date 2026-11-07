@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -14,17 +15,21 @@ from fortnite_auto_replay.engine import Status
 from fortnite_auto_replay.panel import (
     NBSP,
     EngineController,
+    Panel,
     clamp,
     counters_from,
     default_home,
     duration,
     explain,
     focus_step,
+    give_back_targets,
     header_detail,
     missing_hint,
+    mouse_through,
     number,
     plural,
     primary_label,
+    replace_other_panels,
 )
 
 
@@ -204,3 +209,216 @@ def test_totals_add_the_current_session_except_in_simulation(tmp_path: Path) -> 
 
     dry = controller.totals(status(actions=3, started_at=started, dry_run=True))
     assert dry == (2, 15, pytest.approx(5400))
+
+
+# --- premier plan rendu, souris traversante, panneau unique ----------------------
+GAME, OTHER, PANEL = 7, 42, 99
+GAME_PID, OTHER_PID, OWN_PID = 70, 420, 990
+
+
+class FakeWin32:
+    """Premier plan, curseur et fenêtres simulés ; ``alive`` = fenêtres qui existent."""
+
+    def __init__(self, foreground: int = PANEL) -> None:
+        self.fg = foreground
+        self.alive = {GAME, OTHER, PANEL}
+        self.cursor = (500, 500, False, False)  # x, y, caché, bloqué
+        self.rect = (0, 0, 320, 44)
+        self.through: list[bool] = []
+
+    def foreground(self) -> int:
+        return self.fg
+
+    def pid(self, hwnd: int) -> int:
+        return {GAME: GAME_PID, OTHER: OTHER_PID, PANEL: OWN_PID}.get(hwnd, 0)
+
+    def ours(self, hwnd: int) -> bool:
+        return hwnd == PANEL
+
+    def give_back(self, hwnd: int) -> bool:
+        if hwnd in self.alive and hwnd != PANEL:
+            self.fg = hwnd
+            return True
+        return False
+
+    def cursor_state(self) -> tuple[int, int, bool, bool]:
+        return self.cursor
+
+    def window_rect(self, hwnd: int) -> tuple[int, int, int, int]:
+        return self.rect
+
+    def set_mouse_through(self, hwnd: int, through: bool) -> None:
+        self.through.append(through)
+
+
+def guard(win32: FakeWin32, *, other: int = OTHER, game: int = GAME) -> SimpleNamespace:
+    """Juste ce qu'utilisent les gardes du panneau, sans fenêtre Tk."""
+    return SimpleNamespace(
+        win32=win32,
+        hwnd=PANEL,
+        _other=other,
+        _game=lambda: game,
+        _holding=False,
+        _through=False,
+        _drag=None,
+    )
+
+
+def test_give_back_targets_prefer_the_previous_window_then_the_game() -> None:
+    assert give_back_targets(OTHER, GAME) == [OTHER, GAME]
+    assert give_back_targets(0, GAME) == [GAME]
+    assert give_back_targets(GAME, GAME) == [GAME]
+    assert give_back_targets(0, 0) == []
+
+
+def test_foreground_goes_back_to_the_previous_window() -> None:
+    win32 = FakeWin32()
+    panel = guard(win32)
+    Panel._guard_focus(panel)  # type: ignore[arg-type]
+    assert win32.fg == OTHER
+
+
+def test_foreground_goes_to_the_game_when_the_previous_window_is_gone(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("INFO")
+    win32 = FakeWin32()
+    win32.alive.discard(OTHER)  # console du lanceur, déjà fermée
+    panel = guard(win32)
+    Panel._guard_focus(panel)  # type: ignore[arg-type]
+    assert win32.fg == GAME
+    assert panel._other == GAME
+    assert "rendu au jeu" in caplog.text
+
+
+def test_stuck_foreground_is_reported_once(caplog: pytest.LogCaptureFixture) -> None:
+    win32 = FakeWin32()
+    win32.alive = {PANEL}
+    panel = guard(win32, game=0)
+    for _ in range(5):
+        Panel._guard_focus(panel)  # type: ignore[arg-type]
+    assert caplog.text.count("ne peut pas le rendre") == 1
+    win32.fg = OTHER  # l'utilisateur clique ailleurs : un nouvel épisode sera signalé
+    Panel._guard_focus(panel)  # type: ignore[arg-type]
+    assert panel._holding is False
+
+
+@pytest.mark.parametrize(
+    "case",  # jeu devant, curseur caché, bloqué, sur le panneau, état d'avant -> attendu
+    [
+        (False, True, True, False, True, False),  # jeu derrière : panneau cliquable
+        (True, False, False, False, True, False),  # menus : curseur visible
+        (True, True, False, False, False, True),  # partie : curseur caché
+        (True, False, True, True, False, True),  # partie : curseur bloqué dans le jeu
+        (True, False, False, True, True, True),  # sur le panneau : on garde l'état
+        (True, False, False, True, False, False),
+    ],
+)
+def test_mouse_through(case: tuple[bool, bool, bool, bool, bool, bool]) -> None:
+    *signals, expected = case
+    assert mouse_through(*signals) is expected
+
+
+def test_mouse_goes_through_the_panel_during_a_match() -> None:
+    win32 = FakeWin32(foreground=GAME)
+    panel = guard(win32)
+    win32.cursor = (900, 500, True, False)  # partie : curseur caché, hors du panneau
+    Panel._guard_mouse(panel)  # type: ignore[arg-type]
+    win32.cursor = (100, 20, False, False)  # passé sous le panneau, qui montre sa flèche
+    Panel._guard_mouse(panel)  # type: ignore[arg-type]
+    assert win32.through == [True]
+    win32.cursor = (900, 500, False, False)  # menu ouvert, curseur visible ailleurs
+    Panel._guard_mouse(panel)  # type: ignore[arg-type]
+    assert win32.through == [True, False]
+
+
+def test_mouse_never_goes_through_when_the_game_is_behind() -> None:
+    win32 = FakeWin32(foreground=OTHER)  # on travaille ailleurs
+    win32.cursor = (900, 500, True, True)
+    panel = guard(win32)
+    Panel._guard_mouse(panel)  # type: ignore[arg-type]
+    assert win32.through == []
+
+
+class FakeFinder:
+    """Autres panneaux ; ``busy`` : essais du verrou refusés avant qu'il se libère."""
+
+    def __init__(
+        self,
+        panels: list[tuple[int, int]],
+        *,
+        closes: bool = True,
+        busy: int = 0,
+        appears: tuple[int, int] | None = None,
+    ) -> None:
+        self.panels = list(panels)
+        self.closes = closes
+        self.busy = busy
+        self.appears = appears  # fenêtre d'un panneau qui démarre, créée au 1er refus
+        self.closed: list[int] = []
+        self.locked = False
+
+    def other_panels(self) -> list[tuple[int, int]]:
+        return list(self.panels)
+
+    def close_and_wait(self, hwnd: int, pid: int, timeout_s: float) -> bool:
+        self.closed.append(pid)
+        if self.closes:
+            self.panels.remove((hwnd, pid))
+        return self.closes
+
+    def take_lock(self, wait_s: float) -> bool:
+        if self.busy:
+            self.busy -= 1
+            if self.appears is not None:
+                self.panels.append(self.appears)
+                self.appears = None
+            return False
+        self.locked = True
+        return True
+
+
+def replace(finder: FakeFinder, timeout_s: float = 8.0) -> None:
+    replace_other_panels(finder, timeout_s, sleep=lambda _s: None)
+
+
+def test_launching_a_panel_closes_the_one_already_open() -> None:
+    finder = FakeFinder([(11, 20664)])
+    replace(finder)
+    assert finder.closed == [20664]
+    assert finder.locked
+
+
+def test_launch_is_cancelled_if_the_old_panel_stays() -> None:
+    finder = FakeFinder([(11, 20664)], closes=False)
+    with pytest.raises(RuntimeError, match="20664"):
+        replace(finder, timeout_s=0.0)
+    assert finder.closed == [20664]  # une seule demande, pas une par tour
+
+
+def test_nothing_to_close() -> None:
+    finder = FakeFinder([])
+    replace(finder)
+    assert finder.closed == []
+    assert finder.locked
+
+
+def test_waits_for_the_old_panel_to_release_the_lock() -> None:
+    # fenêtre fermée, mais le moteur de l'ancien enregistre encore sa session
+    finder = FakeFinder([(11, 20664)], busy=2)
+    replace(finder)
+    assert finder.locked
+
+
+def test_a_panel_still_starting_is_closed_once_its_window_appears() -> None:
+    # deux lancements rapprochés : l'autre tient le verrou sans fenêtre encore
+    finder = FakeFinder([], busy=1, appears=(12, 31000))
+    replace(finder)
+    assert finder.closed == [31000]
+    assert finder.locked
+
+
+def test_a_panel_starting_without_window_is_reported() -> None:
+    finder = FakeFinder([], busy=99)
+    with pytest.raises(RuntimeError, match="démarrer"):
+        replace(finder, timeout_s=0.0)

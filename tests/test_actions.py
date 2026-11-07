@@ -10,6 +10,9 @@ from fortnite_auto_replay.config import ActionConfig
 HWND = 77
 ORIGIN = (100, 50)  # coin de la zone client du jeu à l'écran
 MOVE, DOWN, UP = 0x0200, 0x0201, 0x0202
+ACTIVATE, ACTIVATEAPP = 0x0006, 0x001C
+WAKE = [(ACTIVATEAPP, 1, 0, 0)]  # le jeu se croit actif
+SLEEP = [(ACTIVATEAPP, 0, 0, 0)]  # puis revient à son état réel
 
 
 class FakeInput:
@@ -64,18 +67,67 @@ def make_clicker(api: FakeInput, **cfg: object) -> BackgroundClicker:
     return BackgroundClicker(ActionConfig(**cfg), api, sleep=clock.sleep, clock=clock)  # type: ignore[arg-type]
 
 
+def kinds(api: FakeInput) -> list[int]:
+    return [m[0] for m in api.posted if m[0] in (MOVE, DOWN, UP)]
+
+
 def test_message_mode_posts_a_click_and_never_touches_the_cursor() -> None:
     api = FakeInput()
     assert make_clicker(api, background="message").click(HWND, 600, 450)
-    assert api.posted == [(MOVE, 0, 500, 400), (DOWN, 1, 500, 400), (UP, 0, 500, 400)]
+    click = [(MOVE, 0, 500, 400), (DOWN, 1, 500, 400), (UP, 0, 500, 400)]
+    assert api.posted == WAKE + click + SLEEP
     assert api.cursor_moves == []
+
+
+def test_window_activation_is_never_posted() -> None:
+    # traité par défaut, WM_ACTIVATE donne le focus à la fenêtre : premier plan possible
+    api = FakeInput()
+    assert make_clicker(api).click(HWND, 600, 450)
+    assert all(m[0] != ACTIVATE for m in api.posted)
+
+
+def test_button_pressed_while_the_game_wakes_up_defers_the_click() -> None:
+    class PressesDuringWake(FakeInput):
+        def post(self, hwnd: int, message: int, wparam: int, x: int, y: int) -> None:
+            super().post(hwnd, message, wparam, x, y)
+            if message == ACTIVATEAPP and wparam:
+                self.buttons = True  # un clic sur l'autre écran pendant le réveil
+
+    api = PressesDuringWake()
+    assert not make_clicker(api).click(HWND, 600, 450)
+    assert api.posted == WAKE + SLEEP
+    assert api.cursor_moves == []
+
+
+def test_activation_can_be_turned_off() -> None:
+    api = FakeInput()
+    assert make_clicker(api, background="message", background_activate=False).click(HWND, 600, 450)
+    assert [m[0] for m in api.posted] == [MOVE, DOWN, UP]
+
+
+def test_game_goes_back_to_sleep_even_when_the_click_fails() -> None:
+    class FailsOnDown(FakeInput):
+        def post(self, hwnd: int, message: int, wparam: int, x: int, y: int) -> None:
+            if message == DOWN:
+                raise InputError("refusé")
+            super().post(hwnd, message, wparam, x, y)
+
+    api = FailsOnDown()
+    with pytest.raises(InputError):
+        make_clicker(api).click(HWND, 600, 450)
+    assert api.posted[-1:] == SLEEP
+    assert api.position == (-800, 900)
 
 
 def test_cursor_mode_hovers_the_button_then_puts_the_cursor_back() -> None:
     api = FakeInput()
     assert make_clicker(api).click(HWND, 600, 450)
-    assert [m[0] for m in api.posted] == [MOVE, DOWN, UP]
-    assert set(api.cursor_during_post) == {(600, 450)}  # le jeu voit le curseur sur le bouton
+    assert kinds(api) == [MOVE, DOWN, UP]
+    during = zip(api.posted, api.cursor_during_post, strict=True)
+    mouse = {pos for message, pos in during if message[0] in (MOVE, DOWN, UP)}
+    assert mouse == {(600, 450)}  # le jeu voit le curseur sur le bouton
+    # réveil et retour à l'état réel : curseur encore (ou déjà) rendu
+    assert api.cursor_during_post[0] == api.cursor_during_post[-1] == (-800, 900)
     assert api.cursor_moves == [(600, 450), (-800, 900)]
     assert api.position == (-800, 900)
 
@@ -105,7 +157,7 @@ def test_clamped_cursor_still_returns_to_the_same_pixel() -> None:
 def test_double_click_posts_two_presses() -> None:
     api = FakeInput()
     assert make_clicker(api, background="message").click(HWND, 600, 450, clicks=2)
-    assert [m[0] for m in api.posted] == [MOVE, DOWN, UP, DOWN, UP]
+    assert kinds(api) == [MOVE, DOWN, UP, DOWN, UP]
 
 
 def test_moving_mouse_defers_the_click() -> None:
@@ -162,7 +214,7 @@ def test_actions_route_background_clicks_to_the_window() -> None:
     actions = Actions(ActionConfig(click_offset=[2, 3]), dry_run=True, background=clicker)
     actions.dry_run = False  # pas de backend d'entrée réelle : seul le chemin posté sert
     assert actions.click(600, 450, window=HWND) == (602, 453)
-    assert api.posted[-1] == (UP, 0, 502, 403)
+    assert (UP, 0, 502, 403) in api.posted
 
 
 def test_actions_pass_the_cancel_check_on() -> None:

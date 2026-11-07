@@ -34,6 +34,13 @@
   chemin ne doit retomber sur une entrée réelle (`SendInput` partirait dans la
   fenêtre active), handle nul compris ; le curseur est remis en place même
   quand l'envoi échoue ; les coordonnées client sont signées dans `lParam`.
+  Jamais `WM_ACTIVATE` (peut voler le focus) : seulement `WM_ACTIVATEAPP`, et
+  le 0 qui remet le jeu en veille part sur tous les chemins.
+- Panneau (`panel.py`) : `set_mouse_through` ne doit jamais rendre le panneau
+  traversant quand le jeu n'est pas au premier plan (il deviendrait
+  inutilisable) ; `replace_other_panels` ne ferme que des fenêtres Tk de ce
+  titre dans un autre processus, et le mutex des panneaux n'est rendu qu'après
+  l'arrêt du moteur (sa session écrite), échec de lancement compris.
 - Coordonnées : frame → écran (`Frame.to_screen`, `capture.scale`), région
   rognée à l'écran capturé (l'origine de la frame doit suivre), zone connue
   rognée au bord de la frame, `capture.roi` relatif à la zone client du jeu.

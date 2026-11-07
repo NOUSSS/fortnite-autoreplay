@@ -102,6 +102,12 @@ capture n'apporterait rien. Tout le gain vient du matching.
   même pixel (plus le geste fait pendant le clic, pour ne pas reculer),
   seulement si la souris est immobile et sans bouton enfoncé. Sinon le clic est
   reporté à l'image suivante, sans nouvelle confirmation (« Clic en attente »).
+- **Réveil du jeu** : au second plan, Fortnite se dit inactif (`AppBackgroundUtils`
+  « Active State False ») et peut ignorer les clics. Le clic est encadré par
+  `WM_ACTIVATEAPP` (1, puis 0 dans un `finally`, même si l'envoi échoue) : le
+  jeu se croit actif sans que sa fenêtre le soit. Jamais `WM_ACTIVATE` : sa
+  procédure par défaut appelle `SetFocus`, et la fenêtre peut passer au premier
+  plan si son processus en a le droit (constaté sur une fenêtre de test).
 - **Traces d'arrêt** : sous `pythonw`, rien ne s'affiche. Chaque sortie est
   journalisée avec sa cause ; `faulthandler` écrit la pile de tous les threads
   dans `logs/crash.log` lors d'un plantage natif ; le panneau y écrit aussi la
@@ -127,7 +133,21 @@ capture n'apporterait rien. Tout le gain vient du matching.
   premier plan (constaté lancé depuis un terminal comme par WMI), avant qu'on
   puisse poser `WS_EX_NOACTIVATE`. Le panneau note la fenêtre active avant de se
   créer et lui rend le premier plan s'il l'a pris (`focus_step`), puis le
-  vérifie à chaque tour de 250 ms.
+  vérifie à chaque tour de 250 ms. Si cette fenêtre n'existe plus, il le rend au
+  jeu (`give_back_targets`) ; s'il ne peut le rendre à personne, il le dit une
+  fois par épisode, pas à chaque tour.
+- **Souris traversante** : pendant une partie (jeu au premier plan, curseur
+  masqué ou retenu par `ClipCursor`), le panneau ajoute `WS_EX_TRANSPARENT` (sur
+  une fenêtre `WS_EX_LAYERED` opaque) : les clics passent au jeu. Curseur posé
+  sur le panneau, l'état ne change pas, pour qu'il ne bascule pas sous la visée
+  (`mouse_through`).
+- **Panneau unique** : au lancement, avant de lire l'historique,
+  `replace_other_panels` ferme les autres fenêtres Tk « Fortnite Auto Replay »
+  (`WM_CLOSE`, puis attente de la fin du processus) et prend un mutex nommé que
+  chaque panneau tient jusqu'à l'arrêt de son moteur, session enregistrée. Deux
+  lancements rapprochés ne passent donc pas tous les deux : le second ferme le
+  premier dès que sa fenêtre paraît. Si un panneau ne se ferme pas en 8 s (droits
+  plus élevés, panneau figé), un message le dit et le nouveau ne s'ouvre pas.
 - **Aucune valeur dans le code** : tout est configuration.
 
 ## Points d'extension prévus

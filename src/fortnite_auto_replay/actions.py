@@ -7,20 +7,26 @@ Jeu au premier plan : entrées réelles. Backends, par ordre de préférence :
 Jeu visible mais sans le focus : une entrée réelle l'activerait (il volerait
 le focus de la fenêtre où l'on travaille). Le clic est alors posté dans la
 file de messages de sa fenêtre (``WM_LBUTTONDOWN``/``WM_LBUTTONUP``), ce qui ne
-l'active jamais. Unreal calcule le survol des boutons avec le vrai curseur :
-en mode ``cursor``, le curseur est posé sur le bouton le temps du clic (moins
-de 0,2 s), seulement quand la souris est immobile, puis remis à sa place.
+l'active jamais. Au second plan, Fortnite se met en veille et ignore la souris :
+il reçoit d'abord ``WM_ACTIVATEAPP`` pour se croire actif, puis l'inverse
+après le clic. Jamais ``WM_ACTIVATE`` : traité par défaut, il donne le focus à
+la fenêtre, et Windows peut alors la mettre au premier plan.
+
+Unreal calcule le survol des boutons avec le vrai curseur : en mode ``cursor``,
+le curseur est posé sur le bouton le temps du clic (environ 0,25 s), seulement
+quand la souris est immobile, puis remis à sa place.
 
 Le bot ne nécessite aucune injection mémoire.
 """
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import logging
 import random
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from ctypes import wintypes
 from typing import Protocol
 
@@ -34,6 +40,7 @@ _MOUSEEVENTF_LEFTUP = 0x0004
 _MOUSEEVENTF_ABSOLUTE = 0x8000
 _MOUSEEVENTF_VIRTUALDESK = 0x4000
 
+_WM_ACTIVATEAPP = 0x001C
 _WM_MOUSEMOVE = 0x0200
 _WM_LBUTTONDOWN = 0x0201
 _WM_LBUTTONUP = 0x0202
@@ -378,6 +385,25 @@ class BackgroundClicker:
                 return False
             self._sleep(_IDLE_POLL_S)
 
+    @contextlib.contextmanager
+    def _awake(self, hwnd: int) -> Iterator[None]:
+        """Le jeu se croit actif le temps du bloc (sa fenêtre ne l'est jamais), puis plus.
+
+        Au second plan, Fortnite tourne au ralenti et ignore la souris. En sortant
+        du bloc, quoi qu'il arrive, il revient à son état réel ; Unreal relâche au
+        passage les boutons et la capture de la souris.
+        """
+        if not self._cfg.background_activate:
+            yield
+            return
+        self._api.post(hwnd, _WM_ACTIVATEAPP, 1, 0, 0)
+        try:
+            self._sleep(self._cfg.background_wait_s)  # sortie de veille, plein régime
+            yield
+        finally:
+            with contextlib.suppress(InputError):
+                self._api.post(hwnd, _WM_ACTIVATEAPP, 0, 0, 0)
+
     def _press(self, hwnd: int, cx: int, cy: int, clicks: int) -> None:
         post = self._api.post
         post(hwnd, _WM_MOUSEMOVE, 0, cx, cy)
@@ -410,21 +436,25 @@ class BackgroundClicker:
             raise InputError("fenêtre du jeu fermée avant le clic")
         cx, cy = api.to_client(hwnd, x, y)
         if self._cfg.background == "message":
-            self._press(hwnd, cx, cy, clicks)
+            with self._awake(hwnd):
+                self._press(hwnd, cx, cy, clicks)
             return True
         stop = cancel if cancel is not None else _never
         if not self._mouse_idle(stop) or stop():
             return False
-        saved = api.cursor()
-        api.set_cursor(x, y)
-        placed = api.cursor()  # relu : Windows peut rogner la position demandée
-        try:
-            self._press(hwnd, cx, cy, clicks)
-        finally:
-            # retour au même pixel ; une souris bougée pendant le clic garde son
-            # déplacement, pour que le curseur ne recule pas sous la main
-            now_x, now_y = api.cursor()
-            api.set_cursor(saved[0] + now_x - placed[0], saved[1] + now_y - placed[1])
+        with self._awake(hwnd):  # réveil avant de prendre le curseur : moins longtemps parti
+            if stop() or api.buttons_down():  # un bouton enfoncé pendant le réveil
+                return False
+            saved = api.cursor()
+            api.set_cursor(x, y)
+            placed = api.cursor()  # relu : Windows peut rogner la position demandée
+            try:
+                self._press(hwnd, cx, cy, clicks)
+            finally:
+                # retour au même pixel ; une souris bougée pendant le clic garde son
+                # déplacement, pour que le curseur ne recule pas sous la main
+                now_x, now_y = api.cursor()
+                api.set_cursor(saved[0] + now_x - placed[0], saved[1] + now_y - placed[1])
         return True
 
 

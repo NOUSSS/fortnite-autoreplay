@@ -91,7 +91,10 @@ class ActionConfig:
     # clic, puis le remet où il était (le jeu calcule le survol avec le vrai curseur) ;
     # « message » ne touche jamais au curseur.
     background: str = "cursor"  # cursor | message
-    background_wait_s: float = 0.07  # laisse au jeu deux images à 30 i/s avant et après le clic
+    # au second plan, Fortnite se met en veille (30 i/s, « inactif ») et ignore la souris :
+    # il se croit actif le temps du clic (WM_ACTIVATEAPP), sans que sa fenêtre le soit
+    background_activate: bool = True
+    background_wait_s: float = 0.1  # laisse au jeu quelques images entre chaque étape du clic
     mouse_idle_s: float = 0.25  # souris immobile, sans bouton enfoncé, avant de déplacer le curseur
 
     def validate(self) -> None:
@@ -435,6 +438,7 @@ def describe(cfg: Config) -> str:
                 "backend": cfg.actions.backend,
                 "move_before_click": cfg.actions.move_before_click,
                 "background": cfg.actions.background,
+                "background_activate": cfg.actions.background_activate,
             },
             "engine": {
                 "confirm_frames": cfg.engine.confirm_frames,

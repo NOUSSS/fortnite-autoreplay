@@ -60,8 +60,10 @@
 - [ ] Notification Discord quand le bot se met en pause
 - [ ] Packaging en exécutable (`pyinstaller`) et démarrage en administrateur
 - [ ] Raccourci sur le Bureau pour le panneau (à créer à la demande)
-- [ ] Panneau : vérifier en partie qu'un clic dessus laisse le focus au jeu
-- [ ] Vérifier en partie le clic au second plan (modes `cursor` et `message`)
+- [ ] Panneau : vérifier en partie qu'un clic dessus laisse le focus au jeu, et que
+  la souris le traverse (Fortnite masque-t-il ou retient-il le curseur en partie ?)
+- [ ] Vérifier en partie le clic au second plan (modes `cursor` et `message`), avec
+  le réveil `WM_ACTIVATEAPP` : sans lui, le clic sur « Rejouer » n'a pas pris
 
 ## Idées long terme
 
