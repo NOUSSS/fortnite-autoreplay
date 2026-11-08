@@ -51,6 +51,8 @@
 - [x] Mises à jour signées (Ed25519), installées depuis le panneau, avec retour arrière
 - [x] Landing `autoreplay.feitanx.com` et outil de publication (`packaging/release.py`)
 - [x] Essai de mise à jour de bout en bout sur un bureau caché (`packaging/update_e2e.py`)
+- [x] Sauvegarde chiffrée de la clé de signature (`release.py export-key`, `import-key`)
+      et procédure de changement de clé (README)
 
 ## À faire
 
@@ -66,7 +68,7 @@
 - [ ] Compteur de parties (quel clic marque le début d'une partie ?)
 - [ ] Notification Discord quand le bot se met en pause
 - [ ] Démarrage en administrateur (manifeste UAC de l'exécutable)
-- [ ] Sauvegarde ou rotation de la clé de signature des mises à jour
+- [ ] Sauvegarder la vraie clé de signature hors de ce PC (`release.py export-key`)
 - [ ] Raccourci sur le Bureau pour le panneau (à créer à la demande)
 - [ ] Panneau : vérifier en partie qu'un clic dessus laisse le focus au jeu, et que
   la souris le traverse (Fortnite masque-t-il ou retient-il le curseur en partie ?)

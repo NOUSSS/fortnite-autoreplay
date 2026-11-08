@@ -117,6 +117,24 @@ def test_public_key_placeholder_refused() -> None:
         updater.public_key_bytes("REMPLACER")
 
 
+def test_manifest_signed_by_any_listed_key() -> None:
+    other = Ed25519PrivateKey.generate().public_key().public_bytes_raw()
+    assert updater.verify_manifest(raw(manifest()), [other, PUBLIC]).version == "0.3.0"
+    with pytest.raises(UpdateError, match="signature"):
+        updater.verify_manifest(raw(manifest()), [other])
+    with pytest.raises(UpdateError, match="clé publique"):
+        updater.verify_manifest(raw(manifest()), [])
+
+
+def test_shipped_public_keys() -> None:
+    keys = updater.public_keys()
+    assert keys and all(len(key) == 32 for key in keys)
+    assert len(set(keys)) == len(keys)
+    for bad in ((), updater.PUBLIC_KEYS[0], ("REMPLACER",)):
+        with pytest.raises(UpdateError, match="clé publique"):
+            updater.public_keys(bad)
+
+
 def test_check_only_newer() -> None:
     url = "https://autoreplay.example/latest.json"
     opener = serving({url: raw(manifest())})

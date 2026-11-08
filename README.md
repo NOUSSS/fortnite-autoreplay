@@ -177,7 +177,8 @@ L'exécutable vérifie au lancement, puis toutes les six heures,
 `https://autoreplay.feitanx.com/latest.json` (section `update` de la config ;
 `"enabled": false` coupe la vérification). Ce manifeste donne la version, les
 notes, l'adresse, la taille et le sha256 de l'archive. Il est signé en Ed25519
-et seule la clé de `updater.PUBLIC_KEY` est acceptée.
+et seules les clés de `updater.PUBLIC_KEYS` sont acceptées (une seule, sauf le
+temps d'un changement de clé).
 
 Un clic sur « Mettre à jour » dans le panneau télécharge et vérifie l'archive
 dans `.update/`, ferme le panneau, remplace le programme (exécutable,
@@ -203,8 +204,80 @@ Sur le VPS, un conteneur nginx sert `/data/autoreplay` derrière Traefik
 page jamais mis en cache, archives et feuille de style (versionnées) gardées
 un an.
 
+## Clé de signature
+
 La clé privée de signature est chiffrée par DPAPI dans
 `%USERPROFILE%\.secrets\fortnite-autoreplay-release.dpapi` (créée une fois par
 `release.py keygen`), lisible par ce compte Windows sur ce PC seulement. Sans
 elle, aucune nouvelle version ne peut plus atteindre les applications déjà
+distribuées : elle se sauvegarde hors de ce PC. Aucune commande n'affiche la
+clé privée ni ne l'écrit en clair.
+
+### Sauvegarder et restaurer
+
+```powershell
+python packaging/release.py export-key D:\fortnite-autoreplay-cle.json
+```
+
+demande deux fois une phrase de passe (12 caractères au moins, rien ne
+s'affiche à la frappe) et écrit la clé chiffrée par elle : scrypt (128 Mio,
+environ 0,3 s par essai, coûteux à deviner en masse) puis AES-256-GCM. Le
+fichier est relu et déchiffré avant la fin de la commande, et un fichier qui
+existe déjà n'est jamais remplacé. Il donne aussi la clé publique en clair,
+pour savoir quelle clé il contient sans le déchiffrer. Le garder hors de ce PC
+(clé USB, stockage en ligne), et la phrase de passe ailleurs que lui
+(gestionnaire de mots de passe).
+
+Après une réinstallation de Windows, ou sur un autre PC :
+
+```powershell
+python packaging/release.py import-key D:\fortnite-autoreplay-cle.json
+```
+
+remet la clé sous DPAPI pour ce compte, s'il n'y en a pas déjà une. Une phrase
+de passe fausse, ou un fichier modifié, est refusé. La commande dit si la clé
+publique importée est bien dans `updater.PUBLIC_KEYS`.
+
+### Changer de clé
+
+Une application installée ne fait confiance qu'aux clés de sa propre
+`updater.PUBLIC_KEYS`. Pour qu'elle passe à une nouvelle clé, il faut une
+version signée par l'ancienne qui lui apprend la nouvelle, puis une version
+signée par la nouvelle. `release.py build` vérifie toujours le manifeste avec
+la **première** clé de la liste, celle que connaissent les applications déjà
 distribuées.
+
+1. Créer la nouvelle clé à côté de l'actuelle, puis la sauvegarder :
+
+   ```powershell
+   python packaging/release.py keygen --key "$env:USERPROFILE\.secrets\fortnite-autoreplay-release-2.dpapi"
+   python packaging/release.py export-key --key "$env:USERPROFILE\.secrets\fortnite-autoreplay-release-2.dpapi" D:\fortnite-autoreplay-cle-2.json
+   ```
+
+2. Version de passage : ajouter la clé publique affichée **après** l'actuelle,
+   `PUBLIC_KEYS = ("<actuelle>", "<nouvelle>")`, puis publier comme
+   d'habitude. `build` signe avec l'actuelle (clé par défaut) : toutes les
+   installations l'acceptent, et celles qui s'y mettent à jour acceptent
+   ensuite les deux clés.
+3. Laisser aux installations le temps de passer à cette version : elles la
+   voient au lancement ou dans les six heures, mais ne l'installent qu'au clic
+   sur « Mettre à jour ».
+4. Version de bascule : `PUBLIC_KEYS = ("<nouvelle>",)`, construite avec la
+   nouvelle clé (`release.py build --key "$env:USERPROFILE\.secrets\fortnite-autoreplay-release-2.dpapi"`),
+   puis publiée. Une installation restée avant la version de passage refuse
+   désormais toute mise à jour : il faut la remplacer à la main depuis le site.
+5. Faire de la nouvelle clé la clé par défaut, l'ancienne ne servant plus :
+
+   ```powershell
+   Move-Item -Force "$env:USERPROFILE\.secrets\fortnite-autoreplay-release-2.dpapi" "$env:USERPROFILE\.secrets\fortnite-autoreplay-release.dpapi"
+   ```
+
+   La sauvegarde `fortnite-autoreplay-cle-2.json` devient la seule à garder.
+
+Si l'ancienne clé a fuité, publier la bascule juste après la version de
+passage : tant
+qu'une installation accepte l'ancienne clé, quelqu'un qui la détient et
+contrôle aussi le site peut lui faire installer autre chose. Si l'ancienne clé
+est perdue (ni DPAPI ni sauvegarde), aucune version de passage n'est possible :
+la nouvelle version, signée par une nouvelle clé, s'installe à la main sur
+chaque PC.

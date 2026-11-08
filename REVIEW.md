@@ -30,7 +30,10 @@
   se construit en montant la version le temps d'un `python packaging/build.py`.
   Aucun panneau ne doit tourner (mutex commun à la session).
 - `release.py` : ne jamais afficher ni écrire ailleurs la clé privée ; `publish`
-  écrit sur le VPS et se demande avant.
+  écrit sur le VPS et se demande avant. Les tests de `export-key` et
+  `import-key` passent `--key` vers `tmp_path` et remplacent `KEY_FILE` et
+  `getpass` : jamais la vraie clé, jamais de saisie. Ne lancer `export-key` sur
+  la vraie clé qu'à la demande de l'utilisateur, qui tape lui-même la phrase.
 
 ## Zones à relire de près
 
@@ -70,4 +73,9 @@
   effacer que `.update/`.
 - `release.py` : l'ordre d'envoi (archives, page, manifeste en dernier) évite
   qu'une application lise un manifeste dont l'archive manque encore ; le
-  manifeste écrit est revérifié avec la clé publique de l'application.
+  manifeste écrit est revérifié avec la première clé de `updater.PUBLIC_KEYS`,
+  celle des applications déjà distribuées (`verify_for_installed`).
+- Sauvegarde de la clé (`seal_key`, `read_backup`, `open_key`) : tout le
+  fichier hors `ciphertext` est authentifié par AES-GCM ; `export-key` et
+  `import-key` ne remplacent jamais un fichier existant et effacent ce qu'ils
+  ont écrit au moindre échec.

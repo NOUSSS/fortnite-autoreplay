@@ -7,7 +7,8 @@ Le manifeste ``latest.json``, servi avec la landing, décrit la dernière versio
 
 La signature Ed25519 couvre le manifeste sans ``signature`` (JSON canonique :
 clés triées, sans espaces, UTF-8). La clé privée reste sur la machine qui
-publie (``packaging/release.py``), la clé publique est inscrite ici. Un
+publie (``packaging/release.py``), sa clé publique est inscrite ici
+(:data:`PUBLIC_KEYS`, deux clés le temps d'un changement de clé). Un
 manifeste mal signé, une archive dont la taille ou l'empreinte diffère, ou une
 version qui n'est pas plus récente que celle qui tourne, sont refusés : un
 hébergement compromis ne peut ni pousser un autre programme ni faire revenir
@@ -52,8 +53,10 @@ from . import __version__
 
 log = logging.getLogger(__name__)
 
-# clé publique Ed25519 des versions publiées (packaging/release.py keygen)
-PUBLIC_KEY = "zhSlfsXnF06BYo0q5PaVPVTf2OZn3FgTYkEuWKhmz5Q="
+# clés publiques Ed25519 acceptées (packaging/release.py keygen). La première
+# signe les versions et doit être connue des applications déjà distribuées ;
+# une suivante n'apparaît que le temps d'un changement de clé (README).
+PUBLIC_KEYS = ("zhSlfsXnF06BYo0q5PaVPVTf2OZn3FgTYkEuWKhmz5Q=",)
 
 APP_NAME = "Fortnite AutoReplay"
 EXE_NAME = f"{APP_NAME}.exe"
@@ -101,7 +104,7 @@ def canonical(payload: dict[str, Any]) -> bytes:
     )
 
 
-def public_key_bytes(text: str = PUBLIC_KEY) -> bytes:
+def public_key_bytes(text: str) -> bytes:
     try:
         key = base64.b64decode(text, validate=True)
     except (binascii.Error, ValueError) as exc:
@@ -109,6 +112,14 @@ def public_key_bytes(text: str = PUBLIC_KEY) -> bytes:
     if len(key) != 32:
         raise UpdateError("clé publique des mises à jour absente ou invalide")
     return key
+
+
+def public_keys(texts: Sequence[str] | None = None) -> tuple[bytes, ...]:
+    """Clés de :data:`PUBLIC_KEYS` décodées ; :class:`UpdateError` si aucune ou une invalide."""
+    texts = PUBLIC_KEYS if texts is None else texts
+    if isinstance(texts, str) or not texts:
+        raise UpdateError("clé publique des mises à jour absente ou invalide")
+    return tuple(public_key_bytes(text) for text in texts)
 
 
 def _check_url(url: object, what: str) -> str:
@@ -123,13 +134,29 @@ def _check_url(url: object, what: str) -> str:
     raise UpdateError(f"{what}\u00a0: adresse refusée ({url})")
 
 
-def verify_manifest(raw: bytes, public_key: bytes) -> Release:
-    """Vérifie la signature puis la forme du manifeste ; lève :class:`UpdateError`."""
+def _signed_by(keys: Sequence[bytes], signature: bytes, message: bytes) -> bool:
     from cryptography.exceptions import InvalidSignature  # noqa: PLC0415
     from cryptography.hazmat.primitives.asymmetric.ed25519 import (  # noqa: PLC0415
         Ed25519PublicKey,
     )
 
+    for key in keys:
+        try:
+            Ed25519PublicKey.from_public_bytes(key).verify(signature, message)
+        except (ValueError, InvalidSignature):
+            continue
+        return True
+    return False
+
+
+def verify_manifest(raw: bytes, public_key: bytes | Sequence[bytes]) -> Release:
+    """Vérifie la signature (par l'une des clés) puis la forme du manifeste.
+
+    Lève :class:`UpdateError`.
+    """
+    keys = (public_key,) if isinstance(public_key, bytes) else tuple(public_key)
+    if not keys:
+        raise UpdateError("clé publique des mises à jour absente ou invalide")
     try:
         data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -138,9 +165,10 @@ def verify_manifest(raw: bytes, public_key: bytes) -> Release:
         raise UpdateError("manifeste sans signature")
     try:
         signature = base64.b64decode(data.pop("signature"), validate=True)
-        Ed25519PublicKey.from_public_bytes(public_key).verify(signature, canonical(data))
-    except (binascii.Error, ValueError, InvalidSignature) as exc:
+    except (binascii.Error, ValueError) as exc:
         raise UpdateError("signature du manifeste invalide") from exc
+    if not _signed_by(keys, signature, canonical(data)):
+        raise UpdateError("signature du manifeste invalide")
 
     version, sha256, size = data.get("version"), data.get("sha256"), data.get("size")
     notes = data.get("notes", [])
@@ -184,12 +212,12 @@ def check(
     manifest_url: str,
     current: str = __version__,
     *,
-    public_key: bytes | None = None,
+    public_key: bytes | Sequence[bytes] | None = None,
     opener: Opener = _open,
     timeout: float = 15.0,
 ) -> Release | None:
     """La version publiée si elle est plus récente que ``current``, sinon ``None``."""
-    key = public_key if public_key is not None else public_key_bytes()
+    key = public_key if public_key is not None else public_keys()
     url = _check_url(manifest_url, "manifeste")
     try:
         with opener(url, timeout) as response:

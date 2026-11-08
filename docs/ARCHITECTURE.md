@@ -159,7 +159,8 @@ capture n'apporterait rien. Tout le gain vient du matching.
   `_internal` tant qu'il tourne. La nouvelle version, relancée détachée (avec
   `--no-pause` si le bot tournait), efface `.update/` au démarrage.
 - **Confiance dans le manifeste** : signature Ed25519 sur le JSON canonique
-  (clés triées, sans espaces, sans le champ `signature`), version strictement
+  (clés triées, sans espaces, sans le champ `signature`) par l'une des clés de
+  `updater.PUBLIC_KEYS` (deux le temps d'un changement de clé), version strictement
   plus récente, https seulement (http vers la machine elle-même pour les
   essais), archive vérifiée par taille et sha256 avant extraction, chemins du
   zip qui sortiraient du dossier refusés.
