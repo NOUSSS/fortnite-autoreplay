@@ -63,6 +63,10 @@
     "position": null,
     "collapsed": false
   },
+  "update": {
+    "enabled": true,
+    "manifest_url": "https://autoreplay.feitanx.com/latest.json"
+  },
   "template_dir": "templates",
   "log_level": "INFO",
   "states": [

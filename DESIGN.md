@@ -233,7 +233,8 @@ Contrôles natifs de Windows 11, sobres et plats.
 ### Bandeau (InfoBar)
 - **Style :** pleine largeur utile, coins de 4 px, 12 px de marge intérieure, icône de gravité de 12 px puis 8 px avant le message, message en Body blanc, retour à la ligne.
 - **Gravités :** critique (fond brique, icône rose), attention (fond ocre, icône jaune), information (fond couche, icône accent).
-- **Présence :** il n'existe que s'il a quelque chose à dire ; sinon le corps commence directement par le sélecteur.
+- **Action :** un bouton standard facultatif sous le message, aligné sur lui, 8 px plus bas (Mettre à jour, Réessayer). Jamais l'accent : il reste au bouton principal de l'en-tête.
+- **Présence :** il n'existe que s'il a quelque chose à dire ; sinon le corps commence directement par le sélecteur. Le bandeau de mise à jour (information, ou attention après un échec) suit celui du moteur, 16 px plus bas.
 
 ### Ligne d'état (signature)
 Pastille de 8 px à la couleur de l'état, mot d'état en Title, détail en Caption secondaire (le nombre de clics, quand l'état est Actif ou En pause). Toute la ligne, sauf ses boutons, sert de poignée pour déplacer la fenêtre.

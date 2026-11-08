@@ -278,6 +278,18 @@ class PanelConfig:
 
 
 @dataclass(slots=True)
+class UpdateConfig:
+    """Mises à jour de l'exécutable empaqueté (voir ``updater``)."""
+
+    enabled: bool = True  # vérifier au lancement, puis toutes les 6 h
+    manifest_url: str = "https://autoreplay.feitanx.com/latest.json"
+
+    def validate(self) -> None:
+        if not self.manifest_url.startswith(("https://", "http://127.0.0.1", "http://localhost")):
+            raise ConfigError("update.manifest_url doit être une adresse https")
+
+
+@dataclass(slots=True)
 class Config:
     capture: CaptureConfig = field(default_factory=CaptureConfig)
     vision: VisionConfig = field(default_factory=VisionConfig)
@@ -286,6 +298,7 @@ class Config:
     window: WindowConfig = field(default_factory=WindowConfig)
     hotkeys: HotkeyConfig = field(default_factory=HotkeyConfig)
     panel: PanelConfig = field(default_factory=PanelConfig)
+    update: UpdateConfig = field(default_factory=UpdateConfig)
     states: list[StateConfig] = field(
         default_factory=lambda: [copy.copy(s) for s in DEFAULT_STATES]
     )
@@ -299,6 +312,7 @@ class Config:
         self.engine.validate()
         self.window.validate()
         self.panel.validate()
+        self.update.validate()
         seen: set[str] = set()
         for state in self.states:
             state.validate()
@@ -395,6 +409,7 @@ def load_config(
         window=_to_dataclass(WindowConfig, raw.get("window", {})),
         hotkeys=_to_dataclass(HotkeyConfig, raw.get("hotkeys", {})),
         panel=_to_dataclass(PanelConfig, raw.get("panel", {})),
+        update=_to_dataclass(UpdateConfig, raw.get("update", {})),
         template_dir=raw.get("template_dir", "templates"),
         log_level=raw.get("log_level", "INFO"),
     )
@@ -420,6 +435,7 @@ def save_local_config(cfg: Config, path: str | Path = LOCAL_CONFIG_PATH) -> Path
         "window": cfg.window,
         "hotkeys": cfg.hotkeys,
         "panel": cfg.panel,
+        "update": cfg.update,
     }
     for name, section in sections.items():
         payload[name] = {f.name: getattr(section, f.name) for f in fields(section)}

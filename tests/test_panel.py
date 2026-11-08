@@ -422,3 +422,32 @@ def test_a_panel_starting_without_window_is_reported() -> None:
     finder = FakeFinder([], busy=99)
     with pytest.raises(RuntimeError, match="démarrer"):
         replace(finder, timeout_s=0.0)
+
+
+# --- mises à jour -----------------------------------------------------------------
+def test_update_notice_follows_the_update() -> None:
+    from fortnite_auto_replay.panel import update_notice  # noqa: PLC0415
+    from fortnite_auto_replay.updater import UpdateState  # noqa: PLC0415
+
+    assert update_notice(UpdateState()) is None
+    severity, message, action = update_notice(UpdateState("available", "0.3.0"))  # type: ignore[misc]
+    assert (severity, action) == ("info", "Mettre à jour")
+    assert "0.3.0" in message
+    downloading = update_notice(UpdateState("downloading", "0.3.0", progress=0.42))
+    assert downloading is not None
+    assert downloading[1].endswith(f"42{NBSP}%")
+    assert downloading[2] == ""  # pas de bouton pendant le téléchargement
+
+
+def test_update_failure_hides_technical_detail() -> None:
+    from fortnite_auto_replay.panel import update_notice  # noqa: PLC0415
+    from fortnite_auto_replay.updater import UpdateState  # noqa: PLC0415
+
+    failed = update_notice(
+        UpdateState("failed", "0.3.0", error="téléchargement interrompu (<urlopen error 11001>)")
+    )
+    assert failed is not None
+    severity, message, action = failed
+    assert (severity, action) == ("caution", "Réessayer")
+    assert "urlopen" not in message
+    assert "téléchargement interrompu" in message

@@ -42,6 +42,7 @@ from .capture import CaptureError, Frame, ScreenCapture
 from .config import Config, PanelConfig, update_local_config
 from .engine import Engine, Phase, Status
 from .templates import TemplateLibrary
+from .updater import Updates, UpdateState
 from .window import GameWindow
 
 log = logging.getLogger(__name__)
@@ -179,6 +180,28 @@ def explain(status: Status) -> tuple[str, str] | None:  # noqa: PLR0911 - une br
         return "info", (reason if detail else "") + "Quittez le panneau puis relancez-le."
     if status.dry_run:
         return "info", f"Simulation{NBSP}: le bot repère les boutons sans cliquer."
+    return None
+
+
+UPDATE_ACTIONS = {"available": "Mettre à jour", "failed": "Réessayer"}
+# phases d'un moteur qui tourne (pas en pause) : relancé sans pause après une mise à jour
+RUNNING = frozenset({"active", "no_game", "hidden", "background", "capture", "covered", "mouse"})
+
+
+def update_notice(state: UpdateState) -> tuple[str, str, str] | None:
+    """Bandeau de mise à jour : (gravité, message, libellé du bouton), ou rien."""
+    version = state.version
+    if state.phase == "available":
+        return "info", f"La version {version} est disponible.", UPDATE_ACTIONS["available"]
+    if state.phase == "downloading":
+        percent = int(state.progress * 100)
+        return "info", f"Téléchargement de la version {version}… {percent}{NBSP}%", ""
+    if state.phase == "ready":
+        return "info", f"Installation de la version {version}…", ""
+    if state.phase == "failed":
+        reason = state.error.split(" (", 1)[0]  # le détail technique reste dans le journal
+        message = f"La mise à jour a échoué{NBSP}: {reason}."
+        return "caution", message, UPDATE_ACTIONS["failed"]
     return None
 
 
@@ -731,8 +754,9 @@ class Button(tk.Canvas):
         width: int,
         height: int,
         radius: int,
+        bg: str = C.bg,  # fond derrière les coins arrondis (celui d'un bandeau, par exemple)
     ) -> None:
-        super().__init__(parent, width=width, height=height, bg=C.bg, highlightthickness=0, bd=0)
+        super().__init__(parent, width=width, height=height, bg=bg, highlightthickness=0, bd=0)
         self._fill = _KINDS[kind]
         self._command = command
         self._hover = self._pressed = False
@@ -852,8 +876,14 @@ class Segmented(tk.Canvas):
             self.create_text((left + right) / 2, height / 2, text=label, font=face, fill=color)
 
 
+ButtonFactory = Callable[[tk.Misc, str, Callable[[], None], str], Button]
+
+
 class Notice(tk.Canvas):
-    """Bandeau d'information (InfoBar) : icône de gravité et message sur fond teinté."""
+    """Bandeau d'information (InfoBar) : icône de gravité et message sur fond teinté.
+
+    Un bouton d'action facultatif se place sous le message, aligné sur lui.
+    """
 
     _STYLES = {  # noqa: RUF012 - table de constantes
         "critical": (C.critical_bg, C.critical, ICON_ERROR),
@@ -871,16 +901,27 @@ class Notice(tk.Canvas):
         radius: int,
         font: tkfont.Font,
         icon_font: tkfont.Font,
+        make_button: ButtonFactory | None = None,
     ) -> None:
         super().__init__(parent, width=width, height=1, bg=C.bg, highlightthickness=0, bd=0)
         self._width, self._pad, self._gap, self._radius = width, pad, gap, radius
         self._font, self._icon_font = font, icon_font
-        self._shown: tuple[str, str] | None = None
+        self._shown: tuple[str, str, str] | None = None
+        self._make_button = make_button
+        self._button: Button | None = None
+        self._button_key: tuple[str, str] = ("", "")  # libellé, fond
+        self._command: Callable[[], None] = _nothing
 
-    def show(self, severity: str, message: str) -> None:
-        if self._shown == (severity, message):
-            return
-        self._shown = (severity, message)
+    def show(
+        self, severity: str, message: str, action: tuple[str, Callable[[], None]] | None = None
+    ) -> bool:
+        """Dessine le bandeau ; vrai si sa hauteur a changé."""
+        label = action[0] if action is not None else ""
+        if action is not None:
+            self._command = action[1]
+        if self._shown == (severity, message, label):
+            return False
+        self._shown = (severity, message, label)
         background, tint, glyph = self._STYLES[severity]
         self.delete("all")
         pad = self._pad
@@ -895,6 +936,7 @@ class Notice(tk.Canvas):
             width=self._width - text_x - pad,
         )
         bottom = self.bbox(text)[3]
+        bottom = self._place_button(label, background, text_x, bottom)
         line = self._font.metrics("linespace")
         self.create_text(
             pad, pad + line / 2, text=glyph, font=self._icon_font, fill=tint, anchor="w"
@@ -904,7 +946,28 @@ class Notice(tk.Canvas):
             self, (0, 0, self._width - 1, height - 1), self._radius, fill=background, outline=""
         )
         self.tag_lower(shape)
+        changed = int(self.cget("height")) != height
         self.configure(height=height)
+        return changed
+
+    def _place_button(self, label: str, background: str, left: int, bottom: int) -> int:
+        """Bouton d'action sous le message ; rend le nouveau bas du contenu."""
+        if not label or self._make_button is None:
+            if self._button is not None:
+                self._button.destroy()
+                self._button, self._button_key = None, ("", "")
+            return bottom
+        if self._button is None or self._button_key != (label, background):
+            if self._button is not None:
+                self._button.destroy()
+            self._button = self._make_button(self, label, self._run_command, background)
+            self._button_key = (label, background)
+        top = bottom + self._gap
+        self.create_window(left, top, window=self._button, anchor="nw")
+        return top + int(self._button.cget("height"))
+
+    def _run_command(self) -> None:
+        self._command()  # le dernier rappel donné à show, pas celui de la création
 
 
 # --- panneau --------------------------------------------------------------------
@@ -920,9 +983,12 @@ class Panel:
         persist: bool = True,
         win32: Win32 | None = None,
         game: Callable[[], int] | None = None,
+        updates: Updates | None = None,
     ) -> None:
         self.root = root
         self.controller = controller
+        self.updates = updates
+        self._installing = False  # mise à jour prête : le panneau se ferme pour l'installer
         self.persist = persist
         self.hotkeys = hotkeys
         self.win32 = win32 or Win32()
@@ -1031,6 +1097,16 @@ class Panel:
             font=self.f_body,
             icon_font=self.f_icon,
         )
+        self.update_notice = Notice(
+            self.body,
+            width=inner,
+            pad=px(PAD),
+            gap=px(GAP),
+            radius=px(RADIUS),
+            font=self.f_body,
+            icon_font=self.f_icon,
+            make_button=self._notice_button,
+        )
 
         self.s_dialog = self._section("Vous êtes toujours là\u00a0?")
         self.segmented = Segmented(
@@ -1092,6 +1168,22 @@ class Panel:
         self.hint = self._label(self.footer, self.f_caption, C.text_3, text=hint)
         self.hint.pack(side="right")
 
+    def _notice_button(
+        self, parent: tk.Misc, text: str, command: Callable[[], None], bg: str
+    ) -> Button:
+        width = self.f_body.measure(text) + 2 * self.px(PAD)
+        return Button(
+            parent,
+            text,
+            command,
+            kind="standard",
+            font=self.f_body,
+            width=width,
+            height=self.px(CONTROL_H),
+            radius=self.px(RADIUS),
+            bg=bg,
+        )
+
     def _section(self, title: str) -> tk.Frame:
         frame = tk.Frame(self.body, bg=C.bg)
         heading = self._label(frame, self.f_strong, C.text, text=title, anchor="w")
@@ -1111,14 +1203,20 @@ class Panel:
         self.chevron.set_text(ICON_DOWN if self.collapsed else ICON_UP)
         self._place(*self._pos)
 
-    def _layout_body(self, notice: tuple[str, str] | None) -> None:
+    def _layout_body(
+        self, notice: tuple[str, str] | None, update: tuple[str, str, str] | None
+    ) -> None:
         sections = (self.s_dialog, self.s_session, self.s_recent, self.s_totals)
-        for widget in (self.notice, *sections):
+        for widget in (self.notice, self.update_notice, *sections):
             widget.pack_forget()
         top = self.px(PAD)
         if notice is not None:
             self.notice.show(*notice)
             self.notice.pack(fill="x", pady=(top, 0))
+            top = self.px(SECTION_GAP)
+        if update is not None:
+            self._show_update(update)
+            self.update_notice.pack(fill="x", pady=(top, 0))
             top = self.px(SECTION_GAP)
         for section in sections:
             section.pack(fill="x", pady=(top, 0))
@@ -1205,7 +1303,9 @@ class Panel:
             self._guard_focus()
             self._guard_mouse()
             self.controller.check_stall()
-            self._render(self.controller.status())
+            status = self.controller.status()
+            self._render(status)
+            self._watch_update(status)
         except Exception:  # un rendu raté ne doit pas figer le panneau pour de bon
             log.exception("erreur pendant la mise à jour du panneau")
         finally:
@@ -1261,6 +1361,9 @@ class Panel:
             return
 
         notice = explain(status)
+        update = update_notice(self.updates.state()) if self.updates is not None else None
+        # gravité et bouton du bandeau de mise à jour : sa hauteur (le texte suit le téléchargement)
+        update_key = None if update is None else (update[0], update[2])
         counts = [
             (name, number(sum(status.per_state.get(slug, 0) for slug in slugs)))
             for name, slugs in self.controller.counters()
@@ -1274,10 +1377,20 @@ class Panel:
         )
         disabled = frozenset(a for a, _ in ANSWERS) - set(self.controller.still_here_answers())
         hint = missing_hint(disabled)
-        state = (notice, len(recent), hint, tuple(counts), recent, totals, status.still_here)
+        state = (
+            notice,
+            update_key,
+            len(recent),
+            hint,
+            tuple(counts),
+            recent,
+            totals,
+            status.still_here,
+            update,
+        )
         if state == self._last:
             return
-        reflow = not self._last or self._last[:3] != state[:3]  # hauteur changée
+        reflow = not self._last or self._last[:4] != state[:4]  # hauteur changée
         self._last = state
 
         self.segmented.set(status.still_here, disabled)
@@ -1290,8 +1403,32 @@ class Panel:
                 self.dialog_hint.pack(fill="x", pady=(self.px(GAP), 0))
             else:
                 self.dialog_hint.pack_forget()
-            self._layout_body(notice)
+            self._layout_body(notice, update)
             self._place(*self._pos)
+        elif update is not None and self._show_update(update):  # message passé à la ligne
+            self._place(*self._pos)
+
+    def _show_update(self, update: tuple[str, str, str]) -> bool:
+        severity, message, label = update
+        action = (label, self._update_action) if label else None
+        return self.update_notice.show(severity, message, action)
+
+    def _update_action(self) -> None:
+        """« Mettre à jour » ou « Réessayer » : téléchargement en arrière-plan, bot en marche."""
+        if self.updates is None:
+            return
+        log.info("mise à jour : téléchargement demandé")
+        self.updates.download()
+        self._render(self.controller.status())
+
+    def _watch_update(self, status: Status) -> None:
+        """Version prête : le panneau se ferme, l'installe et relance la nouvelle (voir cli)."""
+        if self.updates is None or self._installing or self.updates.state().phase != "ready":
+            return
+        self._installing = True
+        log.info("mise à jour prête : fermeture du panneau pour l'installer")
+        self.updates.request_install(resume=status.phase in RUNNING)
+        self.controller.quit()
 
     @staticmethod
     def _text(label: tk.Label, text: str) -> None:
@@ -1337,21 +1474,35 @@ class Panel:
 
 
 # --- lancement ------------------------------------------------------------------
-def run_panel(cfg: Config, library: TemplateLibrary, *, dry_run: bool = False) -> int:
+def run_panel(
+    cfg: Config,
+    library: TemplateLibrary,
+    *,
+    dry_run: bool = False,
+    updates: Updates | None = None,
+) -> int:
     """Ouvre le panneau, lance le moteur dans son thread, attend la fermeture.
 
-    Lève ``RuntimeError`` si un autre panneau reste ouvert.
+    Lève ``RuntimeError`` si un autre panneau reste ouvert. Une mise à jour
+    demandée depuis le panneau s'installe après le retour (voir ``cli``).
     """
     win32 = Win32()
     try:  # verrou rendu aussi en cas d'échec : le message d'erreur peut rester ouvert
         # avant de lire l'historique : l'ancien panneau y écrit sa session en se fermant
         replace_other_panels(win32)
-        return _open_panel(cfg, library, win32, dry_run=dry_run)
+        return _open_panel(cfg, library, win32, dry_run=dry_run, updates=updates)
     finally:
         win32.release_lock()
 
 
-def _open_panel(cfg: Config, library: TemplateLibrary, win32: Win32, *, dry_run: bool) -> int:
+def _open_panel(
+    cfg: Config,
+    library: TemplateLibrary,
+    win32: Win32,
+    *,
+    dry_run: bool,
+    updates: Updates | None,
+) -> int:
     from .cli import game_in_front  # noqa: PLC0415 - le panneau est lancé par la CLI
     from .hotkeys import HotkeyListener  # noqa: PLC0415 - inutile hors panneau
 
@@ -1371,7 +1522,10 @@ def _open_panel(cfg: Config, library: TemplateLibrary, win32: Win32, *, dry_run:
         home=home,
         win32=win32,
         game=window.hwnd if window is not None else None,
+        updates=updates,
     )
+    if updates is not None:
+        updates.start()
     listener: HotkeyListener | None = None
     if cfg.hotkeys.enabled:
         listener = HotkeyListener(active=game_in_front(window))
@@ -1388,6 +1542,10 @@ def _open_panel(cfg: Config, library: TemplateLibrary, win32: Win32, *, dry_run:
             listener.stop()
         if not controller.join(timeout=_JOIN_S):
             diagnostics.dump_threads(f"le moteur ne s'est pas arrêté en {_JOIN_S:.0f}{NBSP}s")
+            if updates is not None and updates.install_requested:
+                # il lirait encore ses modules dans _internal pendant qu'on le remplace
+                log.warning("mise à jour reportée : le moteur tourne encore")
+                updates.install_requested = False
         with contextlib.suppress(tk.TclError):  # déjà détruite
             root.destroy()
     return 0
@@ -1395,6 +1553,10 @@ def _open_panel(cfg: Config, library: TemplateLibrary, win32: Win32, *, dry_run:
 
 def _no_game() -> int:
     return 0
+
+
+def _nothing() -> None:
+    return None
 
 
 class _PanelFinder(Protocol):

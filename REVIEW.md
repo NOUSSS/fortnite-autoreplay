@@ -25,6 +25,12 @@
 
   `.impeccable/review/foreground.json` doit dire `"foreground_changed": false`
   (premier plan rendu à la fin de la création, et jamais repris ensuite).
+- Mise à jour réelle : `python packaging/update_e2e.py <ancien.zip> <nouveau.zip>`
+  (panneau sur un bureau Windows caché, qui ne voit pas le jeu). Le nouveau zip
+  se construit en montant la version le temps d'un `python packaging/build.py`.
+  Aucun panneau ne doit tourner (mutex commun à la session).
+- `release.py` : ne jamais afficher ni écrire ailleurs la clé privée ; `publish`
+  écrit sur le VPS et se demande avant.
 
 ## Zones à relire de près
 
@@ -57,3 +63,11 @@
   un clic n'est envoyé que si le point visé appartient au processus du jeu.
 - `window.py` : handles 64 bits (instances `WinDLL` privées avec `argtypes`),
   fenêtres annexes « Fortnite » (anti-triche, rapport de plantage) à écarter.
+- `updater.py` : rien du manifeste n'est utilisé avant `verify_manifest` ;
+  `install` remet tout en place à la moindre erreur et ne touche jamais aux
+  fichiers de l'utilisateur (`USER_PATHS`) ; l'installation par le panneau ne
+  part qu'après l'arrêt du moteur et la destruction de Tk ; `cleanup` ne doit
+  effacer que `.update/`.
+- `release.py` : l'ordre d'envoi (archives, page, manifeste en dernier) évite
+  qu'une application lise un manifeste dont l'archive manque encore ; le
+  manifeste écrit est revérifié avec la clé publique de l'application.

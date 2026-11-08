@@ -33,7 +33,9 @@ En cas de problème
 
 Mises à jour
 
-Cette version ne se met pas à jour toute seule. Pour passer à une nouvelle version, remplacez le dossier, en gardant config\local.json si vous voulez conserver vos réglages.
+L’application vérifie au lancement, puis toutes les six heures, si une version plus récente existe sur autoreplay.feitanx.com. Le panneau vous le signale : un clic sur « Mettre à jour » la télécharge, l’installe et relance l’application. Vos réglages (config\local.json), l’historique et les journaux restent.
+
+Chaque version est signée : une archive modifiée ou venue d’ailleurs est refusée. Pour désactiver la vérification, mettez "enabled": false dans la section "update" de config\local.json.
 
 
 Avertissement

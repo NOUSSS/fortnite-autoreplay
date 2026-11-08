@@ -1,6 +1,9 @@
 numpy>=1.26
 Pillow>=10.0
 
+# signature des mises à jour (Ed25519)
+cryptography>=42
+
 # capture rapide (optionnel, recommandé) — pip install dxcam ; mss en repli
 mss>=9.0
 dxcam>=0.0.5 ; sys_platform == "win32"

@@ -45,6 +45,13 @@
 - [x] Panneau sans prise de focus et invisible aux captures ; clic annulé si une fenêtre couvre le bouton
 - [x] Deux notes sur `F8` (reprise, pause)
 
+## Fait (distribution)
+
+- [x] Exécutable PyInstaller et zip à distribuer, `Lisez-moi.txt`
+- [x] Mises à jour signées (Ed25519), installées depuis le panneau, avec retour arrière
+- [x] Landing `autoreplay.feitanx.com` et outil de publication (`packaging/release.py`)
+- [x] Essai de mise à jour de bout en bout sur un bureau caché (`packaging/update_e2e.py`)
+
 ## À faire
 
 - [ ] Capturer les templates réels sur l'écran de l'utilisateur
@@ -58,7 +65,8 @@
       gêne le jeu (à mesurer machine au repos)
 - [ ] Compteur de parties (quel clic marque le début d'une partie ?)
 - [ ] Notification Discord quand le bot se met en pause
-- [ ] Packaging en exécutable (`pyinstaller`) et démarrage en administrateur
+- [ ] Démarrage en administrateur (manifeste UAC de l'exécutable)
+- [ ] Sauvegarde ou rotation de la clé de signature des mises à jour
 - [ ] Raccourci sur le Bureau pour le panneau (à créer à la demande)
 - [ ] Panneau : vérifier en partie qu'un clic dessus laisse le focus au jeu, et que
   la souris le traverse (Fortnite masque-t-il ou retient-il le curseur en partie ?)

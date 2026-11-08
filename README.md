@@ -156,6 +156,7 @@ Rien n'est codé en dur : seuils, ROI, délais et zones de clic sont dans
 - `docs/ARCHITECTURE.md` — découpage des modules et flux d'exécution
 - `docs/TEMPLATES.md` — comment capturer / valider les templates
 - `docs/ROADMAP.md` — ce qui est fait, ce qui reste à faire
+- `CHANGELOG.md` — notes de chaque version, reprises par la landing et le manifeste
 
 ## Empaquetage
 
@@ -169,3 +170,41 @@ Construit `dist/Fortnite AutoReplay/` (PyInstaller, sans console) puis
 `Fortnite AutoReplay.exe` ouvre le panneau ; les commandes de la CLI restent
 possibles (`"Fortnite AutoReplay.exe" check`). Depuis l'exécutable, config,
 logs et captures se lisent et s'écrivent à côté de lui.
+
+## Mises à jour
+
+L'exécutable vérifie au lancement, puis toutes les six heures,
+`https://autoreplay.feitanx.com/latest.json` (section `update` de la config ;
+`"enabled": false` coupe la vérification). Ce manifeste donne la version, les
+notes, l'adresse, la taille et le sha256 de l'archive. Il est signé en Ed25519
+et seule la clé de `updater.PUBLIC_KEY` est acceptée.
+
+Un clic sur « Mettre à jour » dans le panneau télécharge et vérifie l'archive
+dans `.update/`, ferme le panneau, remplace le programme (exécutable,
+`_internal`, `templates`, `config/default.json`, `Lisez-moi.txt`) en gardant
+`config/local.json`, `logs` et `captures`, puis relance la nouvelle version, qui
+efface `.update/`. En cas d'échec, l'ancienne version est remise en place et
+relancée. En ligne de commande : `"Fortnite AutoReplay.exe" update [--install]`.
+
+## Publier une version
+
+1. Monter la version (`src/fortnite_auto_replay/__init__.py` et
+   `pyproject.toml`) et ajouter sa section en haut de `CHANGELOG.md`.
+2. `python packaging/release.py build` : zip, landing (`site/` rendu dans
+   `dist/site/`) et `latest.json` signé.
+3. `python packaging/update_e2e.py dist/FortniteAutoReplay-<précédente>.zip
+   dist/FortniteAutoReplay-<nouvelle>.zip` : vraie mise à jour, sur un bureau
+   Windows caché (aucun panneau ne doit tourner).
+4. `python packaging/release.py publish` : envoie `dist/site/` sur le VPS
+   (`/data/autoreplay`), l'archive d'abord et le manifeste en dernier.
+
+Sur le VPS, un conteneur nginx sert `/data/autoreplay` derrière Traefik
+(Coolify) et Cloudflare, avec `packaging/nginx.conf` : `latest.json` et la
+page jamais mis en cache, archives et feuille de style (versionnées) gardées
+un an.
+
+La clé privée de signature est chiffrée par DPAPI dans
+`%USERPROFILE%\.secrets\fortnite-autoreplay-release.dpapi` (créée une fois par
+`release.py keygen`), lisible par ce compte Windows sur ce PC seulement. Sans
+elle, aucune nouvelle version ne peut plus atteindre les applications déjà
+distribuées.

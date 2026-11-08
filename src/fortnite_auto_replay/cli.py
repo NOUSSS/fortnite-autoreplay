@@ -11,8 +11,8 @@ from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 
+from . import __version__, diagnostics, history, updater, vision
 from . import config as config_mod
-from . import diagnostics, history, vision
 from .actions import Actions, InputError
 from .capture import CaptureError, ScreenCapture
 from .engine import Engine
@@ -247,21 +247,24 @@ def cmd_config(args: argparse.Namespace) -> int:
 def _panel_error(message: str) -> int:
     """Erreur de démarrage du panneau : lancé sans console, il doit l'afficher."""
     log.error("panneau : %s", message)
+    _show_error(
+        f"Le panneau n\u2019a pas pu démarrer\u00a0: {message}.\n\nDétail dans logs/bot.log."
+    )
+    return 1
+
+
+def _show_error(text: str) -> None:
+    """Message d'erreur dans une boîte de dialogue : lancé sans console, rien ne s'afficherait."""
     try:
         import tkinter  # noqa: PLC0415
         from tkinter import messagebox  # noqa: PLC0415
 
         root = tkinter.Tk()
         root.withdraw()
-        messagebox.showerror(
-            "Fortnite AutoReplay",
-            f"Le panneau n\u2019a pas pu démarrer\u00a0: {message}.\n\nDétail dans logs/bot.log.",
-            parent=root,
-        )
+        messagebox.showerror("Fortnite AutoReplay", text, parent=root)
         root.destroy()
     except Exception:  # pas d'affichage possible : le log suffit
         log.exception("message d'erreur non affiché")
-    return 1
 
 
 def cmd_panel(args: argparse.Namespace) -> int:
@@ -272,13 +275,102 @@ def cmd_panel(args: argparse.Namespace) -> int:
         cfg = _build_config(args)
     except config_mod.ConfigError as exc:
         return _panel_error(f"configuration invalide ({exc})")
+    if args.no_pause:  # relance après une mise à jour : le bot tournait
+        cfg.engine.start_paused = False
     library = _prepare_library(cfg)
     if not library.states:
         return _panel_error(f"aucun modèle de bouton dans {cfg.resolved_template_dir()}")
+    updates = _panel_updates(cfg, args.argv)
     try:
-        return panel.run_panel(cfg, library, dry_run=args.dry_run)
+        code = panel.run_panel(cfg, library, dry_run=args.dry_run, updates=updates)
     except (InputError, RuntimeError) as exc:  # WindowError hérite de RuntimeError
         return _panel_error(str(exc))
+    finally:
+        if updates is not None:
+            updates.stop()
+    if updates is not None and updates.install_requested:
+        _install_update(updates)
+    return code
+
+
+def _panel_updates(cfg: config_mod.Config, argv: list[str]) -> updater.Updates | None:
+    """Suivi des mises à jour : exécutable empaqueté seulement (les sources suivent git)."""
+    root = updater.frozen_root()
+    if root is None or not cfg.update.enabled:
+        return None
+    return updater.Updates(root, cfg.update.manifest_url, relaunch_args=relaunch_options(argv))
+
+
+def relaunch_options(argv: list[str]) -> list[str]:
+    """Options du panneau à reprendre quand il se relance (``--dry-run``, ``--config``…).
+
+    Sans la commande ``panel`` (l'exécutable ouvre le panneau quand il ne reçoit
+    que des options) ni ``--no-pause``, ajouté seulement si le bot tournait. Le
+    chemin de ``--config`` devient absolu : la relance part du dossier de
+    l'application.
+    """
+    options = argv[1:] if argv[:1] == ["panel"] else list(argv)
+    kept: list[str] = []
+    pending_config = False
+    for option in options:
+        if pending_config:
+            kept.append(str(Path(option).resolve()))
+            pending_config = False
+        elif option == "--config":
+            kept.append(option)
+            pending_config = True
+        elif option.startswith("--config="):
+            kept.append("--config=" + str(Path(option.split("=", 1)[1]).resolve()))
+        elif option != "--no-pause":
+            kept.append(option)
+    return kept
+
+
+def _install_update(updates: updater.Updates) -> None:
+    """Panneau fermé, moteur arrêté : remplace le programme, relance la nouvelle version.
+
+    En cas d'échec, tout est remis en place et la version actuelle est relancée.
+    """
+    try:
+        updates.install_pending()
+    except updater.UpdateError as exc:
+        log.error("mise à jour : %s", exc)
+        _show_error(
+            f"La mise à jour n\u2019a pas pu s\u2019installer\u00a0: {exc}.\n\n"
+            "La version actuelle est conservée, détail dans logs/bot.log."
+        )
+        updater.relaunch(updates.root, updates.relaunch_args)  # en pause
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    """Vérifie la dernière version publiée ; ``--install`` l'installe (exécutable seulement)."""
+    cfg = _build_config(args)
+    try:
+        release = updater.check(args.manifest or cfg.update.manifest_url)
+    except updater.UpdateError as exc:
+        log.error("mise à jour : %s", exc)
+        return 1
+    if release is None:
+        print(f"Version {__version__} à jour.")
+        return 0
+    print(f"Version {release.version} disponible (version actuelle : {__version__}).")
+    if not args.install:
+        return 0
+    root = updater.frozen_root()
+    if root is None:
+        log.error("mise à jour : seulement depuis l'exécutable (depuis les sources : git pull)")
+        return 2
+    folder = root / updater.UPDATE_DIR / release.version
+    try:
+        archive = updater.download(release, folder / f"FortniteAutoReplay-{release.version}.zip")
+        updater.install(updater.extract(archive, folder / "new"), root)
+    except updater.UpdateError as exc:
+        log.error("mise à jour : %s", exc)
+        return 1
+    log.info("mise à jour : version %s installée", release.version)
+    if not args.no_restart:
+        updater.relaunch(root, [])
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -308,7 +400,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     panel = sub.add_parser("panel", help="panneau de contrôle au-dessus du jeu")
     _add_common(panel)
+    panel.add_argument("--no-pause", action="store_true", help="démarrer le bot sans attendre")
     panel.set_defaults(func=cmd_panel)
+
+    update = sub.add_parser("update", help="vérifier ou installer la dernière version")
+    _add_common(update)
+    update.add_argument("--manifest", help="adresse du manifeste (défaut : update.manifest_url)")
+    update.add_argument("--install", action="store_true", help="télécharger puis installer")
+    update.add_argument("--no-restart", action="store_true", help="ne pas relancer après")
+    update.set_defaults(func=cmd_update)
 
     stats = sub.add_parser("stats", help="totaux des sessions enregistrées")
     _add_common(stats)
@@ -319,6 +419,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    args.argv = list(sys.argv[1:] if argv is None else argv)  # repris à la relance du panneau
     setup_logging("DEBUG" if args.verbose else "INFO")
     diagnostics.install(LOG_DIR)
     ensure_dpi_awareness()

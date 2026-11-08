@@ -44,8 +44,9 @@ premier plan et des messages de fenêtre au second plan.
 | `hotkeys.py` | `F8`/`F9` via `GetAsyncKeyState`, seulement quand le jeu est au premier plan |
 | `diagnostics.py` | Exceptions non rattrapées au journal, piles des threads dans `logs/crash.log` |
 | `sounds.py` | Deux notes sur `F8` (reprise, pause) |
-| `panel.py` | Panneau de contrôle tkinter, moteur dans un thread |
-| `cli.py` | `run`, `check`, `config`, `window`, `stats`, `panel` + surcharges en ligne de commande |
+| `panel.py` | Panneau de contrôle tkinter, moteur dans un thread, bandeau de mise à jour |
+| `updater.py` | Manifeste signé, téléchargement vérifié, installation tout ou rien, relance |
+| `cli.py` | `run`, `check`, `config`, `window`, `stats`, `panel`, `update` + surcharges en ligne de commande |
 
 ## Performance
 
@@ -149,6 +150,19 @@ capture n'apporterait rien. Tout le gain vient du matching.
   lancements rapprochés ne passent donc pas tous les deux : le second ferme le
   premier dès que sa fenêtre paraît. Si un panneau ne se ferme pas en 8 s (droits
   plus élevés, panneau figé), un message le dit et le nouveau ne s'ouvre pas.
+- **Mise à jour sans programme d'aide** : Windows permet de renommer un
+  exécutable en cours d'exécution et son dossier `_internal`. Le programme
+  installé part dans `.update/old/`, la nouvelle version prend sa place, et
+  tout est remis en place si un renommage échoue. L'installation n'a lieu
+  qu'une fois le moteur arrêté (session écrite) et la fenêtre Tk détruite,
+  juste avant `os._exit` : l'ancien processus lit encore des modules dans
+  `_internal` tant qu'il tourne. La nouvelle version, relancée détachée (avec
+  `--no-pause` si le bot tournait), efface `.update/` au démarrage.
+- **Confiance dans le manifeste** : signature Ed25519 sur le JSON canonique
+  (clés triées, sans espaces, sans le champ `signature`), version strictement
+  plus récente, https seulement (http vers la machine elle-même pour les
+  essais), archive vérifiée par taille et sha256 avant extraction, chemins du
+  zip qui sortiraient du dossier refusés.
 - **Aucune valeur dans le code** : tout est configuration.
 
 ## Points d'extension prévus

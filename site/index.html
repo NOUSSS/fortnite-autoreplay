@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fortnite AutoReplay</title>
+  <meta name="description" content="Application Windows qui relance vos parties de Fortnite&nbsp;: elle reconnaît les boutons de fin de partie et du salon, et clique dessus à votre place.">
+  <meta name="theme-color" content="#1c1c1c">
+  <link rel="canonical" href="{{site_url}}/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Fortnite AutoReplay">
+  <meta property="og:description" content="Application Windows qui relance vos parties de Fortnite à votre place.">
+  <meta property="og:url" content="{{site_url}}/">
+  <meta property="og:locale" content="fr_FR">
+  <link rel="stylesheet" href="styles.css?v={{styles_version}}">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="wordmark" href="./">Fortnite AutoReplay</a>
+      <nav class="site-nav" aria-label="Sections">
+        <a href="#installation">Installation</a>
+        <a href="#nouveautes">Nouveautés</a>
+        <a href="{{source_url}}">Code source</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero wrap">
+      <div class="hero-text">
+        <h1>Relance automatique des parties de Fortnite</h1>
+        <p class="lead">Application Windows qui clique à votre place sur les boutons de fin de partie et du salon, pour enchaîner les parties sans intervenir.</p>
+        <div class="download">
+          <a class="button button-accent" href="{{download_url}}" download>Télécharger</a>
+          <p class="facts">Version {{version}} · Windows 10 et 11 · {{size}}</p>
+        </div>
+      </div>
+
+      <figure class="hero-figure">
+        <div class="panel" role="img" aria-label="Le panneau de contrôle&nbsp;: bot actif, 83 clics dans la session, réponse Prêt au dialogue, derniers clics et totaux.">
+          <div class="panel-header">
+            <span class="panel-dot is-success"></span>
+            <span class="panel-state">Actif</span>
+            <span class="panel-detail">83&nbsp;clics</span>
+            <span class="panel-primary">Pause</span>
+            <span class="panel-chevron"><svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 7.75 6 4.25l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </div>
+          <div class="panel-body">
+            <div class="panel-section">
+              <p class="panel-heading">Vous êtes toujours là&nbsp;?</p>
+              <div class="segmented">
+                <span class="segment is-selected">Prêt</span>
+                <span class="segment">Pas encore</span>
+                <span class="segment">Ignorer</span>
+              </div>
+            </div>
+            <div class="panel-section">
+              <p class="panel-heading">Session</p>
+              <dl class="panel-grid">
+                <div><dt>Passer</dt><dd>9</dd></div>
+                <div><dt>Retour au salon</dt><dd>31</dd></div>
+                <div><dt>Continuer</dt><dd>12</dd></div>
+                <div><dt>Prêt</dt><dd>0</dd></div>
+                <div><dt>Jouer</dt><dd>31</dd></div>
+                <div><dt>Toujours là</dt><dd>0</dd></div>
+                <div><dt>Durée</dt><dd>6&nbsp;h&nbsp;12</dd></div>
+              </dl>
+            </div>
+            <div class="panel-section">
+              <p class="panel-heading">Derniers clics</p>
+              <ul class="panel-recent">
+                <li><time>21:42</time>Jouer</li>
+                <li><time>21:41</time>Retour au salon</li>
+                <li><time>21:41</time>Continuer</li>
+                <li><time>21:18</time>Jouer</li>
+                <li><time>21:17</time>Retour au salon</li>
+              </ul>
+            </div>
+            <div class="panel-section">
+              <p class="panel-heading">Toutes les sessions</p>
+              <p class="panel-totals">12&nbsp;sessions, 1&nbsp;940&nbsp;clics, 41&nbsp;h</p>
+            </div>
+          </div>
+          <div class="panel-footer">
+            <span class="panel-button">Quitter</span>
+            <span class="panel-hint">En jeu, F8&nbsp;: pause, F9&nbsp;: quitter</span>
+          </div>
+        </div>
+      </figure>
+    </section>
+
+    <section class="section wrap" id="fonctionnement" aria-labelledby="fonctionnement-titre">
+      <h2 id="fonctionnement-titre">Fonctionnement</h2>
+      <ol class="steps">
+        <li>
+          <h3>Vous lancez la première partie</h3>
+          <p>Le bot ne joue pas à votre place. Il prend le relais à la fin de chaque partie.</p>
+        </li>
+        <li>
+          <h3>Il clique sur les bons boutons</h3>
+          <p>Passer, Retourner au salon, Continuer, puis Prêt ou Jouer&nbsp;: il les reconnaît à leur image et ne clique sur rien d’autre. En groupe, il répond aussi au dialogue «&nbsp;Vous êtes toujours là&nbsp;?&nbsp;».</p>
+        </li>
+        <li>
+          <h3>Le panneau dit où il en est</h3>
+          <p>Posé sur le jeu, il indique si le bot est actif, en pause, en attente du jeu ou bloqué, et ce qu’il faut faire.</p>
+        </li>
+      </ol>
+    </section>
+
+    <section class="section wrap" id="installation" aria-labelledby="installation-titre">
+      <h2 id="installation-titre">Installation</h2>
+      <ol class="install">
+        <li>Téléchargez le zip, puis extrayez le dossier «&nbsp;Fortnite AutoReplay&nbsp;» où vous voulez, par exemple dans Documents.</li>
+        <li>Lancez «&nbsp;Fortnite AutoReplay.exe&nbsp;». Si Windows affiche «&nbsp;Windows a protégé votre ordinateur&nbsp;», cliquez sur «&nbsp;Informations complémentaires&nbsp;», puis sur «&nbsp;Exécuter quand même&nbsp;»&nbsp;: l’application n’est pas signée par un éditeur reconnu.</li>
+        <li>Dans Fortnite, choisissez la langue française et l’affichage en plein écran fenêtré. En plein écran exclusif, Windows ne montre aucune fenêtre par-dessus le jeu.</li>
+        <li>Cliquez sur Lancer dans le panneau, ou appuyez sur F8 en jeu. F9 quitte.</li>
+      </ol>
+    </section>
+
+    <section class="section wrap" id="mises-a-jour" aria-labelledby="mises-a-jour-titre">
+      <div class="split">
+        <div class="split-text">
+          <h2 id="mises-a-jour-titre">Mises à jour</h2>
+          <p>L’application vérifie au lancement, puis toutes les six heures, si une version plus récente existe. Le panneau vous le signale, et un clic sur «&nbsp;Mettre à jour&nbsp;» la télécharge puis l’installe. Vos réglages restent.</p>
+          <p>Chaque version est signée&nbsp;: une archive modifiée ou venue d’ailleurs est refusée. Pour cette vérification, l’application lit seulement le fichier de version de ce site et n’envoie rien d’autre.</p>
+        </div>
+        <figure class="split-figure">
+          <div class="panel panel-cropped" role="img" aria-label="Le panneau annonce une nouvelle version, avec le bouton Mettre à jour.">
+            <div class="panel-header">
+              <span class="panel-dot is-neutral"></span>
+              <span class="panel-state">En pause</span>
+              <span class="panel-primary">Lancer</span>
+              <span class="panel-chevron"><svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 7.75 6 4.25l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            </div>
+            <div class="panel-body">
+              <div class="panel-notice">
+                <svg class="panel-notice-icon" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="5.45" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M6 5.4v3.1" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><circle cx="6" cy="3.6" r=".7" fill="currentColor"/></svg>
+                <div class="panel-notice-content">
+                  <p>La version {{version}} est disponible.</p>
+                  <span class="panel-button">Mettre à jour</span>
+                </div>
+              </div>
+              <div class="panel-section">
+                <p class="panel-heading">Vous êtes toujours là&nbsp;?</p>
+                <div class="segmented">
+                  <span class="segment is-selected">Prêt</span>
+                  <span class="segment">Pas encore</span>
+                  <span class="segment">Ignorer</span>
+                </div>
+              </div>
+              <div class="panel-section">
+                <p class="panel-heading">Session</p>
+                <dl class="panel-grid">
+                  <div><dt>Passer</dt><dd>0</dd></div>
+                  <div><dt>Retour au salon</dt><dd>0</dd></div>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </figure>
+</div>
+    </section>
+
+    <section class="section wrap" id="nouveautes" aria-labelledby="nouveautes-titre">
+      <h2 id="nouveautes-titre">Nouveautés</h2>
+      <div class="releases">
+{{changelog}}
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>Projet indépendant, sans lien avec Epic Games. Fortnite est une marque d’Epic Games. Automatiser le jeu peut contrevenir à ses conditions d’utilisation&nbsp;: vous utilisez l’application à vos risques.</p>
+      <p><a href="{{source_url}}">Code source</a> sous licence MIT.</p>
+    </div>
+  </footer>
+</body>
+</html>

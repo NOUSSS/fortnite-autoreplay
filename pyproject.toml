@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fortnite-auto-replay"
-version = "0.1.1"
+version = "0.2.0"
 description = "Bot de rejeu automatique Fortnite piloté par reconnaissance d'écran"
 requires-python = ">=3.10"
-dependencies = ["numpy>=1.26", "Pillow>=10.0"]
+dependencies = ["numpy>=1.26", "Pillow>=10.0", "cryptography>=42"]
 
 [project.optional-dependencies]
 fast = ["mss>=9.0", "dxcam>=0.0.5; sys_platform == 'win32'", "opencv-python>=4.9", "pydirectinput>=1.0.4; sys_platform == 'win32'"]
