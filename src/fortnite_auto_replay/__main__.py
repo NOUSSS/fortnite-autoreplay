@@ -10,11 +10,14 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from typing import NoReturn
 
 from .cli import main
 
-if __name__ == "__main__":
-    code = main()
+
+def run(argv: list[str] | None = None) -> NoReturn:
+    """Lance la CLI puis sort sans passer par l'arrêt normal de l'interpréteur."""
+    code = main(argv)
     logging.getLogger("fortnite_auto_replay").info("sortie (code %d)", code)
     logging.shutdown()
     try:
@@ -23,3 +26,7 @@ if __name__ == "__main__":
     except Exception:
         pass
     os._exit(code)
+
+
+if __name__ == "__main__":
+    run()

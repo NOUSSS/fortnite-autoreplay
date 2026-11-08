@@ -142,7 +142,8 @@ capture n'apporterait rien. Tout le gain vient du matching.
   sur le panneau, l'état ne change pas, pour qu'il ne bascule pas sous la visée
   (`mouse_through`).
 - **Panneau unique** : au lancement, avant de lire l'historique,
-  `replace_other_panels` ferme les autres fenêtres Tk « Fortnite Auto Replay »
+  `replace_other_panels` ferme les autres fenêtres Tk « Fortnite AutoReplay »
+  (ou « Fortnite Auto Replay », titre de la version 0.1.0 lancée depuis les sources)
   (`WM_CLOSE`, puis attente de la fin du processus) et prend un mutex nommé que
   chaque panneau tient jusqu'à l'arrêt de son moteur, session enregistrée. Deux
   lancements rapprochés ne passent donc pas tous les deux : le second ferme le

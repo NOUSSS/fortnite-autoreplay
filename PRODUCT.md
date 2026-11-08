@@ -51,7 +51,7 @@ attente du jeu ou bloqué.
 
 ## Brand Commitments
 
-Nom : Fortnite Auto Replay. Aucun logo. Texte en français : vouvoiement,
+Nom : Fortnite AutoReplay. Aucun logo. Texte en français : vouvoiement,
 espace insécable avant « : ; ? ! », « … », apostrophe typographique ; pas de
 capitales espacées, pas de ton marketing, pas de point d'exclamation.
 

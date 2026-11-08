@@ -1,5 +1,5 @@
 ---
-name: Fortnite Auto Replay
+name: Fortnite AutoReplay
 description: Panneau de contrôle de bureau du bot de rejeu, au thème sombre de Windows 11.
 colors:
   bg: "#202020"
@@ -124,7 +124,7 @@ components:
     height: "24px"
 ---
 
-# Design System: Fortnite Auto Replay
+# Design System: Fortnite AutoReplay
 
 ## Overview
 

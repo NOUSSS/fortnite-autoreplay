@@ -1,0 +1,41 @@
+Fortnite AutoReplay {version}
+
+Enchaîne les parties de Fortnite sans vous : l’application reconnaît à l’écran les boutons de fin de partie et du salon (Retourner au salon, Continuer, Prêt) et clique dessus. Elle répond aussi au dialogue « Vous êtes toujours là ? » d’un groupe.
+
+
+Installation
+
+1. Extrayez le dossier « Fortnite AutoReplay » où vous voulez, par exemple dans Documents. Ne lancez pas l’application depuis le zip.
+2. Lancez « Fortnite AutoReplay.exe ». Windows peut afficher « Windows a protégé votre ordinateur » : cliquez sur « Informations complémentaires », puis sur « Exécuter quand même ». L’application n’est pas signée, d’où cet avertissement.
+
+
+Avant de jouer
+
+- Fortnite doit être en français : les boutons sont reconnus d’après leur texte.
+- Réglez l’affichage du jeu en plein écran fenêtré (ou fenêtré). En plein écran exclusif, Windows ne montre aucune fenêtre par-dessus le jeu.
+- Toutes les résolutions conviennent : les modèles de boutons, capturés en 1920 × 1080, s’adaptent à la taille de la fenêtre.
+
+
+Utilisation
+
+- Un petit panneau s’ouvre au-dessus du jeu. Le bot démarre en pause : cliquez sur Lancer, ou appuyez sur F8 dans le jeu.
+- F8 lance le bot ou le met en pause, F9 le quitte. Ces touches ne comptent que quand Fortnite est au premier plan.
+- Lancez la première partie à la main, le bot enchaîne ensuite.
+- Le panneau se déplace en le tirant par sa ligne du haut. S’il couvre un bouton à cliquer, le clic est annulé et le panneau vous demande de le déplacer.
+- Le jeu peut rester au second plan, sur un écran visible : le bot clique quand même.
+
+
+En cas de problème
+
+- Le panneau signale tout blocage et dit quoi faire. Le détail est dans logs\bot.log.
+- Si les clics ne passent pas, lancez l’application en administrateur : clic droit sur « Fortnite AutoReplay.exe », puis « Exécuter en tant qu’administrateur ».
+
+
+Mises à jour
+
+Cette version ne se met pas à jour toute seule. Pour passer à une nouvelle version, remplacez le dossier, en gardant config\local.json si vous voulez conserver vos réglages.
+
+
+Avertissement
+
+Projet indépendant, sans lien avec Epic Games. Fortnite est une marque d’Epic Games. Automatiser le jeu peut contrevenir à ses conditions d’utilisation : vous utilisez l’application à vos risques.

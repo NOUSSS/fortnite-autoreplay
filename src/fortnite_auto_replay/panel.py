@@ -412,7 +412,9 @@ _SYNCHRONIZE = 0x00100000
 _WAIT_OBJECT_0 = 0
 _WAIT_ABANDONED = 0x80  # verrou d'un processus mort : acquis quand même
 _LOCK_NAME = "Local\\FortniteAutoReplay.panel"
-TITLE = "Fortnite Auto Replay"
+TITLE = "Fortnite AutoReplay"
+# titres des panneaux à remplacer, ancien nom compris (versions 0.1.0 lancées depuis les sources)
+_PANEL_TITLES = frozenset({TITLE, "Fortnite Auto Replay"})
 _TK_CLASS = "TkTopLevel"
 _WDA_EXCLUDEFROMCAPTURE = 0x11
 _DWMWA_WINDOW_CORNER_PREFERENCE = 33
@@ -608,7 +610,7 @@ class Win32:
             if self.user32.GetClassNameW(hwnd, name, 64) and name.value == _TK_CLASS:
                 self.user32.GetWindowTextW(hwnd, name, 64)
                 pid = self.pid(hwnd)
-                if name.value == TITLE and pid != own:
+                if name.value in _PANEL_TITLES and pid != own:
                     found.append((int(hwnd), pid))
             return True
 

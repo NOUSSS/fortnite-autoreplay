@@ -13,13 +13,27 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import sys
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
 log = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+def _project_root() -> Path:
+    """Racine des fichiers de l'application : config, templates, logs, captures.
+
+    Depuis les sources, la racine du dépôt. Dans l'exécutable empaqueté
+    (PyInstaller), le dossier de l'exécutable : le zip distribué y place
+    ``config/`` et ``templates/``, et les logs s'y écrivent.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
+
+
+PROJECT_ROOT = _project_root()
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "default.json"
 LOCAL_CONFIG_PATH = PROJECT_ROOT / "config" / "local.json"
 

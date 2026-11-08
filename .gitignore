@@ -19,3 +19,7 @@ config/local.json
 # captures et maquettes de travail du design (régénérables)
 .impeccable/mocks/
 .impeccable/review/
+
+# empaquetage (packaging/build.py)
+build/
+dist/

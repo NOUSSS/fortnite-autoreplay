@@ -254,7 +254,7 @@ def _panel_error(message: str) -> int:
         root = tkinter.Tk()
         root.withdraw()
         messagebox.showerror(
-            "Fortnite Auto Replay",
+            "Fortnite AutoReplay",
             f"Le panneau n\u2019a pas pu démarrer\u00a0: {message}.\n\nDétail dans logs/bot.log.",
             parent=root,
         )

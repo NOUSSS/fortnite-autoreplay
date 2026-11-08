@@ -39,7 +39,7 @@
 - Panneau (`panel.py`) : `set_mouse_through` ne doit jamais rendre le panneau
   traversant quand le jeu n'est pas au premier plan (il deviendrait
   inutilisable) ; `replace_other_panels` ne ferme que des fenêtres Tk de ce
-  titre dans un autre processus, et le mutex des panneaux n'est rendu qu'après
+  titre (ou de l'ancien, « Fortnite Auto Replay », `_PANEL_TITLES`) dans un autre processus, et le mutex des panneaux n'est rendu qu'après
   l'arrêt du moteur (sa session écrite), échec de lancement compris.
 - Coordonnées : frame → écran (`Frame.to_screen`, `capture.scale`), région
   rognée à l'écran capturé (l'origine de la frame doit suivre), zone connue

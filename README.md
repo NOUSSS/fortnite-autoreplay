@@ -156,3 +156,16 @@ Rien n'est codé en dur : seuils, ROI, délais et zones de clic sont dans
 - `docs/ARCHITECTURE.md` — découpage des modules et flux d'exécution
 - `docs/TEMPLATES.md` — comment capturer / valider les templates
 - `docs/ROADMAP.md` — ce qui est fait, ce qui reste à faire
+
+## Empaquetage
+
+```powershell
+python packaging/build.py
+```
+
+Construit `dist/Fortnite AutoReplay/` (PyInstaller, sans console) puis
+`dist/FortniteAutoReplay-<version>.zip`, à distribuer tel quel : l'exécutable,
+`config/default.json`, `templates/` et `Lisez-moi.txt`. Lancé sans commande,
+`Fortnite AutoReplay.exe` ouvre le panneau ; les commandes de la CLI restent
+possibles (`"Fortnite AutoReplay.exe" check`). Depuis l'exécutable, config,
+logs et captures se lisent et s'écrivent à côté de lui.
