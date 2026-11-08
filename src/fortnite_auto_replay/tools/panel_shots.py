@@ -26,6 +26,7 @@ import mss
 import mss.tools
 
 from .. import config as config_mod
+from ..chests import Estimate
 from ..engine import ClickRecord, Phase, Status
 from ..panel import Panel, Win32, counters_from
 from ..window import ensure_dpi_awareness
@@ -47,6 +48,7 @@ class Scene:
     started: bool = True
     hover: str = ""  # "primary", "chevron", "quit" ou une réponse du dialogue
     answers: tuple[str, ...] = ("ready", "not_yet", "ignore")
+    chests: bool = True  # estimation des coffres (paliers relevés), sinon section absente
 
 
 _BUSY = {"back_to_lobby": 31, "continue": 12, "pass_battle": 9, "ready": 2, "still_here_ready": 1}
@@ -77,7 +79,8 @@ SCENES = [
         True,
         detail=f"«{NBSP}Retour au salon{NBSP}» toujours visible après 3 clics",
     ),
-    Scene("expanded-first", "paused", False, started=False),
+    Scene("expanded-first", "paused", False, started=False, chests=False),
+    Scene("expanded-first-chests", "paused", False, started=False),
     Scene("expanded-active", "active", False, actions=55, per_state=_BUSY, recent=5),
     Scene(
         "expanded-two-clicks", "active", False, actions=2, per_state={"back_to_lobby": 2}, recent=2
@@ -185,6 +188,11 @@ class DemoController:
     def counters(self) -> list[tuple[str, tuple[str, ...]]]:
         return counters_from(self.cfg)
 
+    def chests(self) -> Estimate | None:
+        if not self.scene.chests:
+            return None
+        return Estimate(total=2770, confirmed=1000, matches=158, per_minute=0.71)
+
 
 def _box(widget: tk.Misc, origin: tuple[int, int]) -> list[int] | None:
     if not widget.winfo_ismapped():
@@ -217,16 +225,17 @@ def _geometry(panel: Panel) -> dict[str, object]:
         "empty": panel.empty,
         "s_totals": panel.s_totals,
         "totals": panel.totals,
+        "s_chests": panel.s_chests,
+        "chests": panel.chests,
+        "chests_text": panel.chests_text,
         "footer_rule": panel.footer_rule,
         "footer": panel.footer,
         "quit": panel.quit_button,
         "hint": panel.hint,
     }
     boxes = {name: _box(widget, origin) for name, widget in named.items()}
-    boxes["headings"] = [
-        _box(section.winfo_children()[0], origin)
-        for section in (panel.s_dialog, panel.s_session, panel.s_recent, panel.s_totals)
-    ]
+    sections = (panel.s_dialog, panel.s_session, panel.s_recent, panel.s_totals, panel.s_chests)
+    boxes["headings"] = [_box(section.winfo_children()[0], origin) for section in sections]
     boxes["recent_rows"] = [_box(row, origin) for row, _, _ in panel.recent]
     boxes["cells"] = [_box(name.master, origin) for name, _ in panel.cells]
     return {

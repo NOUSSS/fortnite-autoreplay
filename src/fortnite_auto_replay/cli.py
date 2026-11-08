@@ -15,6 +15,7 @@ from . import __version__, diagnostics, history, updater, vision
 from . import config as config_mod
 from .actions import Actions, InputError
 from .capture import CaptureError, ScreenCapture
+from .chests import ChestTracker
 from .engine import Engine
 from .hotkeys import HotkeyListener
 from .logging_setup import LOG_DIR, setup_logging
@@ -237,6 +238,25 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_chests(args: argparse.Namespace) -> int:
+    """Lit la suite des journaux du jeu et affiche l'estimation des coffres ouverts."""
+    cfg = _build_config(args)
+    tracker = ChestTracker(cfg.chests, cfg.resolved_matches_file())
+    store = tracker.refresh()
+    estimate = tracker.estimate()
+    report = {
+        "journaux": str(cfg.chests.resolved_logs_dir()),
+        "parties_lues": len(store.matches),
+        "depuis": store.tracked_since.isoformat() if store.tracked_since else None,
+        "paliers": len(cfg.chests.milestones),
+        "estimation": asdict(estimate) if estimate else None,
+    }
+    print(json.dumps(report, indent=2, ensure_ascii=False))
+    if estimate is None:
+        log.info("pas d'estimation : il faut deux paliers lus dans les journaux (voir README)")
+    return 0
+
+
 def cmd_config(args: argparse.Namespace) -> int:
     cfg = _build_config(args)
     print(config_mod.describe(cfg))
@@ -413,6 +433,10 @@ def build_parser() -> argparse.ArgumentParser:
     stats = sub.add_parser("stats", help="totaux des sessions enregistrées")
     _add_common(stats)
     stats.set_defaults(func=cmd_stats)
+
+    chests = sub.add_parser("chests", help="estimation des coffres ouverts (journaux du jeu)")
+    _add_common(chests)
+    chests.set_defaults(func=cmd_chests)
     return parser
 
 

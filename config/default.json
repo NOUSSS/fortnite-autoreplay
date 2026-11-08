@@ -67,6 +67,15 @@
     "enabled": true,
     "manifest_url": "https://autoreplay.feitanx.com/latest.json"
   },
+  "chests": {
+    "enabled": true,
+    "logs_dir": "%LOCALAPPDATA%/FortniteGame/Saved/Logs",
+    "log_glob": "FortniteGame*.log",
+    "match_marker": "/Fortnite.com/GameFeatures/BRRoot",
+    "store_file": "logs/matches.json",
+    "scan_interval_s": 300.0,
+    "milestones": []
+  },
   "template_dir": "templates",
   "log_level": "INFO",
   "states": [

@@ -163,7 +163,7 @@ Une palette neutre presque monochrome, un seul accent bleu clair, et quatre coul
 - **Couche survolée** (layer-hover) et **couche appuyée** (layer-pressed) : états de survol et d'appui des contrôles neutres ; l'appui est plus sombre que le repos.
 - **Filet** (stroke) : séparateurs d'un pixel sous l'en-tête et au-dessus du pied, contour des contrôles neutres, bordure de la fenêtre posée par DWM.
 - **Texte** (text) : mots d'état, intertitres, valeurs, libellés des contrôles.
-- **Texte secondaire** (text-secondary) : libellés des compteurs, détail de l'en-tête, ligne des totaux, chevron.
+- **Texte secondaire** (text-secondary) : libellés des compteurs, détail de l'en-tête, lignes des totaux et des coffres, chevron.
 - **Texte tertiaire** (text-tertiary) : heures du journal, état vide, aide sous le sélecteur, rappel des raccourcis, segment désactivé.
 
 ### Named Rules
@@ -196,7 +196,7 @@ Fenêtre de 320 px de large, hauteur ajustée au contenu, gardée entière dans 
 
 - **En-tête** : 44 px de haut, marges latérales de 12 px (pad). Pastille, 8 px (gap), mot d'état, 8 px, détail ; à droite le bouton principal, 8 px (gap), puis le chevron, à 12 px du bord. Les contrôles de 28 px sont centrés (8 px au-dessus et au-dessous).
 - **Corps** : marge intérieure de 12 px, largeur utile de 296 px. Premier bloc à 12 px sous le filet ; 16 px (section) entre bandeau et sections et entre sections ; 8 px entre un intertitre et son contenu ou entre le sélecteur et son aide.
-- **Lignes de données** : 24 px de haut pour chaque compteur, ligne du journal, ligne des totaux et état vide.
+- **Lignes de données** : 24 px de haut pour chaque compteur, ligne du journal, ligne des totaux, ligne des coffres et état vide.
 - **Compteurs** : grille de deux colonnes égales, libellé à gauche, valeur alignée à droite, gouttière de 24 px (12 px de chaque côté).
 - **Journal** : colonne de l'heure à la largeur de « 00:00 » la plus large de la police, puis 12 px avant le libellé ; cinq lignes au plus.
 - **Pied** : filet à 12 px sous la dernière section, puis 12 px de marge autour de Quitter (à gauche) et du rappel des raccourcis (à droite).

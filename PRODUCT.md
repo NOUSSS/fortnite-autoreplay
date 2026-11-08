@@ -44,7 +44,8 @@ attente du jeu ou bloqué.
   erreurs répétées), arrêté.
 - Informations demandées : compteurs de la session (clics par bouton, durée),
   journal des derniers clics, totaux de toutes les sessions (historique
-  `logs/sessions.jsonl`).
+  `logs/sessions.jsonl`), coffres ouverts estimés (paliers de la quête de la
+  chasse au trésor et parties lues dans les journaux du jeu).
 - Réponse au dialogue « Vous êtes toujours là ? » : Prêt (par défaut), Pas
   encore, ou ne rien faire ; modifiable dans le panneau.
 - Python 3.10+, tkinter de la bibliothèque standard, Windows uniquement.

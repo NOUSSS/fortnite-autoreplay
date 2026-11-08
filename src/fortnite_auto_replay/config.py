@@ -13,8 +13,10 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import os
 import sys
 from dataclasses import dataclass, field, fields
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -289,6 +291,48 @@ class UpdateConfig:
             raise ConfigError("update.manifest_url doit être une adresse https")
 
 
+def parse_utc(value: str) -> datetime:
+    """Date ISO 8601 avec fuseau (« Z » compris, que Python 3.10 ne lit pas), en UTC."""
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except (AttributeError, ValueError) as exc:
+        raise ConfigError(f"date illisible : {value!r}") from exc
+    if parsed.tzinfo is None:
+        raise ConfigError(f"date sans fuseau : {value!r} (ajouter Z pour UTC)")
+    return parsed.astimezone(timezone.utc)
+
+
+@dataclass(slots=True)
+class ChestsConfig:
+    """Estimation des coffres ouverts, d'après les journaux de Fortnite (voir ``chests``)."""
+
+    enabled: bool = True  # lire les parties dans les journaux du jeu
+    logs_dir: str = "%LOCALAPPDATA%/FortniteGame/Saved/Logs"  # variables d'environnement lues
+    log_glob: str = "FortniteGame*.log"
+    # VerseURI d'une partie de Battle Royale, sur la ligne « LoadMap » qui la charge
+    match_marker: str = "/Fortnite.com/GameFeatures/BRRoot"
+    store_file: str = (
+        "logs/matches.json"  # parties lues, gardées quand Fortnite efface ses journaux
+    )
+    scan_interval_s: float = 300.0
+    # paliers de la quête de coffres relevés sur le compte : [{"count": 1000, "at": "…Z"}]
+    milestones: list[dict[str, Any]] = field(default_factory=list)
+
+    def validate(self) -> None:
+        if self.scan_interval_s < 10:
+            raise ConfigError("chests.scan_interval_s doit être >= 10")
+        if not self.match_marker:
+            raise ConfigError("chests.match_marker ne peut pas être vide")
+        for milestone in self.milestones:
+            count = milestone.get("count") if isinstance(milestone, dict) else None
+            if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+                raise ConfigError(f"chests.milestones : nombre invalide dans {milestone!r}")
+            parse_utc(milestone.get("at", ""))
+
+    def resolved_logs_dir(self) -> Path:
+        return Path(os.path.expandvars(self.logs_dir))
+
+
 @dataclass(slots=True)
 class Config:
     capture: CaptureConfig = field(default_factory=CaptureConfig)
@@ -299,6 +343,7 @@ class Config:
     hotkeys: HotkeyConfig = field(default_factory=HotkeyConfig)
     panel: PanelConfig = field(default_factory=PanelConfig)
     update: UpdateConfig = field(default_factory=UpdateConfig)
+    chests: ChestsConfig = field(default_factory=ChestsConfig)
     states: list[StateConfig] = field(
         default_factory=lambda: [copy.copy(s) for s in DEFAULT_STATES]
     )
@@ -313,6 +358,7 @@ class Config:
         self.window.validate()
         self.panel.validate()
         self.update.validate()
+        self.chests.validate()
         seen: set[str] = set()
         for state in self.states:
             state.validate()
@@ -341,6 +387,9 @@ class Config:
 
     def resolved_stats_file(self) -> Path | None:
         return resolve_path(self.engine.stats_file) if self.engine.stats_file else None
+
+    def resolved_matches_file(self) -> Path:
+        return resolve_path(self.chests.store_file)
 
 
 def resolve_path(value: str) -> Path:
@@ -410,6 +459,7 @@ def load_config(
         hotkeys=_to_dataclass(HotkeyConfig, raw.get("hotkeys", {})),
         panel=_to_dataclass(PanelConfig, raw.get("panel", {})),
         update=_to_dataclass(UpdateConfig, raw.get("update", {})),
+        chests=_to_dataclass(ChestsConfig, raw.get("chests", {})),
         template_dir=raw.get("template_dir", "templates"),
         log_level=raw.get("log_level", "INFO"),
     )
@@ -436,6 +486,7 @@ def save_local_config(cfg: Config, path: str | Path = LOCAL_CONFIG_PATH) -> Path
         "hotkeys": cfg.hotkeys,
         "panel": cfg.panel,
         "update": cfg.update,
+        "chests": cfg.chests,
     }
     for name, section in sections.items():
         payload[name] = {f.name: getattr(section, f.name) for f in fields(section)}

@@ -45,6 +45,7 @@ premier plan et des messages de fenêtre au second plan.
 | `diagnostics.py` | Exceptions non rattrapées au journal, piles des threads dans `logs/crash.log` |
 | `sounds.py` | Deux notes sur `F8` (reprise, pause) |
 | `panel.py` | Panneau de contrôle tkinter, moteur dans un thread, bandeau de mise à jour |
+| `chests.py` | Parties lues dans les journaux du jeu (`logs/matches.json`), estimation des coffres |
 | `updater.py` | Manifeste signé, téléchargement vérifié, installation tout ou rien, relance |
 | `cli.py` | `run`, `check`, `config`, `window`, `stats`, `panel`, `update` + surcharges en ligne de commande |
 
@@ -164,6 +165,18 @@ capture n'apporterait rien. Tout le gain vient du matching.
   plus récente, https seulement (http vers la machine elle-même pour les
   essais), archive vérifiée par taille et sha256 avant extraction, chemins du
   zip qui sortiraient du dossier refusés.
+- **Coffres estimés, pas comptés** : la quête de la chasse au trésor cesse de
+  compter à 1 000, et les journaux du jeu ne notent aucun coffre ouvert. Ils
+  notent chaque chargement de carte : une partie de Battle Royale va du
+  `LoadMap` depuis un serveur (VerseURI `BRRoot`) au chargement suivant. Les
+  paliers de la quête (`chests.milestones`) donnent des coffres par minute de
+  partie, appliqués aux minutes jouées depuis le dernier palier. Un intervalle
+  entre paliers ne compte que si tous ses journaux ont été lus (après le plus
+  ancien journal lu, `tracked_since`). Fortnite efface ses vieux journaux :
+  chaque journal est reconnu par l'horodatage de sa première ligne (inchangé
+  quand il devient `FortniteGame-backup-….log`), lu une fois depuis l'octet où
+  la lecture s'était arrêtée, par blocs de 4 Mio cherchés en C (0,6 s pour
+  800 Mo de journaux), dans un thread à part toutes les 5 minutes.
 - **Aucune valeur dans le code** : tout est configuration.
 
 ## Points d'extension prévus

@@ -5,6 +5,10 @@ Une section par version, la plus récente en haut, au format
 toutes, et le manifeste de mise à jour reprend celles de la dernière version
 (`packaging/release.py`).
 
+## 0.3.0 (2026-11-08)
+
+- Le panneau estime les coffres que vous avez ouverts, au-delà des 1 000 de la quête de la chasse au trésor : il lit vos parties dans les journaux du jeu et les compare aux paliers de la quête, à noter dans `config/local.json` (voir le README).
+
 ## 0.2.0 (2026-11-08)
 
 - L’application se met à jour d’elle-même : elle vérifie au lancement, puis toutes les six heures, si une version plus récente existe. Un clic sur « Mettre à jour » dans le panneau la télécharge et l’installe, sans toucher à vos réglages.

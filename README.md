@@ -40,6 +40,7 @@ python -m fortnite_auto_replay run
 # diagnostic
 python -m fortnite_auto_replay window   # fenêtre du jeu repérée et premier plan
 python -m fortnite_auto_replay stats    # totaux des sessions passées
+python -m fortnite_auto_replay chests   # coffres ouverts estimés (voir plus bas)
 ```
 
 Raccourcis en jeu : `F8` = démarrer / mettre en pause, `F9` = quitter. Ils ne
@@ -87,6 +88,40 @@ encore ou Ignorer (ne rien cliquer), aussi dans `config/local.json` :
 
 Valeurs : `ready`, `not_yet`, `ignore`.
 
+### Coffres ouverts
+
+Fortnite ne compte vos coffres que dans la quête de la chasse au trésor, qui
+s'arrête à son dernier palier (1 000 coffres). Le panneau en donne une
+estimation, par exemple « Environ 2 770, dont 1 000 confirmés » :
+
+- les paliers de la quête atteints et leur date donnent le nombre de coffres
+  par minute de partie ;
+- les minutes de Battle Royale jouées depuis le dernier palier, lues dans les
+  journaux du jeu (`%LOCALAPPDATA%\FortniteGame\Saved\Logs`), donnent le reste.
+
+Les paliers se relèvent sur votre compte Epic (date de passage de chaque étape
+de la quête) et se notent dans `config/local.json`, en UTC :
+
+```json
+{
+  "chests": {
+    "milestones": [
+      { "count": 250, "at": "2026-11-03T11:00:52Z" },
+      { "count": 500, "at": "2026-11-03T16:06:43Z" },
+      { "count": 1000, "at": "2026-11-04T18:47:36Z" }
+    ]
+  }
+}
+```
+
+Il faut au moins deux paliers, et que les journaux du jeu couvrent l'écart
+entre eux : Fortnite ne garde qu'une quinzaine de journaux, soit quelques
+jours. Les parties lues sont gardées dans `logs/matches.json`, l'application
+peut donc compter au-delà. Sans paliers, la section n'apparaît pas, mais les
+parties sont quand même relevées. `python -m fortnite_auto_replay chests`
+affiche le détail du calcul. Ce n'est qu'une estimation : elle suppose que vous
+ouvrez autant de coffres par minute qu'entre les paliers.
+
 ## Comment ça marche
 
 ```
@@ -108,6 +143,7 @@ window.py ──► capture.py ──► vision.py ──► engine.py ──►
   pyautogui), clics postés à la fenêtre du jeu au second plan.
 - `diagnostics.py` : traces des arrêts inattendus (`logs/crash.log`).
 - `panel.py` : panneau de contrôle (tkinter) ; le moteur tourne dans un thread.
+- `chests.py` : parties lues dans les journaux du jeu, estimation des coffres.
 
 Rien n'est codé en dur : seuils, ROI, délais et zones de clic sont dans
 `config/default.json` (surchargé par `config/local.json`).

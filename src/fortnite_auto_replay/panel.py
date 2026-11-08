@@ -39,6 +39,7 @@ from typing import Protocol
 from . import diagnostics, history
 from .actions import Actions
 from .capture import CaptureError, Frame, ScreenCapture
+from .chests import ChestTracker, Estimate
 from .config import Config, PanelConfig, update_local_config
 from .engine import Engine, Phase, Status
 from .templates import TemplateLibrary
@@ -232,6 +233,16 @@ def header_detail(status: Status) -> str:
     return ""
 
 
+def chests_line(estimate: Estimate | None) -> str:
+    """« Environ 2 770, dont 1 000 confirmés » ; rien sans estimation."""
+    if estimate is None:
+        return ""
+    confirmed = f"{number(estimate.confirmed)}{NBSP}confirmé{'s' if estimate.confirmed > 1 else ''}"
+    if estimate.total <= estimate.confirmed:  # aucune partie depuis le dernier palier
+        return confirmed
+    return f"Environ {number(estimate.total)}, dont {confirmed}"
+
+
 def counters_from(cfg: Config) -> list[tuple[str, tuple[str, ...]]]:
     """Un compteur par bouton, les deux réponses au dialogue réunies sous « Toujours là »."""
     rows: list[tuple[str, tuple[str, ...]]] = [
@@ -328,6 +339,10 @@ class Controller(Protocol):
         """Compteurs de la session : (libellé, slugs additionnés)."""
         ...
 
+    def chests(self) -> Estimate | None:
+        """Coffres ouverts estimés d'après les journaux du jeu, s'il y a de quoi estimer."""
+        ...
+
 
 class _NotOpenYet:
     """Capture tant que le thread du moteur n'a pas ouvert la vraie."""
@@ -357,10 +372,15 @@ class EngineController:
             int(past.get("actions", 0)),
             float(past.get("uptime_h", 0.0)) * 3600,
         )
+        self._chests = (
+            ChestTracker(cfg.chests, cfg.resolved_matches_file()) if cfg.chests.enabled else None
+        )
         self._thread = threading.Thread(target=self._run, name="moteur", daemon=True)
 
     def start(self) -> None:
         self._thread.start()
+        if self._chests is not None:
+            self._chests.start()
 
     def _run(self) -> None:
         roi = self._window if self._cfg.window.use_as_roi else None
@@ -403,6 +423,8 @@ class EngineController:
     def quit(self) -> None:
         self._quit.set()
         self.engine.stop()
+        if self._chests is not None:
+            self._chests.stop()
 
     def still_here_answers(self) -> list[str]:
         return self.engine.still_here_answers()
@@ -418,6 +440,9 @@ class EngineController:
 
     def counters(self) -> list[tuple[str, tuple[str, ...]]]:
         return counters_from(self._cfg)
+
+    def chests(self) -> Estimate | None:
+        return self._chests.estimate() if self._chests is not None else None
 
 
 # --- Win32 --------------------------------------------------------------------
@@ -1157,6 +1182,13 @@ class Panel:
         self.totals_text.pack(side="left")
         self.totals.pack(fill="x")
 
+        self.s_chests = self._section("Coffres ouverts")
+        self.chests = tk.Frame(self.s_chests, bg=C.bg, height=px(ROW_H))
+        self.chests.pack_propagate(False)
+        self.chests_text = self._label(self.chests, self.f_body, C.text_2, anchor="w")
+        self.chests_text.pack(side="left")
+        self.chests.pack(fill="x")
+
         self.footer_rule = tk.Frame(root, bg=C.stroke, height=1)
         self.footer = tk.Frame(root, bg=C.bg, padx=px(PAD), pady=px(PAD))
         quit_w = self.f_body.measure("Quitter") + 2 * px(PAD)
@@ -1204,11 +1236,13 @@ class Panel:
         self._place(*self._pos)
 
     def _layout_body(
-        self, notice: tuple[str, str] | None, update: tuple[str, str, str] | None
+        self, notice: tuple[str, str] | None, update: tuple[str, str, str] | None, chests: bool
     ) -> None:
         sections = (self.s_dialog, self.s_session, self.s_recent, self.s_totals)
-        for widget in (self.notice, self.update_notice, *sections):
+        for widget in (self.notice, self.update_notice, *sections, self.s_chests):
             widget.pack_forget()
+        if chests:  # seulement s'il y a de quoi estimer (paliers relevés, journaux lus)
+            sections = (*sections, self.s_chests)
         top = self.px(PAD)
         if notice is not None:
             self.notice.show(*notice)
@@ -1377,33 +1411,37 @@ class Panel:
         )
         disabled = frozenset(a for a, _ in ANSWERS) - set(self.controller.still_here_answers())
         hint = missing_hint(disabled)
+        chests = chests_line(self.controller.chests())
         state = (
             notice,
             update_key,
             len(recent),
             hint,
+            bool(chests),
             tuple(counts),
             recent,
             totals,
+            chests,
             status.still_here,
             update,
         )
         if state == self._last:
             return
-        reflow = not self._last or self._last[:4] != state[:4]  # hauteur changée
+        reflow = not self._last or self._last[:5] != state[:5]  # hauteur changée
         self._last = state
 
         self.segmented.set(status.still_here, disabled)
         self._fill_grid(counts)
         self._fill_recent(recent)
         self._text(self.totals_text, totals)
+        self._text(self.chests_text, chests)
         if reflow:
             self._text(self.dialog_hint, hint)
             if hint:
                 self.dialog_hint.pack(fill="x", pady=(self.px(GAP), 0))
             else:
                 self.dialog_hint.pack_forget()
-            self._layout_body(notice, update)
+            self._layout_body(notice, update, bool(chests))
             self._place(*self._pos)
         elif update is not None and self._show_update(update):  # message passé à la ligne
             self._place(*self._pos)
