@@ -20,6 +20,7 @@ import time
 import tkinter as tk
 import traceback
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 import mss
@@ -28,7 +29,8 @@ import mss.tools
 from .. import config as config_mod
 from ..chests import Estimate
 from ..engine import ClickRecord, Phase, Status
-from ..panel import Panel, Win32, counters_from
+from ..epic import LinkState
+from ..panel import ChestsState, Panel, Win32, counters_from
 from ..window import ensure_dpi_awareness
 
 NBSP = "\u00a0"
@@ -48,7 +50,7 @@ class Scene:
     started: bool = True
     hover: str = ""  # "primary", "chevron", "quit" ou une réponse du dialogue
     answers: tuple[str, ...] = ("ready", "not_yet", "ignore")
-    chests: bool = True  # estimation des coffres (paliers relevés), sinon section absente
+    chests: str = "estimate"  # état de la section des coffres (voir CHESTS)
 
 
 _BUSY = {"back_to_lobby": 31, "continue": 12, "pass_battle": 9, "ready": 2, "still_here_ready": 1}
@@ -68,6 +70,25 @@ _ORDER = (
     "back_to_lobby",
 )
 
+_SINCE = datetime(2026, 11, 6, 10, 33, tzinfo=timezone.utc)
+CHESTS = {
+    "invite": ChestsState(None, False, True, LinkState()),
+    "waiting": ChestsState(None, False, True, LinkState("waiting")),
+    "reading": ChestsState(None, False, True, LinkState("reading")),
+    "failed": ChestsState(None, False, True, LinkState("failed", "délai dépassé")),
+    "scanning": ChestsState(None, True, False, LinkState("done")),
+    "estimate": ChestsState(
+        Estimate(2790, 1000, 159, 0.71, low=2630, high=3210), True, True, LinkState()
+    ),
+    "partial": ChestsState(
+        Estimate(1840, 1000, 80, 0.71, measured=False, partial_since=_SINCE),
+        True,
+        True,
+        LinkState(),
+    ),
+    "assumed": ChestsState(Estimate(1420, 1000, 40, 0.71, measured=False), True, True, LinkState()),
+}
+
 SCENES = [
     Scene("collapsed-first", "paused", True, started=False),
     Scene("collapsed-active", "active", True, actions=55, per_state=_BUSY),
@@ -79,8 +100,12 @@ SCENES = [
         True,
         detail=f"«{NBSP}Retour au salon{NBSP}» toujours visible après 3 clics",
     ),
-    Scene("expanded-first", "paused", False, started=False, chests=False),
+    Scene("expanded-first", "paused", False, started=False, chests="invite"),
     Scene("expanded-first-chests", "paused", False, started=False),
+    *(
+        Scene(f"expanded-chests-{state}", "paused", False, started=False, chests=state)
+        for state in ("waiting", "reading", "failed", "scanning", "partial", "assumed")
+    ),
     Scene("expanded-active", "active", False, actions=55, per_state=_BUSY, recent=5),
     Scene(
         "expanded-two-clicks", "active", False, actions=2, per_state={"back_to_lobby": 2}, recent=2
@@ -188,10 +213,14 @@ class DemoController:
     def counters(self) -> list[tuple[str, tuple[str, ...]]]:
         return counters_from(self.cfg)
 
-    def chests(self) -> Estimate | None:
-        if not self.scene.chests:
-            return None
-        return Estimate(total=2770, confirmed=1000, matches=158, per_minute=0.71)
+    def chests(self) -> ChestsState | None:
+        return CHESTS.get(self.scene.chests)
+
+    def connect_epic(self) -> None:
+        pass
+
+    def cancel_epic(self) -> None:
+        pass
 
 
 def _box(widget: tk.Misc, origin: tuple[int, int]) -> list[int] | None:
@@ -228,6 +257,8 @@ def _geometry(panel: Panel) -> dict[str, object]:
         "s_chests": panel.s_chests,
         "chests": panel.chests,
         "chests_text": panel.chests_text,
+        "chests_note": panel.chests_note,
+        "chests_notice": panel.chests_notice,
         "footer_rule": panel.footer_rule,
         "footer": panel.footer,
         "quit": panel.quit_button,

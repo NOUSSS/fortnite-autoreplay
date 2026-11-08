@@ -92,15 +92,26 @@ Valeurs : `ready`, `not_yet`, `ignore`.
 
 Fortnite ne compte vos coffres que dans la quête de la chasse au trésor, qui
 s'arrête à son dernier palier (1 000 coffres). Le panneau en donne une
-estimation, par exemple « Environ 2 770, dont 1 000 confirmés » :
+estimation, par exemple « Environ 2 790, dont 1 000 confirmés », avec une
+fourchette dessous :
 
 - les paliers de la quête atteints et leur date donnent le nombre de coffres
   par minute de partie ;
 - les minutes de Battle Royale jouées depuis le dernier palier, lues dans les
   journaux du jeu (`%LOCALAPPDATA%\FortniteGame\Saved\Logs`), donnent le reste.
 
-Les paliers se relèvent sur votre compte Epic (date de passage de chaque étape
-de la quête) et se notent dans `config/local.json`, en UTC :
+Les paliers se lisent sur votre compte Epic : cliquez sur « Se connecter à
+Epic » dans la section « Coffres ouverts » et confirmez sur la page Epic qui
+s'ouvre dans votre navigateur. L'application lit votre profil Fortnite, garde
+les paliers dans `config/local.json` et ferme aussitôt la session : elle ne
+garde ni jeton ni mot de passe. Si la quête n'est pas finie, son compteur du
+moment sert aussi de palier. En ligne de commande :
+`python -m fortnite_auto_replay chests --epic`.
+
+La connexion passe par le client public du jeu Fortnite sur Switch, le seul
+qui accepte une confirmation dans le navigateur. Epic le tolère mais ne le
+garantit pas : s'il le coupe, la connexion échouera, et les paliers pourront
+encore se noter à la main dans `config/local.json`, en UTC :
 
 ```json
 {
@@ -114,13 +125,18 @@ de la quête) et se notent dans `config/local.json`, en UTC :
 }
 ```
 
-Il faut au moins deux paliers, et que les journaux du jeu couvrent l'écart
-entre eux : Fortnite ne garde qu'une quinzaine de journaux, soit quelques
-jours. Les parties lues sont gardées dans `logs/matches.json`, l'application
-peut donc compter au-delà. Sans paliers, la section n'apparaît pas, mais les
-parties sont quand même relevées. `python -m fortnite_auto_replay chests`
-affiche le détail du calcul. Ce n'est qu'une estimation : elle suppose que vous
-ouvrez autant de coffres par minute qu'entre les paliers.
+Le rythme se mesure entre deux paliers dont toutes les parties sont dans les
+journaux. Fortnite n'en garde qu'une quinzaine, soit quelques jours ; les
+parties lues sont gardées dans `logs/matches.json`, l'application peut donc
+compter au-delà. Sans écart mesurable, le panneau prend un rythme moyen
+(`chests.default_rate`, 0,71 coffre par minute, mesuré sur un joueur) et le
+dit. Si vos journaux commencent après votre dernier palier, les parties
+d'avant sont inconnues : le panneau affiche un minimum (« Plus de … »).
+`python -m fortnite_auto_replay chests` affiche le détail du calcul.
+
+Ce n'est qu'une estimation : elle suppose que vous ouvrez autant de coffres
+par minute qu'entre vos paliers. La fourchette va du plus lent au plus rapide
+de vos intervalles d'au moins 100 coffres.
 
 ## Comment ça marche
 
@@ -144,6 +160,7 @@ window.py ──► capture.py ──► vision.py ──► engine.py ──►
 - `diagnostics.py` : traces des arrêts inattendus (`logs/crash.log`).
 - `panel.py` : panneau de contrôle (tkinter) ; le moteur tourne dans un thread.
 - `chests.py` : parties lues dans les journaux du jeu, estimation des coffres.
+- `epic.py` : paliers de la quête de coffres lus sur le compte Epic.
 
 Rien n'est codé en dur : seuils, ROI, délais et zones de clic sont dans
 `config/default.json` (surchargé par `config/local.json`).

@@ -164,7 +164,7 @@ Une palette neutre presque monochrome, un seul accent bleu clair, et quatre coul
 - **Filet** (stroke) : séparateurs d'un pixel sous l'en-tête et au-dessus du pied, contour des contrôles neutres, bordure de la fenêtre posée par DWM.
 - **Texte** (text) : mots d'état, intertitres, valeurs, libellés des contrôles.
 - **Texte secondaire** (text-secondary) : libellés des compteurs, détail de l'en-tête, lignes des totaux et des coffres, chevron.
-- **Texte tertiaire** (text-tertiary) : heures du journal, état vide, aide sous le sélecteur, rappel des raccourcis, segment désactivé.
+- **Texte tertiaire** (text-tertiary) : heures du journal, état vide, aide sous le sélecteur, légende sous l'estimation des coffres, rappel des raccourcis, segment désactivé.
 
 ### Named Rules
 **La règle de la pastille.** Les couleurs d'état ne colorent qu'une pastille de 8 px ou l'icône d'un bandeau. Jamais un texte, un bouton ni un fond de section.
@@ -182,7 +182,7 @@ Une palette neutre presque monochrome, un seul accent bleu clair, et quatre coul
 ### Hierarchy
 - **Title** (semi-gras, 14 px) : mot d'état de l'en-tête, intertitres de section, libellé du segment choisi.
 - **Body** (normal, 14 px) : libellés de boutons et de segments, compteurs, journal, totaux, message des bandeaux.
-- **Caption** (normal, 12 px) : détail de l'en-tête (nombre de clics), aide sous le sélecteur, rappel des raccourcis.
+- **Caption** (normal, 12 px) : détail de l'en-tête (nombre de clics), aide sous le sélecteur, légende sous l'estimation des coffres (fourchette, ou ce qui la rend incertaine), rappel des raccourcis.
 - **Icon** (12 px) : chevron de repli et icône de gravité des bandeaux. La pastille d'état est le disque plein de la même police, à 8 px, pour un bord lissé.
 
 ### Named Rules
@@ -196,7 +196,7 @@ Fenêtre de 320 px de large, hauteur ajustée au contenu, gardée entière dans 
 
 - **En-tête** : 44 px de haut, marges latérales de 12 px (pad). Pastille, 8 px (gap), mot d'état, 8 px, détail ; à droite le bouton principal, 8 px (gap), puis le chevron, à 12 px du bord. Les contrôles de 28 px sont centrés (8 px au-dessus et au-dessous).
 - **Corps** : marge intérieure de 12 px, largeur utile de 296 px. Premier bloc à 12 px sous le filet ; 16 px (section) entre bandeau et sections et entre sections ; 8 px entre un intertitre et son contenu ou entre le sélecteur et son aide.
-- **Lignes de données** : 24 px de haut pour chaque compteur, ligne du journal, ligne des totaux, ligne des coffres et état vide.
+- **Lignes de données** : 24 px de haut pour chaque compteur, ligne du journal, ligne des totaux, ligne des coffres et état vide. La légende des coffres suit sa ligne sans écart.
 - **Compteurs** : grille de deux colonnes égales, libellé à gauche, valeur alignée à droite, gouttière de 24 px (12 px de chaque côté).
 - **Journal** : colonne de l'heure à la largeur de « 00:00 » la plus large de la police, puis 12 px avant le libellé ; cinq lignes au plus.
 - **Pied** : filet à 12 px sous la dernière section, puis 12 px de marge autour de Quitter (à gauche) et du rappel des raccourcis (à droite).
@@ -233,8 +233,8 @@ Contrôles natifs de Windows 11, sobres et plats.
 ### Bandeau (InfoBar)
 - **Style :** pleine largeur utile, coins de 4 px, 12 px de marge intérieure, icône de gravité de 12 px puis 8 px avant le message, message en Body blanc, retour à la ligne.
 - **Gravités :** critique (fond brique, icône rose), attention (fond ocre, icône jaune), information (fond couche, icône accent).
-- **Action :** un bouton standard facultatif sous le message, aligné sur lui, 8 px plus bas (Mettre à jour, Réessayer). Jamais l'accent : il reste au bouton principal de l'en-tête.
-- **Présence :** il n'existe que s'il a quelque chose à dire ; sinon le corps commence directement par le sélecteur. Le bandeau de mise à jour (information, ou attention après un échec) suit celui du moteur, 16 px plus bas.
+- **Action :** un bouton standard facultatif sous le message, aligné sur lui, 8 px plus bas (Mettre à jour, Se connecter à Epic, Annuler, Réessayer). Jamais l'accent : il reste au bouton principal de l'en-tête.
+- **Présence :** il n'existe que s'il a quelque chose à dire ; sinon le corps commence directement par le sélecteur. Le bandeau de mise à jour (information, ou attention après un échec) suit celui du moteur, 16 px plus bas. Dans la section « Coffres ouverts », un bandeau tient la place de l'estimation tant qu'il manque les paliers : invitation à se connecter à Epic, attente de la confirmation, lecture, échec.
 
 ### Ligne d'état (signature)
 Pastille de 8 px à la couleur de l'état, mot d'état en Title, détail en Caption secondaire (le nombre de clics, quand l'état est Actif ou En pause). Toute la ligne, sauf ses boutons, sert de poignée pour déplacer la fenêtre.

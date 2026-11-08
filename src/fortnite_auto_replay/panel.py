@@ -33,15 +33,17 @@ import tkinter.font as tkfont
 from collections.abc import Callable, Sequence
 from ctypes import wintypes
 from dataclasses import dataclass
+from datetime import datetime
 from types import TracebackType
 from typing import Protocol
 
 from . import diagnostics, history
 from .actions import Actions
 from .capture import CaptureError, Frame, ScreenCapture
-from .chests import ChestTracker, Estimate
+from .chests import ChestTracker, Estimate, Milestone
 from .config import Config, PanelConfig, update_local_config
 from .engine import Engine, Phase, Status
+from .epic import EpicLink, LinkState
 from .templates import TemplateLibrary
 from .updater import Updates, UpdateState
 from .window import GameWindow
@@ -233,14 +235,93 @@ def header_detail(status: Status) -> str:
     return ""
 
 
+MONTHS = (
+    "janvier",
+    "février",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "août",
+    "septembre",
+    "octobre",
+    "novembre",
+    "décembre",
+)
+EPIC_INVITE = (
+    "Le panneau peut lire vos paliers de quête sur votre compte Epic, sans garder la connexion."
+)
+EPIC_WAITING = "Confirmez la connexion sur la page Epic ouverte dans votre navigateur."
+EPIC_READING = "Lecture de votre compte Epic…"
+EPIC_ACTIONS = {"connect": "Se connecter à Epic", "cancel": "Annuler", "retry": "Réessayer"}
+READING_LOGS = "Lecture des journaux du jeu…"
+NO_LOGS = "Aucun journal du jeu trouvé"
+
+
 def chests_line(estimate: Estimate | None) -> str:
-    """« Environ 2 770, dont 1 000 confirmés » ; rien sans estimation."""
+    """« Environ 2 770, dont 1 000 confirmés » ; « Plus de … » si les journaux sont incomplets."""
     if estimate is None:
         return ""
     confirmed = f"{number(estimate.confirmed)}{NBSP}confirmé{'s' if estimate.confirmed > 1 else ''}"
     if estimate.total <= estimate.confirmed:  # aucune partie depuis le dernier palier
         return confirmed
-    return f"Environ {number(estimate.total)}, dont {confirmed}"
+    lead = "Plus de" if estimate.partial_since is not None else "Environ"
+    return f"{lead} {number(estimate.total)}, dont {confirmed}"
+
+
+def day_month(when: datetime) -> str:
+    """« 6 novembre », à l'heure locale."""
+    local = when.astimezone()
+    return f"{local.day}{NBSP}{MONTHS[local.month - 1]}"
+
+
+def chests_note(estimate: Estimate) -> str:
+    """Sous l'estimation : d'où vient son incertitude."""
+    if estimate.partial_since is not None:
+        return f"Journaux du jeu lus depuis le {day_month(estimate.partial_since)}"
+    if not estimate.measured:
+        rate = f"{estimate.per_minute:.1f}".replace(".", ",")
+        return f"Au rythme supposé de {rate}{NBSP}coffre par minute"
+    if estimate.high > estimate.low:
+        return f"Entre {number(estimate.low)} et {number(estimate.high)}"
+    return ""
+
+
+@dataclass(frozen=True, slots=True)
+class ChestsState:
+    """Ce que le panneau sait des coffres : estimation, paliers, connexion à Epic."""
+
+    estimate: Estimate | None
+    has_milestones: bool
+    scanned: bool  # estimation calculée avec les paliers actuels
+    link: LinkState
+
+
+@dataclass(frozen=True, slots=True)
+class ChestsView:
+    line: str = ""  # ligne de données
+    note: str = ""  # légende sous la ligne
+    notice: tuple[str, str, str] | None = None  # gravité, message, bouton (vide : aucun)
+
+
+def chests_view(state: ChestsState) -> ChestsView:  # noqa: PLR0911 - une branche par état
+    """Contenu de la section « Coffres ouverts » ; la connexion en cours passe d'abord."""
+    link = state.link
+    if link.phase == "waiting":
+        return ChestsView(notice=("info", EPIC_WAITING, EPIC_ACTIONS["cancel"]))
+    if link.phase == "reading":
+        return ChestsView(notice=("info", EPIC_READING, ""))
+    if link.phase == "failed":
+        message = f"Lecture du compte Epic impossible{NBSP}: {link.error}."
+        return ChestsView(notice=("caution", message, EPIC_ACTIONS["retry"]))
+    if state.estimate is not None:
+        return ChestsView(line=chests_line(state.estimate), note=chests_note(state.estimate))
+    if not state.has_milestones:
+        return ChestsView(notice=("info", EPIC_INVITE, EPIC_ACTIONS["connect"]))
+    if not state.scanned:
+        return ChestsView(line=READING_LOGS)
+    return ChestsView(line=NO_LOGS)
 
 
 def counters_from(cfg: Config) -> list[tuple[str, tuple[str, ...]]]:
@@ -339,9 +420,15 @@ class Controller(Protocol):
         """Compteurs de la session : (libellé, slugs additionnés)."""
         ...
 
-    def chests(self) -> Estimate | None:
-        """Coffres ouverts estimés d'après les journaux du jeu, s'il y a de quoi estimer."""
+    def chests(self) -> ChestsState | None:
+        """Coffres ouverts estimés ; None si l'estimation est désactivée."""
         ...
+
+    def connect_epic(self) -> None:
+        """Connexion au compte Epic pour lire les paliers de la quête."""
+        ...
+
+    def cancel_epic(self) -> None: ...
 
 
 class _NotOpenYet:
@@ -375,6 +462,7 @@ class EngineController:
         self._chests = (
             ChestTracker(cfg.chests, cfg.resolved_matches_file()) if cfg.chests.enabled else None
         )
+        self._epic = EpicLink(self._got_milestones) if self._chests is not None else None
         self._thread = threading.Thread(target=self._run, name="moteur", daemon=True)
 
     def start(self) -> None:
@@ -425,6 +513,8 @@ class EngineController:
         self.engine.stop()
         if self._chests is not None:
             self._chests.stop()
+        if self._epic is not None:
+            self._epic.cancel()
 
     def still_here_answers(self) -> list[str]:
         return self.engine.still_here_answers()
@@ -441,8 +531,34 @@ class EngineController:
     def counters(self) -> list[tuple[str, tuple[str, ...]]]:
         return counters_from(self._cfg)
 
-    def chests(self) -> Estimate | None:
-        return self._chests.estimate() if self._chests is not None else None
+    def chests(self) -> ChestsState | None:
+        if self._chests is None or self._epic is None:
+            return None
+        tracker = self._chests
+        return ChestsState(
+            tracker.estimate(), tracker.has_milestones, tracker.scanned, self._epic.state()
+        )
+
+    def connect_epic(self) -> None:
+        if self._epic is not None:
+            self._epic.connect()
+
+    def cancel_epic(self) -> None:
+        if self._epic is not None:
+            self._epic.cancel()
+
+    def _got_milestones(self, points: list[Milestone]) -> None:
+        """Paliers lus sur le compte Epic (thread de la connexion) : gardés et appliqués."""
+        payload = [
+            {"count": p.count, "at": p.at.isoformat(timespec="milliseconds").replace("+00:00", "Z")}
+            for p in points
+        ]
+        try:
+            update_local_config({"chests": {"milestones": payload}})
+        except (OSError, ValueError) as exc:
+            log.warning("paliers de la quête non enregistrés (%s)", exc)
+        if self._chests is not None:
+            self._chests.set_milestones(points)
 
 
 # --- Win32 --------------------------------------------------------------------
@@ -1187,7 +1303,19 @@ class Panel:
         self.chests.pack_propagate(False)
         self.chests_text = self._label(self.chests, self.f_body, C.text_2, anchor="w")
         self.chests_text.pack(side="left")
-        self.chests.pack(fill="x")
+        self.chests_note = self._label(
+            self.s_chests, self.f_caption, C.text_3, anchor="w", justify="left", wraplength=inner
+        )
+        self.chests_notice = Notice(
+            self.s_chests,
+            width=inner,
+            pad=px(PAD),
+            gap=px(GAP),
+            radius=px(RADIUS),
+            font=self.f_body,
+            icon_font=self.f_icon,
+            make_button=self._notice_button,
+        )
 
         self.footer_rule = tk.Frame(root, bg=C.stroke, height=1)
         self.footer = tk.Frame(root, bg=C.bg, padx=px(PAD), pady=px(PAD))
@@ -1236,12 +1364,16 @@ class Panel:
         self._place(*self._pos)
 
     def _layout_body(
-        self, notice: tuple[str, str] | None, update: tuple[str, str, str] | None, chests: bool
+        self,
+        notice: tuple[str, str] | None,
+        update: tuple[str, str, str] | None,
+        chests: ChestsView | None,
     ) -> None:
         sections = (self.s_dialog, self.s_session, self.s_recent, self.s_totals)
         for widget in (self.notice, self.update_notice, *sections, self.s_chests):
             widget.pack_forget()
-        if chests:  # seulement s'il y a de quoi estimer (paliers relevés, journaux lus)
+        if chests is not None:  # absente si l'estimation est désactivée
+            self._layout_chests(chests)
             sections = (*sections, self.s_chests)
         top = self.px(PAD)
         if notice is not None:
@@ -1255,6 +1387,20 @@ class Panel:
         for section in sections:
             section.pack(fill="x", pady=(top, 0))
             top = self.px(SECTION_GAP)
+
+    def _layout_chests(self, view: ChestsView) -> None:
+        for widget in (self.chests, self.chests_note, self.chests_notice):
+            widget.pack_forget()
+        if view.line:
+            self.chests.pack(fill="x")
+        if view.note:
+            self._text(self.chests_note, view.note)
+            self.chests_note.pack(fill="x")
+        if view.notice is not None:
+            severity, message, label = view.notice
+            action = (label, self._chests_action) if label else None
+            self.chests_notice.show(severity, message, action)
+            self.chests_notice.pack(fill="x")
 
     def _place(self, x: int, y: int) -> None:
         """Pose la fenêtre à (x, y), hauteur au contenu, entière sur son écran."""
@@ -1411,17 +1557,20 @@ class Panel:
         )
         disabled = frozenset(a for a, _ in ANSWERS) - set(self.controller.still_here_answers())
         hint = missing_hint(disabled)
-        chests = chests_line(self.controller.chests())
+        chests_state = self.controller.chests()
+        chests = chests_view(chests_state) if chests_state is not None else None
+        # hauteur de la section : ligne présente ou non, légende et bandeau
+        chests_key = None if chests is None else (bool(chests.line), chests.note, chests.notice)
         state = (
             notice,
             update_key,
             len(recent),
             hint,
-            bool(chests),
+            chests_key,
             tuple(counts),
             recent,
             totals,
-            chests,
+            chests.line if chests is not None else "",
             status.still_here,
             update,
         )
@@ -1434,14 +1583,14 @@ class Panel:
         self._fill_grid(counts)
         self._fill_recent(recent)
         self._text(self.totals_text, totals)
-        self._text(self.chests_text, chests)
+        self._text(self.chests_text, chests.line if chests is not None else "")
         if reflow:
             self._text(self.dialog_hint, hint)
             if hint:
                 self.dialog_hint.pack(fill="x", pady=(self.px(GAP), 0))
             else:
                 self.dialog_hint.pack_forget()
-            self._layout_body(notice, update, bool(chests))
+            self._layout_body(notice, update, chests)
             self._place(*self._pos)
         elif update is not None and self._show_update(update):  # message passé à la ligne
             self._place(*self._pos)
@@ -1457,6 +1606,16 @@ class Panel:
             return
         log.info("mise à jour : téléchargement demandé")
         self.updates.download()
+        self._render(self.controller.status())
+
+    def _chests_action(self) -> None:
+        """Bouton du bandeau des coffres : annule l'attente de la connexion, ou la lance."""
+        state = self.controller.chests()
+        if state is not None and state.link.phase == "waiting":
+            log.info("compte Epic : annulation demandée")
+            self.controller.cancel_epic()
+        else:
+            self.controller.connect_epic()
         self._render(self.controller.status())
 
     def _watch_update(self, status: Status) -> None:

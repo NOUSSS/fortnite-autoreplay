@@ -23,7 +23,8 @@ from fortnite_auto_replay.chests import (
     scan_file,
     scan_logs,
 )
-from fortnite_auto_replay.panel import chests_line
+from fortnite_auto_replay.epic import LinkState
+from fortnite_auto_replay.panel import ChestsState, chests_line, chests_note, chests_view
 
 MARKER = "/Fortnite.com/GameFeatures/BRRoot"
 DAY = datetime(2026, 11, 3, tzinfo=timezone.utc)
@@ -289,3 +290,120 @@ def test_chests_line() -> None:
     assert chests_line(Estimate(total=1000, confirmed=1000, matches=0, per_minute=0.7)) == (
         f"1{nbsp}000{nbsp}confirmés"
     )
+
+
+# --- rythme par défaut, minimum, fourchette ------------------------------------------------
+def test_without_a_measured_interval_the_default_rate_is_used() -> None:
+    points = [Milestone(100, at(12))]
+    result = estimate(MATCHES, points, tracked_since=at(8), now=at(15), default_rate=1.0)
+    assert result is not None
+    assert not result.measured
+    assert result.total == 100 + 40  # 40 minutes de partie après le palier
+    assert result.partial_since is None
+
+
+def test_journals_starting_after_the_last_milestone_give_a_minimum() -> None:
+    points = [Milestone(0, at(6)), Milestone(1000, at(9))]
+    result = estimate(MATCHES, points, tracked_since=at(10, 30), now=at(15), default_rate=2.0)
+    assert result is not None
+    assert result.partial_since == at(10, 30)
+    assert result.total == 1000 + 2 * (30 + 10 + 30)  # seules les parties lues
+    assert result.matches == 3
+    assert (result.low, result.high) == (0, 0)
+    assert chests_line(result).startswith("Plus de 1")
+
+
+def test_two_long_intervals_give_a_range() -> None:
+    matches = [(at(9), at(10)), (at(11), at(12)), (at(13), at(13, 30))]  # 60, 60, 30 min
+    points = [Milestone(0, at(8)), Milestone(120, at(10, 30)), Milestone(300, at(12, 30))]
+    result = estimate(matches, points, tracked_since=at(7), now=at(14))
+    assert result is not None
+    assert result.per_minute == pytest.approx(300 / 120)
+    assert result.total == 300 + 80  # 2,5 coffres par minute sur 30 minutes, à la dizaine
+    assert (result.low, result.high) == (360, 390)  # 2 et 3 coffres par minute
+
+
+def test_a_short_interval_does_not_widen_the_range() -> None:
+    matches = [(at(9), at(9, 5)), (at(11), at(12)), (at(13), at(13, 30))]
+    points = [Milestone(0, at(8)), Milestone(25, at(10)), Milestone(145, at(12, 30))]
+    result = estimate(matches, points, tracked_since=at(7), now=at(14))
+    assert result is not None
+    assert (result.low, result.high) == (0, 0)  # 0 → 25 trop court : un seul intervalle retenu
+
+
+def test_an_unchanged_count_slows_the_rate_down() -> None:
+    # palier 100, puis le compteur lu sur le compte toujours à 100 après 30 minutes de partie
+    points = [Milestone(0, at(9)), Milestone(100, at(10, 30)), Milestone(100, at(12, 30))]
+    result = estimate(MATCHES, points, tracked_since=at(8), now=at(15))
+    assert result is not None
+    # sans l'intervalle 100 → 100, le rythme serait de 100 / 20
+    assert result.per_minute == pytest.approx(100 / (20 + 30))
+
+
+# --- suivi : paliers donnés en cours de route ------------------------------------------------
+def test_new_milestones_are_applied_at_the_next_reading(tmp_path: Path) -> None:
+    logs = tmp_path / "Logs"
+    logs.mkdir()
+    write(
+        logs / "FortniteGame.log",
+        header(),
+        lobby(at(8)),
+        *(chunk for begin, end in MATCHES for chunk in (battle(begin), lobby(end))),
+    )
+    cfg = config_mod.ChestsConfig(logs_dir=str(logs), default_rate=0.0)
+    tracker = ChestTracker(cfg, tmp_path / "matches.json", clock=lambda: at(15))
+    tracker.refresh()
+    assert tracker.scanned
+    assert not tracker.has_milestones
+    assert tracker.estimate() is None
+
+    tracker.set_milestones([Milestone(100, at(12)), Milestone(0, at(9))])
+    assert tracker.has_milestones
+    assert not tracker.scanned
+    tracker.refresh()
+    assert tracker.scanned
+    assert tracker.estimate() == Estimate(total=180, confirmed=100, matches=2, per_minute=2.0)
+
+
+def test_default_rate_is_checked() -> None:
+    with pytest.raises(config_mod.ConfigError, match="default_rate"):
+        config_mod.load_config(use_local=False, overrides={"chests": {"default_rate": -1}})
+
+
+# --- section du panneau ------------------------------------------------------------------------
+def test_chests_notes() -> None:
+    nbsp = chr(0xA0)  # espace insécable
+    ranged = Estimate(2790, 1000, 159, 0.71, low=2630, high=3210)
+    assert chests_note(ranged) == f"Entre 2{nbsp}630 et 3{nbsp}210"
+    assumed = Estimate(1420, 1000, 40, 0.71, measured=False)
+    assert chests_note(assumed) == f"Au rythme supposé de 0,7{nbsp}coffre par minute"
+    since = datetime(2026, 11, 6, 12, 0, tzinfo=timezone.utc)
+    partial = Estimate(1840, 1000, 80, 0.71, measured=False, partial_since=since)
+    assert chests_note(partial) == f"Journaux du jeu lus depuis le 6{nbsp}novembre"
+    assert chests_note(Estimate(2790, 1000, 159, 0.71)) == ""
+
+
+def test_chests_view_follows_the_epic_link_first() -> None:
+    ranged = Estimate(2790, 1000, 159, 0.71, low=2630, high=3210)
+    idle = LinkState()
+    invite = chests_view(ChestsState(None, False, True, idle))
+    assert invite.notice is not None
+    assert invite.notice[2] == "Se connecter à Epic"
+    waiting = chests_view(ChestsState(None, False, True, LinkState("waiting")))
+    assert waiting.notice is not None
+    assert waiting.notice[2] == "Annuler"
+    reading = chests_view(ChestsState(None, False, True, LinkState("reading")))
+    assert reading.notice is not None
+    assert reading.notice[2] == ""
+    failed = chests_view(ChestsState(None, False, True, LinkState("failed", "délai dépassé")))
+    assert failed.notice is not None
+    assert failed.notice[0] == "caution"
+    assert failed.notice[1].endswith(": délai dépassé.")
+    assert chests_view(ChestsState(None, True, False, LinkState("done"))).line.startswith(
+        "Lecture des journaux"
+    )
+    assert chests_view(ChestsState(None, True, True, idle)).line == "Aucun journal du jeu trouvé"
+    shown = chests_view(ChestsState(ranged, True, True, idle))
+    assert shown.line.startswith("Environ 2")
+    assert shown.note.startswith("Entre")
+    assert shown.notice is None

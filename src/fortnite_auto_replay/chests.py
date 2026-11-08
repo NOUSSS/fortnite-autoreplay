@@ -2,9 +2,16 @@
 
 Le jeu ne compte les coffres que dans la quête de la chasse au trésor, qui
 s'arrête à son dernier palier (1 000). Les paliers atteints et leur date
-(``chests.milestones``, relevés sur le compte Epic) donnent un nombre de
-coffres par minute de partie ; les minutes jouées depuis le dernier palier,
-lues dans les journaux du jeu, donnent l'estimation.
+(``chests.milestones``, lus sur le compte Epic par :mod:`epic`) donnent un
+nombre de coffres par minute de partie ; les minutes jouées depuis le dernier
+palier, lues dans les journaux du jeu, donnent l'estimation. Sans intervalle
+mesurable entre deux paliers, ``chests.default_rate`` sert de rythme.
+
+Mesuré sur un joueur entre ses paliers 250, 500 et 1 000 : 0,88 puis 0,65
+coffre par minute. Les minutes au sol (du saut du bus à la mort) ou le nombre
+de parties ne varient pas moins d'un intervalle à l'autre : l'écart vient de
+la façon de jouer, pas de la mesure. Les minutes de partie, les plus simples à
+lire, sont gardées, et la fourchette montre cet écart.
 
 Une partie de Battle Royale va de la ligne ``LogLoad: LoadMap:`` qui charge sa
 carte depuis un serveur (VerseURI ``chests.match_marker``) au chargement de
@@ -43,6 +50,7 @@ _CHUNK = 4 * 1024 * 1024  # lecture par blocs : la recherche se fait en C, pas l
 _HEAD = 1024 * 1024
 _TAIL = 64 * 1024  # la dernière ligne horodatée est dans cette fin de fichier
 _STORE_VERSION = 1
+RANGE_MIN_CHESTS = 100  # intervalle assez long pour borner la fourchette (25 coffres : trop bruité)
 
 Match = tuple[datetime, datetime]  # début, fin (UTC)
 
@@ -57,8 +65,12 @@ class Milestone:
 class Estimate:
     total: int  # arrondi à la dizaine, jamais sous le dernier palier
     confirmed: int  # dernier palier atteint
-    matches: int  # parties jouées depuis ce palier
-    per_minute: float  # coffres par minute de partie, mesurés entre les paliers
+    matches: int  # parties jouées depuis ce palier (ou depuis le début des journaux)
+    per_minute: float  # coffres par minute de partie
+    low: int = 0  # fourchette (rythmes extrêmes des intervalles mesurés), 0 sans fourchette
+    high: int = 0
+    measured: bool = True  # rythme mesuré entre vos paliers, sinon rythme par défaut
+    partial_since: datetime | None = None  # journaux lus depuis cette date seulement : minimum
 
 
 def milestones_from(cfg: ChestsConfig) -> list[Milestone]:
@@ -253,40 +265,67 @@ def minutes_between(matches: Sequence[Match], start: datetime, end: datetime) ->
     return seconds / 60
 
 
+def _tens(value: float) -> int:
+    return round(value / 10) * 10
+
+
 def estimate(
     matches: Sequence[Match],
     milestones: Sequence[Milestone],
     tracked_since: datetime | None,
     now: datetime,
+    default_rate: float = 0.0,
 ) -> Estimate | None:
     """Dernier palier, plus les minutes jouées depuis au rythme mesuré entre les paliers.
 
     Seuls comptent les intervalles entre paliers dont toutes les parties ont
-    été lues (après ``tracked_since``) : sans elles, le rythme serait surestimé.
-    Rien sans au moins un tel intervalle, ni si le dernier palier précède les
-    journaux lus (les parties jouées depuis seraient en partie inconnues).
+    été lues (après ``tracked_since``) : sans elles, le rythme serait faussé.
+    Le rythme est celui de tous ces intervalles réunis (coffres sur minutes) ;
+    la fourchette va du plus lent au plus rapide d'entre eux, s'il y en a deux
+    d'au moins :data:`RANGE_MIN_CHESTS` coffres. Sans intervalle mesuré, le
+    rythme par défaut sert. Si les journaux commencent après le dernier palier,
+    les parties d'avant sont inconnues : l'estimation n'est qu'un minimum.
     """
     points = sorted(milestones, key=lambda m: m.at)
-    if tracked_since is None or not points or points[-1].at < tracked_since:
+    if tracked_since is None or not points:
         return None
     chests = minutes = 0.0
+    rates: list[float] = []
     for before, after in pairwise(points):
-        if before.at < tracked_since or after.count <= before.count:
+        gained = after.count - before.count
+        if before.at < tracked_since or gained < 0:
             continue
         span = minutes_between(matches, before.at, after.at)
         if span > 0:
-            chests += after.count - before.count
+            chests += gained
             minutes += span
-    if minutes == 0:
+            if gained >= RANGE_MIN_CHESTS:
+                rates.append(gained / span)
+    measured = minutes > 0
+    if measured:
+        rate = chests / minutes
+    elif default_rate > 0:
+        rate = default_rate
+    else:
         return None
-    rate = chests / minutes
     last = points[-1]
-    total = last.count + rate * minutes_between(matches, last.at, now)
+    partial = last.at < tracked_since
+    start = tracked_since if partial else last.at
+    played = minutes_between(matches, start, now)
+    total = max(last.count, _tens(last.count + rate * played))
+    low = high = 0
+    if not partial and len(rates) >= 2:
+        low = max(last.count, _tens(last.count + min(rates) * played))
+        high = max(last.count, _tens(last.count + max(rates) * played))
     return Estimate(
-        total=max(last.count, round(total / 10) * 10),
+        total=total,
         confirmed=last.count,
-        matches=sum(1 for _, stop in matches if last.at < stop <= now),
+        matches=sum(1 for _, stop in matches if start < stop <= now),
         per_minute=rate,
+        low=low,
+        high=high,
+        measured=measured,
+        partial_since=tracked_since if partial else None,
     )
 
 
@@ -295,7 +334,8 @@ class ChestTracker:
     """Relit les journaux au lancement puis toutes les ``scan_interval_s`` secondes.
 
     Le panneau lit :meth:`estimate` à chaque tour ; la lecture des journaux se
-    fait dans le thread du suivi.
+    fait dans le thread du suivi. De nouveaux paliers (lus sur le compte Epic)
+    se donnent par :meth:`set_milestones` : le suivi recalcule aussitôt.
     """
 
     def __init__(
@@ -309,17 +349,40 @@ class ChestTracker:
         self.store_path = store_path
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._milestones = milestones_from(cfg)
+        self._generation = 0  # change à chaque nouveau jeu de paliers
+        self._scanned = False  # estimation calculée avec les paliers actuels
         self._lock = threading.Lock()
         self._estimate: Estimate | None = None
         self._stop = threading.Event()
+        self._wake = threading.Event()
         self._store: Store | None = None
 
     def estimate(self) -> Estimate | None:
         with self._lock:
             return self._estimate
 
+    @property
+    def has_milestones(self) -> bool:
+        with self._lock:
+            return bool(self._milestones)
+
+    @property
+    def scanned(self) -> bool:
+        """Vrai une fois l'estimation calculée avec les paliers actuels."""
+        with self._lock:
+            return self._scanned
+
+    def set_milestones(self, points: Iterable[Milestone]) -> None:
+        with self._lock:
+            self._milestones = sorted(points, key=lambda m: m.at)
+            self._generation += 1
+            self._scanned = False
+        self._wake.set()
+
     def refresh(self) -> Store:
         """Lit la suite des journaux, garde les parties, recalcule l'estimation."""
+        with self._lock:
+            milestones, generation = list(self._milestones), self._generation
         if self._store is None:
             self._store = load_store(self.store_path)
         store = self._store
@@ -331,10 +394,17 @@ class ChestTracker:
             save_store(store, self.store_path)
         if added:
             log.info("coffres : %d partie(s) lue(s) dans les journaux du jeu", added)
-        now = self._clock()
-        result = estimate(store.sorted_matches(), self._milestones, store.tracked_since, now)
+        result = estimate(
+            store.sorted_matches(),
+            milestones,
+            store.tracked_since,
+            self._clock(),
+            self.cfg.default_rate,
+        )
         with self._lock:
-            self._estimate = result
+            if generation == self._generation:  # sinon, de nouveaux paliers : le tour suivant
+                self._estimate = result
+                self._scanned = True
         return store
 
     def start(self) -> None:
@@ -342,6 +412,7 @@ class ChestTracker:
 
     def stop(self) -> None:
         self._stop.set()
+        self._wake.set()
 
     def _watch(self) -> None:
         while not self._stop.is_set():
@@ -349,4 +420,5 @@ class ChestTracker:
                 self.refresh()
             except Exception:  # un journal inattendu ne doit pas arrêter le suivi
                 log.exception("lecture des journaux du jeu impossible")
-            self._stop.wait(self.cfg.scan_interval_s)
+            self._wake.wait(self.cfg.scan_interval_s)
+            self._wake.clear()  # un réveil arrivé avant est couvert par la lecture qui suit

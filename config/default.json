@@ -74,6 +74,7 @@
     "match_marker": "/Fortnite.com/GameFeatures/BRRoot",
     "store_file": "logs/matches.json",
     "scan_interval_s": 300.0,
+    "default_rate": 0.71,
     "milestones": []
   },
   "template_dir": "templates",

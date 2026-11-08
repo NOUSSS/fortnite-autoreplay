@@ -46,6 +46,7 @@ premier plan et des messages de fenêtre au second plan.
 | `sounds.py` | Deux notes sur `F8` (reprise, pause) |
 | `panel.py` | Panneau de contrôle tkinter, moteur dans un thread, bandeau de mise à jour |
 | `chests.py` | Parties lues dans les journaux du jeu (`logs/matches.json`), estimation des coffres |
+| `epic.py` | Connexion au compte Epic (code d'appareil), paliers de la quête de coffres |
 | `updater.py` | Manifeste signé, téléchargement vérifié, installation tout ou rien, relance |
 | `cli.py` | `run`, `check`, `config`, `window`, `stats`, `panel`, `update` + surcharges en ligne de commande |
 
@@ -177,6 +178,23 @@ capture n'apporterait rien. Tout le gain vient du matching.
   quand il devient `FortniteGame-backup-….log`), lu une fois depuis l'octet où
   la lecture s'était arrêtée, par blocs de 4 Mio cherchés en C (0,6 s pour
   800 Mo de journaux), dans un thread à part toutes les 5 minutes.
+- **Paliers lus sur le compte Epic** : connexion par code d'appareil avec le
+  client public de Fortnite sur Switch (le seul qui l'accepte), lecture du
+  profil `athena`, puis fermeture de la session ; le jeton ne quitte pas la
+  mémoire. Une étape franchie de la quête crée la suivante : la date de
+  création de l'étape suivante est celle du palier (la date de changement
+  d'état de l'étape franchie est celle où la récompense a été réclamée, parfois
+  plusieurs minutes plus tard). Écartés après mesure : les minutes par période
+  de `statsv2` (121 parties là où les journaux en lisent 159, sans les parties
+  classées) et les autres compteurs de la chasse au trésor (`rarity`,
+  `sprites`), qui ne suivent pas le nombre de coffres. Les distinctions
+  (« 5 coffres fouillés dans une partie ») sont comptées par un autre service,
+  non documenté.
+- **Fiabilité de l'estimation** : entre deux paliers, le rythme varie autant en
+  minutes de partie qu'en minutes au sol (saut du bus à la mort) ; le nombre de
+  parties varie plus. L'écart vient du jeu du joueur : il se montre en
+  fourchette plutôt que de se cacher dans une autre mesure. Un compteur lu
+  sans changement depuis un palier compte comme un intervalle à zéro coffre.
 - **Aucune valeur dans le code** : tout est configuration.
 
 ## Points d'extension prévus

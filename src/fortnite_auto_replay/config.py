@@ -315,12 +315,17 @@ class ChestsConfig:
         "logs/matches.json"  # parties lues, gardées quand Fortnite efface ses journaux
     )
     scan_interval_s: float = 300.0
-    # paliers de la quête de coffres relevés sur le compte : [{"count": 1000, "at": "…Z"}]
+    # coffres par minute de partie quand aucun intervalle entre paliers n'est mesurable
+    # (0,71 : mesuré sur un joueur, entre ses paliers 250 et 1 000)
+    default_rate: float = 0.71
+    # paliers de la quête de coffres, lus sur le compte Epic : [{"count": 1000, "at": "…Z"}]
     milestones: list[dict[str, Any]] = field(default_factory=list)
 
     def validate(self) -> None:
         if self.scan_interval_s < 10:
             raise ConfigError("chests.scan_interval_s doit être >= 10")
+        if not 0 <= self.default_rate <= 10:
+            raise ConfigError("chests.default_rate doit être entre 0 et 10")
         if not self.match_marker:
             raise ConfigError("chests.match_marker ne peut pas être vide")
         for milestone in self.milestones:

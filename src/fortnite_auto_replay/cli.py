@@ -6,12 +6,14 @@ import argparse
 import json
 import logging
 import sys
+import threading
 import time
+import webbrowser
 from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 
-from . import __version__, diagnostics, history, updater, vision
+from . import __version__, diagnostics, epic, history, updater, vision
 from . import config as config_mod
 from .actions import Actions, InputError
 from .capture import CaptureError, ScreenCapture
@@ -239,22 +241,48 @@ def cmd_stats(args: argparse.Namespace) -> int:
 
 
 def cmd_chests(args: argparse.Namespace) -> int:
-    """Lit la suite des journaux du jeu et affiche l'estimation des coffres ouverts."""
+    """Lit la suite des journaux du jeu et affiche l'estimation des coffres ouverts.
+
+    Avec ``--epic`` : lit d'abord les paliers de la quête sur le compte Epic
+    (page de confirmation ouverte dans le navigateur) et les garde dans
+    ``config/local.json``.
+    """
     cfg = _build_config(args)
     tracker = ChestTracker(cfg.chests, cfg.resolved_matches_file())
+    if args.epic:
+        try:
+            points = epic.sign_in(_open_epic_page, threading.Event())
+        except epic.EpicError as exc:
+            log.error("compte Epic : %s", exc)
+            return 1
+        if points is None:
+            return 1
+        payload = [
+            {"count": p.count, "at": p.at.isoformat(timespec="milliseconds").replace("+00:00", "Z")}
+            for p in points
+        ]
+        if not args.no_save:
+            config_mod.update_local_config({"chests": {"milestones": payload}})
+        cfg.chests.milestones = payload
+        tracker.set_milestones(points)
     store = tracker.refresh()
     estimate = tracker.estimate()
     report = {
         "journaux": str(cfg.chests.resolved_logs_dir()),
         "parties_lues": len(store.matches),
         "depuis": store.tracked_since.isoformat() if store.tracked_since else None,
-        "paliers": len(cfg.chests.milestones),
+        "paliers": cfg.chests.milestones,
         "estimation": asdict(estimate) if estimate else None,
     }
-    print(json.dumps(report, indent=2, ensure_ascii=False))
+    print(json.dumps(report, indent=2, ensure_ascii=False, default=str))
     if estimate is None:
-        log.info("pas d'estimation : il faut deux paliers lus dans les journaux (voir README)")
+        log.info("pas d'estimation : paliers à lire sur le compte Epic (chests --epic)")
     return 0
+
+
+def _open_epic_page(url: str) -> None:
+    print(f"Confirmez la connexion sur la page Epic\u00a0: {url}", flush=True)
+    webbrowser.open(url)
 
 
 def cmd_config(args: argparse.Namespace) -> int:
@@ -436,6 +464,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     chests = sub.add_parser("chests", help="estimation des coffres ouverts (journaux du jeu)")
     _add_common(chests)
+    chests.add_argument(
+        "--epic", action="store_true", help="lire d'abord les paliers sur le compte Epic"
+    )
+    chests.add_argument(
+        "--no-save", action="store_true", help="avec --epic : ne pas garder les paliers lus"
+    )
     chests.set_defaults(func=cmd_chests)
     return parser
 

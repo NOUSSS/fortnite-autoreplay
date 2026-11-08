@@ -5,6 +5,11 @@ Une section par version, la plus récente en haut, au format
 toutes, et le manifeste de mise à jour reprend celles de la dernière version
 (`packaging/release.py`).
 
+## 0.4.0 (2026-11-08)
+
+- L’estimation des coffres marche pour tout le monde : un clic sur « Se connecter à Epic » dans le panneau suffit à lire les paliers de votre quête, sans rien noter à la main. L’application ne garde ni jeton ni mot de passe.
+- L’estimation affiche une fourchette, et un minimum quand les journaux du jeu ne remontent pas jusqu’à votre dernier palier.
+
 ## 0.3.0 (2026-11-08)
 
 - Le panneau estime les coffres que vous avez ouverts, au-delà des 1 000 de la quête de la chasse au trésor : il lit vos parties dans les journaux du jeu et les compare aux paliers de la quête, à noter dans `config/local.json` (voir le README).
