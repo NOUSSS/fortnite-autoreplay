@@ -173,6 +173,8 @@ DEFAULT_STATES: tuple[StateConfig, ...] = (
         slug="continue", label="Continuer", priority=80, cooldown_s=3.0, post_action_sleep_s=1.5
     ),
     StateConfig(slug="ready", label="Prêt", priority=70, cooldown_s=5.0, post_action_sleep_s=2.0),
+    # « Jouer » à la place de « Prêt » en solo ou en chef de groupe
+    StateConfig(slug="play", label="Jouer", priority=70, cooldown_s=5.0, post_action_sleep_s=2.0),
     # dialogue modal, avec compte à rebours : il passe avant tout le reste
     StateConfig(
         slug="still_here_ready",

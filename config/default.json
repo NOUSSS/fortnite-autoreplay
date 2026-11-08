@@ -122,6 +122,17 @@
       "enabled": true
     },
     {
+      "slug": "play",
+      "label": "Jouer",
+      "priority": 70,
+      "click": "center",
+      "require_confirm": true,
+      "cooldown_s": 5.0,
+      "post_action_sleep_s": 2.0,
+      "clicks": 1,
+      "enabled": true
+    },
+    {
       "slug": "still_here_ready",
       "label": "Toujours là : Prêt",
       "priority": 110,

@@ -1,6 +1,6 @@
 Fortnite AutoReplay {version}
 
-Enchaîne les parties de Fortnite sans vous : l’application reconnaît à l’écran les boutons de fin de partie et du salon (Retourner au salon, Continuer, Prêt) et clique dessus. Elle répond aussi au dialogue « Vous êtes toujours là ? » d’un groupe.
+Enchaîne les parties de Fortnite sans vous : l’application reconnaît à l’écran les boutons de fin de partie et du salon (Retourner au salon, Continuer, Prêt ou Jouer) et clique dessus. Elle répond aussi au dialogue « Vous êtes toujours là ? » d’un groupe.
 
 
 Installation

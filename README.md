@@ -3,7 +3,7 @@
 Bot de rejeu automatique pour Fortnite : regarde l'écran en continu, reconnaît les
 boutons du jeu par *template matching* et clique dessus.
 
-Boucle visée : **Retourner au salon → Continuer → Prêt → (en jeu) → Retourner au salon → ...**
+Boucle visée : **Retourner au salon → Continuer → Prêt ou Jouer → (en jeu) → Retourner au salon → ...**
 
 > Statut : **fondations, garde-fous, performance**. Capture, vision, clics,
 > machine à états, suivi de la fenêtre du jeu, zones de recherche par template,
@@ -28,7 +28,7 @@ administrateur si les clics ne passent pas.
 ## Utilisation
 
 ```powershell
-# 1. capturer les templates (boutons Retourner au salon / Continuer / Prêt)
+# 1. capturer les templates (boutons Retourner au salon / Continuer / Prêt / Jouer)
 python -m fortnite_auto_replay.tools.capture_templates
 
 # 2. vérifier la détection sans cliquer

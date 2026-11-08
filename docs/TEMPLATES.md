@@ -89,9 +89,10 @@ avertissement : recadre sur les éléments textuels/colorés du bouton.
 | --- | --- |
 | `pass_battle` | « Passer » (écran de fin de partie / récompenses) |
 | `back_to_lobby` | « Retourner au salon » (fin de partie) |
-| `replay` | « Rejouer », désactivé : le bot retourne au salon puis clique sur « Prêt » |
+| `replay` | « Rejouer », désactivé : le bot retourne au salon puis clique sur « Prêt » ou « Jouer » |
 | `continue` | « Continuer » |
-| `ready` | « Prêt » (salon) |
+| `ready` | « Prêt » (salon, membre d'un groupe) |
+| `play` | « Jouer » (salon, seul ou chef de groupe), même place que « Prêt » |
 | `still_here_ready` | « Prêt » du dialogue « Vous êtes toujours là ? » |
 | `still_here_not_yet` | « Pas encore » du même dialogue |
 
