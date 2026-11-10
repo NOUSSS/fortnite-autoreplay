@@ -23,3 +23,8 @@ config/local.json
 # empaquetage (packaging/build.py)
 build/
 dist/
+
+# lecteur de replays (packaging/build_reader.py)
+replay-reader/**/bin/
+replay-reader/**/obj/
+replay-reader/replay-reader.exe

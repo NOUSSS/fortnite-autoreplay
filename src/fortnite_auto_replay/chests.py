@@ -1,40 +1,36 @@
-"""Estimation des coffres ouverts, d'après les parties lues dans les journaux de Fortnite.
+"""Coffres ouverts, comptés dans les replays de Fortnite.
 
-Le jeu ne compte les coffres que dans la quête de la chasse au trésor, qui
-s'arrête à son dernier palier (1 000). Les paliers atteints et leur date
-(``chests.milestones``, lus sur le compte Epic par :mod:`epic`) donnent un
-nombre de coffres par minute de partie ; les minutes jouées depuis le dernier
-palier, lues dans les journaux du jeu, donnent l'estimation. Sans intervalle
-mesurable entre deux paliers, ``chests.default_rate`` sert de rythme.
+Quand l'enregistrement des replays est activé (Paramètres, Jeu, Rediffusions),
+Fortnite écrit un fichier ``.replay`` par partie dans ``chests.demos_dir``. Il
+contient ce que le serveur a envoyé, dont l'état de chaque coffre : fouillé
+(``bAlreadySearched``) ou détruit (``bDestroyed``), et par qui
+(``SearchingPawn``). Le lecteur de replays (``replay-reader.exe``, construit
+depuis ``replay-reader/`` avec l'analyse de ChestCounter) en tire les coffres
+ouverts ou cassés par le joueur qui a enregistré la partie, une ligne JSON par
+replay.
 
-Mesuré sur un joueur entre ses paliers 250, 500 et 1 000 : 0,88 puis 0,65
-coffre par minute. Les minutes au sol (du saut du bus à la mort) ou le nombre
-de parties ne varient pas moins d'un intervalle à l'autre : l'écart vient de
-la façon de jouer, pas de la mesure. Les minutes de partie, les plus simples à
-lire, sont gardées, et la fourchette montre cet écart.
-
-Une partie de Battle Royale va de la ligne ``LogLoad: LoadMap:`` qui charge sa
-carte depuis un serveur (VerseURI ``chests.match_marker``) au chargement de
-carte suivant, le salon en général. Fortnite n'en garde qu'une quinzaine de
-journaux : les parties lues sont gardées dans ``chests.store_file``, et chaque
-journal n'est lu qu'une fois, à partir de là où la lecture précédente s'est
-arrêtée. Un journal se reconnaît à l'horodatage de sa première ligne, qui ne
-change pas quand le jeu le renomme en ``FortniteGame-backup-….log``.
-
-Les horodatages des journaux sont en UTC, comme les dates des paliers.
+Le jeu n'écrit la clé de déchiffrement d'un replay qu'à la fin de la partie :
+une partie se compte quelques secondes après sa fin, une fois son replay
+terminé et stable. Les parties comptées sont gardées dans ``chests.store_file``
+(le jeu efface ses vieux replays) ; chaque replay n'est lu qu'une fois, et une
+même partie (``session_id``) ne compte qu'une fois. Une nouvelle version du
+lecteur relit les replays encore présents, et les parties relues remplacent
+les anciennes.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import re
+import os
+import struct
+import subprocess
+import sys
 import threading
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -42,171 +38,114 @@ from .config import ChestsConfig, ConfigError, parse_utc
 
 log = logging.getLogger(__name__)
 
-_LOAD = b"LogLoad: LoadMap: "
-_STAMP = re.compile(rb"\[(\d{4})\.(\d\d)\.(\d\d)-(\d\d)\.(\d\d)\.(\d\d):\d{3}\]")
-_LINE_STAMP = re.compile(rb"^" + _STAMP.pattern, re.MULTILINE)  # en début de ligne seulement
-_CHUNK = 4 * 1024 * 1024  # lecture par blocs : la recherche se fait en C, pas ligne à ligne
-# première ligne horodatée : après l'en-tête du journal, vers 68 Kio (constaté en 43.00)
-_HEAD = 1024 * 1024
-_TAIL = 64 * 1024  # la dernière ligne horodatée est dans cette fin de fichier
 _STORE_VERSION = 1
-RANGE_MIN_CHESTS = 100  # intervalle assez long pour borner la fourchette (25 coffres : trop bruité)
+_MAGIC = 0x1CA2E27F  # début de tout fichier .replay
+# Un replay terminé (plus « en direct », clé écrite) se lit après ce calme.
+FINISHED_QUIET_S = 4.0
+QUIET_S = 10.0  # replay terminé dont la clé n'a pas pu être lue
+OLD_S = 60.0  # replay terminé et intouché depuis : complet à coup sûr
+UNKNOWN_QUIET_S = 120.0  # en-tête illisible : prudence
+# Le jeu complète le replay d'une partie en cours toutes les 25 s environ.
+# Encore « en direct » mais intouché depuis : enregistrement coupé (jeu fermé).
+ABANDONED_S = 600.0
+READ_TIMEOUT_S = 180.0
 
-Match = tuple[datetime, datetime]  # début, fin (UTC)
+INCOMPLETE = "incomplet"
+OTHER_MODE = "autre mode"
+ERROR = "erreur"
 
 
+# --- en-tête d'un replay --------------------------------------------------------------
 @dataclass(frozen=True, slots=True)
-class Milestone:
-    count: int
-    at: datetime  # UTC
+class Header:
+    live: bool  # partie encore en cours d'enregistrement
+    key_missing: bool  # chiffré et clé pas encore écrite (fin de partie)
 
 
-@dataclass(frozen=True, slots=True)
-class Estimate:
-    total: int  # arrondi à la dizaine, jamais sous le dernier palier
-    confirmed: int  # dernier palier atteint
-    matches: int  # parties jouées depuis ce palier (ou depuis le début des journaux)
-    per_minute: float  # coffres par minute de partie
-    low: int = 0  # fourchette (rythmes extrêmes des intervalles mesurés), 0 sans fourchette
-    high: int = 0
-    measured: bool = True  # rythme mesuré entre vos paliers, sinon rythme par défaut
-    partial_since: datetime | None = None  # journaux lus depuis cette date seulement : minimum
-
-
-def milestones_from(cfg: ChestsConfig) -> list[Milestone]:
-    """Paliers de la config, du plus ancien au plus récent."""
-    points = [Milestone(int(m["count"]), parse_utc(m["at"])) for m in cfg.milestones]
-    return sorted(points, key=lambda m: m.at)
-
-
-def _stamp(raw: bytes) -> datetime | None:
-    found = _STAMP.match(raw)
-    if found is None:
+def read_header(path: Path) -> Header | None:  # noqa: PLR0911 - un retour par cas
+    """État d'enregistrement d'un replay ; ``None`` si l'en-tête est illisible."""
+    try:
+        with path.open("rb") as handle:
+            data = handle.read(4096)
+    except OSError:
         return None
-    year, month, day, hour, minute, second = (int(part) for part in found.groups())
-    return datetime(year, month, day, hour, minute, second, tzinfo=timezone.utc)
+    try:
+        magic, version = struct.unpack_from("<II", data, 0)
+        if magic != _MAGIC:
+            return None
+        pos = 8
+        if version >= 7:  # liste des versions d'objets personnalisées
+            (count,) = struct.unpack_from("<i", data, pos)
+            if not 0 <= count <= 64:
+                return None
+            pos += 4 + count * 20
+        pos += 12  # durée, version réseau, changelist
+        (length,) = struct.unpack_from("<i", data, pos)  # nom (FString)
+        pos += 4 + (-2 * length if length < 0 else length)
+        (live,) = struct.unpack_from("<I", data, pos)
+        pos += 4 + 8 + 4  # direct, horodatage, compressé
+        (encrypted,) = struct.unpack_from("<I", data, pos)
+        pos += 4
+        if not encrypted:
+            return Header(live=bool(live), key_missing=False)
+        (key_length,) = struct.unpack_from("<i", data, pos)
+        pos += 4
+        if not 0 < key_length <= 256 or pos + key_length > len(data):
+            return Header(live=bool(live), key_missing=True)
+        key = data[pos : pos + key_length]
+        return Header(live=bool(live), key_missing=not any(key))
+    except struct.error:
+        return None
+
+
+def file_key(path: Path, stat: os.stat_result) -> str:
+    """Identité d'un replay : nom, taille et date (un fichier réécrit est relu)."""
+    return f"{path.name}|{stat.st_size}|{stat.st_mtime_ns}"
+
+
+# --- parties comptées -------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class MatchChests:
+    session: str
+    start: datetime | None  # UTC
+    chests: int  # coffres ouverts ou cassés par le joueur
+    destroyed: int  # dont cassés
+    counted_at: datetime  # UTC
+
+
+@dataclass(slots=True)
+class Store:
+    reader: int = 0  # version du lecteur qui a lu les replays de ``files``
+    files: dict[str, str] = field(default_factory=dict)  # clé du replay -> session ou état
+    matches: dict[str, MatchChests] = field(default_factory=dict)  # session -> partie
 
 
 def _iso(when: datetime) -> str:
-    return when.astimezone(timezone.utc).isoformat()
-
-
-# --- lecture des journaux -------------------------------------------------------
-@dataclass(slots=True)
-class FileState:
-    """Où en est la lecture d'un journal : octets lus, partie ouverte à cet endroit."""
-
-    offset: int = 0
-    open: datetime | None = None
-
-
-def first_stamp(path: Path) -> datetime | None:
-    """Horodatage de la première ligne : l'identité du journal."""
-    with path.open("rb") as handle:
-        head = handle.read(_HEAD)
-    found = _LINE_STAMP.search(head)
-    return _stamp(head[found.start() :]) if found else None
-
-
-def _last_stamp(path: Path) -> datetime | None:
-    with path.open("rb") as handle:
-        size = handle.seek(0, 2)
-        handle.seek(max(0, size - _TAIL))
-        tail = handle.read()
-    stamps = list(_LINE_STAMP.finditer(tail))
-    return _stamp(tail[stamps[-1].start() :]) if stamps else None
-
-
-def _lines(data: bytes, state: FileState, marker: bytes, found: list[Match]) -> None:
-    """Chargements de carte d'un bloc de lignes entières (``data`` finit par un saut de ligne)."""
-    pos = data.find(_LOAD)
-    while pos >= 0:
-        start = data.rfind(b"\n", 0, pos) + 1
-        end = data.find(b"\n", pos)
-        when = _stamp(data[start:pos])
-        if when is not None:
-            if state.open is not None:  # tout chargement de carte termine la partie en cours
-                found.append((state.open, when))
-                state.open = None
-            target = data[pos + len(_LOAD) : end]
-            # une partie se charge depuis un serveur (« ip:port/… »), pas depuis un chemin local
-            if marker in target and not target.startswith(b"/"):
-                state.open = when
-        pos = data.find(_LOAD, end)
-
-
-def scan_file(path: Path, state: FileState, marker: bytes, *, finished: bool) -> list[Match]:
-    """Parties terminées depuis ``state.offset``, qui avance jusqu'à la dernière ligne entière.
-
-    ``finished`` : le jeu n'écrit plus dans ce journal (un plus récent existe).
-    Une partie encore ouverte à sa fin (jeu fermé ou planté en pleine partie)
-    se termine alors à la dernière ligne horodatée.
-    """
-    found: list[Match] = []
-    with path.open("rb") as handle:
-        if handle.seek(0, 2) < state.offset:  # plus court que la lecture d'avant : relu
-            state.offset, state.open = 0, None
-        handle.seek(state.offset)
-        while True:
-            chunk = handle.read(_CHUNK)
-            if not chunk:
-                break
-            cut = chunk.rfind(b"\n") + 1
-            if cut == 0:
-                if len(chunk) < _CHUNK:  # dernière ligne pas encore finie
-                    break
-                state.offset += len(chunk)  # ligne démesurée, sans chargement de carte utile
-                continue
-            _lines(chunk[:cut], state, marker, found)
-            state.offset += cut
-            handle.seek(state.offset)
-            time.sleep(0)  # laisse la main au moteur entre deux blocs
-    if finished and state.open is not None:
-        last = _last_stamp(path)
-        if last is not None and last > state.open:
-            found.append((state.open, last))
-        state.open = None
-    return found
-
-
-# --- parties gardées --------------------------------------------------------------
-@dataclass(slots=True)
-class Store:
-    """Parties lues et avancement de la lecture de chaque journal."""
-
-    tracked_since: datetime | None = None  # début du plus ancien journal lu
-    files: dict[str, FileState] = field(default_factory=dict)  # clé : première ligne, en ISO
-    matches: dict[datetime, datetime] = field(default_factory=dict)  # début -> fin
-
-    def add(self, found: Iterable[Match]) -> None:
-        for start, end in found:
-            self.matches[start] = end
-
-    def sorted_matches(self) -> list[Match]:
-        return sorted(self.matches.items())
+    return when.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def load_store(path: Path) -> Store:
-    """Parties gardées ; un fichier absent ou illisible repart de zéro (les journaux sont relus)."""
+    """Parties gardées ; un fichier absent ou illisible repart de zéro."""
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
         if raw.get("version") != _STORE_VERSION:
             raise ValueError(f"version {raw.get('version')!r}")
-        since = raw.get("tracked_since")
-        return Store(
-            tracked_since=parse_utc(since) if since else None,
-            files={
-                key: FileState(
-                    int(value["offset"]), parse_utc(value["open"]) if value["open"] else None
-                )
-                for key, value in raw["files"].items()
-            },
-            matches={parse_utc(start): parse_utc(end) for start, end in raw["matches"]},
-        )
+        matches = {}
+        for item in raw["matches"]:
+            match = MatchChests(
+                session=str(item["session"]),
+                start=parse_utc(item["start"]) if item.get("start") else None,
+                chests=int(item["chests"]),
+                destroyed=int(item.get("destroyed", 0)),
+                counted_at=parse_utc(item["counted_at"]),
+            )
+            matches[match.session] = match
+        files = {str(key): str(value) for key, value in raw["files"].items()}
+        return Store(reader=int(raw.get("reader", 0)), files=files, matches=matches)
     except FileNotFoundError:
         return Store()
     except (OSError, ValueError, KeyError, TypeError, AttributeError, ConfigError) as exc:
-        log.warning("%s illisible (%s) : les journaux du jeu seront relus", path.name, exc)
+        log.warning("%s illisible (%s) : les replays présents seront relus", path.name, exc)
         return Store()
 
 
@@ -214,211 +153,294 @@ def save_store(store: Store, path: Path) -> None:
     """Écriture atomique : fichier temporaire, puis remplacement."""
     payload: dict[str, Any] = {
         "version": _STORE_VERSION,
-        "tracked_since": _iso(store.tracked_since) if store.tracked_since else None,
-        "files": {
-            key: {"offset": s.offset, "open": _iso(s.open) if s.open else None}
-            for key, s in sorted(store.files.items())
-        },
-        "matches": [[_iso(start), _iso(end)] for start, end in store.sorted_matches()],
+        "reader": store.reader,
+        "files": dict(sorted(store.files.items())),
+        "matches": [
+            {
+                "session": m.session,
+                "start": _iso(m.start) if m.start else None,
+                "chests": m.chests,
+                "destroyed": m.destroyed,
+                "counted_at": _iso(m.counted_at),
+            }
+            for m in sorted(store.matches.values(), key=_order)
+        ],
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=1) + "\n", encoding="utf-8")
+    temporary.write_text(json.dumps(payload, indent=1, ensure_ascii=False) + "\n", "utf-8")
     temporary.replace(path)
 
 
-def scan_logs(store: Store, logs_dir: Path, pattern: str, marker: str) -> int:
-    """Lit la suite de chaque journal du dossier ; nombre de parties ajoutées.
+def _order(match: MatchChests) -> datetime:
+    return match.start or match.counted_at
 
-    Le journal le plus récent peut encore être écrit par le jeu : une partie
-    ouverte à sa fin reste ouverte jusqu'à la lecture suivante.
+
+# --- lecteur de replays -----------------------------------------------------------------
+class ReaderError(Exception):
+    pass
+
+
+class ReaderStopped(ReaderError):
+    """Lecture interrompue par l'arrêt du suivi : rien n'est retenu de ce replay."""
+
+
+_NO_WINDOW = 0x08000000  # CREATE_NO_WINDOW
+_IDLE = 0x00000040  # IDLE_PRIORITY_CLASS : ne prend rien au jeu
+
+
+class Reader:
+    """``replay-reader.exe`` : version, et lecture d'un replay.
+
+    :meth:`kill` arrête la lecture en cours : le panneau qui se ferme (ou
+    s'installe) ne laisse pas tourner le lecteur, qui tiendrait son dossier.
     """
-    journals: list[tuple[datetime, Path]] = []
-    for path in logs_dir.glob(pattern):
+
+    def __init__(self, exe: Path, run: Callable[[list[str], float], str] | None = None) -> None:
+        self.exe = exe
+        self._run = run or self._spawn
+        self._lock = threading.Lock()
+        self._process: subprocess.Popen[str] | None = None
+        self._killed = False
+
+    def kill(self) -> None:
+        with self._lock:
+            self._killed = True
+            process = self._process
+        if process is not None and process.poll() is None:
+            process.kill()
+
+    def _spawn(self, command: list[str], timeout: float) -> str:
+        flags = _NO_WINDOW | _IDLE if sys.platform == "win32" else 0
+        with self._lock:
+            if self._killed:
+                raise ReaderStopped("suivi arrêté")
+            try:
+                process = subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    creationflags=flags,
+                )
+            except OSError as exc:
+                raise ReaderError(f"lecteur de replays introuvable ({exc})") from exc
+            self._process = process
         try:
-            begun = first_stamp(path)
-        except OSError as exc:
-            log.debug("journal %s ignoré (%s)", path.name, exc)
-            continue
-        if begun is not None:
-            journals.append((begun, path))
-    journals.sort()
-    before = len(store.matches)
-    for index, (begun, path) in enumerate(journals):
-        key = _iso(begun)
-        state = store.files.setdefault(key, FileState())
+            out, err = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            process.kill()
+            process.communicate()
+            raise ReaderError(f"lecture trop longue (plus de {timeout:.0f} s)") from exc
+        finally:
+            with self._lock:
+                self._process = None
+        if self._killed:
+            raise ReaderStopped("suivi arrêté")
+        if process.returncode != 0:
+            raise ReaderError(f"lecteur de replays en échec ({process.returncode}) {err.strip()}")
+        return out
+
+    def version(self) -> int:
+        text = self._run([str(self.exe), "--version"], 30.0).strip()
         try:
-            store.add(scan_file(path, state, marker.encode(), finished=index < len(journals) - 1))
-        except OSError as exc:  # renommé ou effacé par le jeu entre-temps : lu au tour suivant
-            log.debug("journal %s non lu (%s)", path.name, exc)
-        if store.tracked_since is None or begun < store.tracked_since:
-            store.tracked_since = begun
-    return len(store.matches) - before
+            return int(text)
+        except ValueError as exc:
+            raise ReaderError(f"version du lecteur illisible : {text!r}") from exc
+
+    def read(self, path: Path) -> dict[str, Any]:
+        lines = self._run([str(self.exe), str(path)], READ_TIMEOUT_S).splitlines()
+        try:
+            result = json.loads(lines[-1])
+        except (IndexError, ValueError) as exc:
+            raise ReaderError("réponse du lecteur illisible") from exc
+        if not isinstance(result, dict):
+            raise ReaderError("réponse du lecteur illisible")
+        return result
 
 
-# --- estimation -------------------------------------------------------------------
-def minutes_between(matches: Sequence[Match], start: datetime, end: datetime) -> float:
-    """Minutes de partie comprises entre ``start`` et ``end``."""
-    seconds = sum(
-        max(0.0, (min(stop, end) - max(begin, start)).total_seconds()) for begin, stop in matches
-    )
-    return seconds / 60
+# --- résumé pour le panneau -----------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class Summary:
+    total: int  # coffres de toutes les parties comptées
+    matches: int
+    last: int | None  # coffres de la dernière partie
+    since: datetime | None  # début de la première partie comptée (UTC)
+    recording: bool  # une partie en cours d'enregistrement
+    replays: bool  # au moins un replay vu dans le dossier (enregistrement activé)
+    failed: bool  # le dernier replay lu n'a pas pu l'être
 
 
-def _tens(value: float) -> int:
-    return round(value / 10) * 10
-
-
-def estimate(
-    matches: Sequence[Match],
-    milestones: Sequence[Milestone],
-    tracked_since: datetime | None,
-    now: datetime,
-    default_rate: float = 0.0,
-) -> Estimate | None:
-    """Dernier palier, plus les minutes jouées depuis au rythme mesuré entre les paliers.
-
-    Seuls comptent les intervalles entre paliers dont toutes les parties ont
-    été lues (après ``tracked_since``) : sans elles, le rythme serait faussé.
-    Le rythme est celui de tous ces intervalles réunis (coffres sur minutes) ;
-    la fourchette va du plus lent au plus rapide d'entre eux, s'il y en a deux
-    d'au moins :data:`RANGE_MIN_CHESTS` coffres. Sans intervalle mesuré, le
-    rythme par défaut sert. Si les journaux commencent après le dernier palier,
-    les parties d'avant sont inconnues : l'estimation n'est qu'un minimum.
-    """
-    points = sorted(milestones, key=lambda m: m.at)
-    if tracked_since is None or not points:
-        return None
-    chests = minutes = 0.0
-    rates: list[float] = []
-    for before, after in pairwise(points):
-        gained = after.count - before.count
-        if before.at < tracked_since or gained < 0:
-            continue
-        span = minutes_between(matches, before.at, after.at)
-        if span > 0:
-            chests += gained
-            minutes += span
-            if gained >= RANGE_MIN_CHESTS:
-                rates.append(gained / span)
-    measured = minutes > 0
-    if measured:
-        rate = chests / minutes
-    elif default_rate > 0:
-        rate = default_rate
-    else:
-        return None
-    last = points[-1]
-    partial = last.at < tracked_since
-    start = tracked_since if partial else last.at
-    played = minutes_between(matches, start, now)
-    total = max(last.count, _tens(last.count + rate * played))
-    low = high = 0
-    if not partial and len(rates) >= 2:
-        low = max(last.count, _tens(last.count + min(rates) * played))
-        high = max(last.count, _tens(last.count + max(rates) * played))
-    return Estimate(
-        total=total,
-        confirmed=last.count,
-        matches=sum(1 for _, stop in matches if start < stop <= now),
-        per_minute=rate,
-        low=low,
-        high=high,
-        measured=measured,
-        partial_since=tracked_since if partial else None,
+def summarize(store: Store, *, recording: bool, replays: bool, failed: bool) -> Summary:
+    ordered = sorted(store.matches.values(), key=_order)
+    return Summary(
+        total=sum(m.chests for m in ordered),
+        matches=len(ordered),
+        last=ordered[-1].chests if ordered else None,
+        since=_order(ordered[0]) if ordered else None,
+        recording=recording,
+        replays=replays or bool(ordered),
+        failed=failed,
     )
 
 
-# --- suivi en arrière-plan -----------------------------------------------------------
+# --- suivi -------------------------------------------------------------------------------
 class ChestTracker:
-    """Relit les journaux au lancement puis toutes les ``scan_interval_s`` secondes.
+    """Surveille le dossier des replays et compte chaque partie terminée.
 
-    Le panneau lit :meth:`estimate` à chaque tour ; la lecture des journaux se
-    fait dans le thread du suivi. De nouveaux paliers (lus sur le compte Epic)
-    se donnent par :meth:`set_milestones` : le suivi recalcule aussitôt.
+    Le panneau lit :meth:`summary` à chaque tour ; la lecture des replays se
+    fait dans le thread du suivi, toutes les ``scan_interval_s`` secondes.
     """
 
     def __init__(
         self,
         cfg: ChestsConfig,
         store_path: Path,
+        reader: Reader,
         *,
-        clock: Callable[[], datetime] | None = None,
+        clock: Callable[[], float] = time.time,
+        now: Callable[[], datetime] | None = None,
     ) -> None:
         self.cfg = cfg
         self.store_path = store_path
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
-        self._milestones = milestones_from(cfg)
-        self._generation = 0  # change à chaque nouveau jeu de paliers
-        self._scanned = False  # estimation calculée avec les paliers actuels
+        self.reader = reader
+        self._clock = clock
+        self._now = now or (lambda: datetime.now(timezone.utc))
         self._lock = threading.Lock()
-        self._estimate: Estimate | None = None
+        self._summary: Summary | None = None
+        self._unavailable = ""  # lecteur absent ou inutilisable
         self._stop = threading.Event()
-        self._wake = threading.Event()
         self._store: Store | None = None
+        self._sizes: dict[str, int] = {}  # taille de chaque replay au tour précédent
+        self._failed = False
 
-    def estimate(self) -> Estimate | None:
+    def summary(self) -> Summary | None:
+        """``None`` tant que le premier tour n'est pas fini."""
         with self._lock:
-            return self._estimate
-
-    @property
-    def has_milestones(self) -> bool:
-        with self._lock:
-            return bool(self._milestones)
+            return self._summary
 
     @property
-    def scanned(self) -> bool:
-        """Vrai une fois l'estimation calculée avec les paliers actuels."""
+    def unavailable(self) -> str:
         with self._lock:
-            return self._scanned
+            return self._unavailable
 
-    def set_milestones(self, points: Iterable[Milestone]) -> None:
-        with self._lock:
-            self._milestones = sorted(points, key=lambda m: m.at)
-            self._generation += 1
-            self._scanned = False
-        self._wake.set()
+    def _ready(self, path: Path, stat: os.stat_result, header: Header | None) -> bool:
+        quiet = self._clock() - stat.st_mtime
+        stable = self._sizes.get(path.name) == stat.st_size
+        self._sizes[path.name] = stat.st_size
+        if header is None:
+            return stable and quiet > UNKNOWN_QUIET_S
+        if header.live:
+            return quiet > ABANDONED_S
+        if quiet > OLD_S:
+            return True
+        if not header.key_missing:
+            return stable and quiet >= FINISHED_QUIET_S
+        return stable and quiet > QUIET_S
 
-    def refresh(self) -> Store:
-        """Lit la suite des journaux, garde les parties, recalcule l'estimation."""
-        with self._lock:
-            milestones, generation = list(self._milestones), self._generation
+    def _open_store(self) -> Store:
         if self._store is None:
-            self._store = load_store(self.store_path)
-        store = self._store
-        read_before = {key: (s.offset, s.open) for key, s in store.files.items()}
-        logs_dir = self.cfg.resolved_logs_dir()
-        added = scan_logs(store, logs_dir, self.cfg.log_glob, self.cfg.match_marker)
-        read_after = {key: (s.offset, s.open) for key, s in store.files.items()}
-        if read_after != read_before or not self.store_path.exists():
+            store = load_store(self.store_path)
+            version = self.reader.version()
+            if version != store.reader:
+                # nouveau lecteur : les replays encore présents sont relus
+                if store.reader:
+                    log.info("coffres : lecteur %d -> %d, replays relus", store.reader, version)
+                store.files.clear()
+                store.reader = version
+            self._store = store
+        return self._store
+
+    def refresh(self) -> Summary:
+        """Un tour : lit les replays terminés, garde les parties, refait le résumé."""
+        store = self._open_store()
+        demos = self.cfg.resolved_demos_dir()
+        try:
+            paths = sorted(demos.glob("*.replay"), key=lambda p: p.name)
+        except OSError:
+            paths = []
+        recording = False
+        changed = not self.store_path.exists()
+        for path in paths:
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            key = file_key(path, stat)
+            if key in store.files:
+                continue
+            header = read_header(path)
+            if not self._ready(path, stat, header):
+                recording = recording or (header is not None and header.live)
+                continue
+            store.files[key] = self._count(path, header, store)
+            changed = True
+        self._sizes = {k: v for k, v in self._sizes.items() if (demos / k).exists()}
+        if changed:
             save_store(store, self.store_path)
-        if added:
-            log.info("coffres : %d partie(s) lue(s) dans les journaux du jeu", added)
-        result = estimate(
-            store.sorted_matches(),
-            milestones,
-            store.tracked_since,
-            self._clock(),
-            self.cfg.default_rate,
-        )
+        result = summarize(store, recording=recording, replays=bool(paths), failed=self._failed)
         with self._lock:
-            if generation == self._generation:  # sinon, de nouveaux paliers : le tour suivant
-                self._estimate = result
-                self._scanned = True
-        return store
+            self._summary = result
+        return result
+
+    def _count(self, path: Path, header: Header | None, store: Store) -> str:
+        """Lit un replay prêt ; rend l'état gardé pour ce fichier."""
+        if header is not None and header.live and header.key_missing:
+            log.info("coffres : %s incomplet (jeu fermé pendant la partie)", path.name)
+            return INCOMPLETE
+        try:
+            result = self.reader.read(path)
+        except ReaderStopped:
+            raise
+        except ReaderError as exc:
+            log.warning("coffres : %s non lu (%s)", path.name, exc)
+            self._failed = True
+            return ERROR
+        if not result.get("ok"):
+            log.warning("coffres : %s illisible (%s)", path.name, result.get("error"))
+            self._failed = True
+            return ERROR
+        self._failed = False
+        if not result.get("battle_royale", True):
+            log.info("coffres : %s n'est pas une partie de Battle Royale", path.name)
+            return OTHER_MODE
+        session = str(result.get("session_id") or path.name)
+        try:
+            start = parse_utc(result["start"]) if result.get("start") else None
+        except ConfigError:
+            start = None
+        previous = store.matches.get(session)
+        match = MatchChests(
+            session=session,
+            start=start,
+            chests=int(result.get("chests", 0)),
+            destroyed=int(result.get("destroyed", 0)),
+            counted_at=previous.counted_at if previous else self._now(),
+        )
+        store.matches[session] = match
+        log.info("coffres : %d dans %s (dont %d cassés)", match.chests, path.name, match.destroyed)
+        return session
 
     def start(self) -> None:
         threading.Thread(target=self._watch, name="coffres", daemon=True).start()
 
     def stop(self) -> None:
         self._stop.set()
-        self._wake.set()
+        self.reader.kill()
 
     def _watch(self) -> None:
         while not self._stop.is_set():
             try:
                 self.refresh()
-            except Exception:  # un journal inattendu ne doit pas arrêter le suivi
-                log.exception("lecture des journaux du jeu impossible")
-            self._wake.wait(self.cfg.scan_interval_s)
-            self._wake.clear()  # un réveil arrivé avant est couvert par la lecture qui suit
+            except ReaderStopped:
+                return
+            except ReaderError as exc:
+                with self._lock:
+                    self._unavailable = str(exc)
+                log.warning("coffres : %s", exc)
+                return  # sans lecteur, rien à compter jusqu'au prochain lancement
+            except Exception:  # un replay inattendu ne doit pas arrêter le suivi
+                log.exception("lecture des replays impossible")
+            self._stop.wait(self.cfg.scan_interval_s)

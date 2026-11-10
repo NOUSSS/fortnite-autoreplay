@@ -1,409 +1,344 @@
-"""Lecture des journaux de Fortnite et estimation des coffres ouverts."""
+"""Compteur des coffres ouverts, d'après les replays de Fortnite (lecteur simulé)."""
 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+import os
+import struct
+import sys
+import threading
+import time
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from fortnite_auto_replay import config as config_mod
 from fortnite_auto_replay.chests import (
+    ERROR,
+    INCOMPLETE,
+    OTHER_MODE,
     ChestTracker,
-    Estimate,
-    FileState,
-    Milestone,
+    Header,
+    MatchChests,
+    Reader,
+    ReaderError,
+    ReaderStopped,
     Store,
-    estimate,
-    first_stamp,
+    Summary,
     load_store,
-    minutes_between,
+    read_header,
     save_store,
-    scan_file,
-    scan_logs,
 )
-from fortnite_auto_replay.epic import LinkState
-from fortnite_auto_replay.panel import ChestsState, chests_line, chests_note, chests_view
+from fortnite_auto_replay.config import ChestsConfig
+from fortnite_auto_replay.panel import (
+    NO_MATCH_YET,
+    READ_FAILED,
+    READER_DOWN,
+    READING_REPLAYS,
+    RECORDING,
+    REPLAYS_OFF,
+    ChestsState,
+    chests_view,
+)
 
-MARKER = "/Fortnite.com/GameFeatures/BRRoot"
-DAY = datetime(2026, 11, 3, tzinfo=timezone.utc)
-
-
-def at(hour: int, minute: int = 0, second: int = 0) -> datetime:
-    return DAY.replace(hour=hour, minute=minute, second=second)
-
-
-def stamp(when: datetime) -> str:
-    return f"[{when:%Y.%m.%d-%H.%M.%S}:123][  0]"
-
-
-def header() -> str:
-    """En-tête sans horodatage, comme celui du jeu (« Log file open… »)."""
-    return "﻿Log file open, 11/03/26 11:00:00\r\nLogInit: Build: ++Fortnite+Release-43.00\r\n"
+NOW = 1_800_000_000.0  # horloge simulée (secondes)
+UTC_NOW = datetime(2026, 11, 10, 12, tzinfo=timezone.utc)
 
 
-def line(when: datetime, text: str) -> str:
-    return f"{stamp(when)}{text}\r\n"
+def header_bytes(
+    *, live: bool, key: bytes | None = b"\x01" * 32, version: int = 7, name: str = "Unsaved"
+) -> bytes:
+    """En-tête de replay comme Fortnite l'écrit (``key=None`` : non chiffré)."""
+    data = struct.pack("<II", 0x1CA2E27F, version)
+    if version >= 7:
+        data += struct.pack("<i", 1) + b"\0" * 20
+    data += struct.pack("<III", 600_000, 39, 123)
+    encoded = name.encode() + b"\0"
+    data += struct.pack("<i", len(encoded)) + encoded
+    data += struct.pack("<IqI", int(live), 0, 1)
+    if key is None:
+        return data + struct.pack("<I", 0)
+    return data + struct.pack("<Ii", 1, len(key)) + key
 
 
-def lobby(when: datetime) -> str:
-    return line(when, "LogLoad: LoadMap: /Game/Maps/Frontend?closed")
-
-
-def battle(when: datetime) -> str:
-    return line(
-        when,
-        "LogLoad: LoadMap: 18.157.16.111:9026/Delilah/Maps/Delilah_Terrain?EncryptionToken=x"
-        f"?VerseURI={MARKER}?game=x",
-    )
-
-
-def creative(when: datetime) -> str:
-    return line(when, "LogLoad: LoadMap: 13.38.1.1:7777/Island/Maps/Island?VerseURI=/Other/Root")
-
-
-def write(path: Path, *chunks: str) -> Path:
-    path.write_bytes("".join(chunks).encode("utf-8"))
+def write_replay(folder: Path, name: str, *, mtime: float, **header: Any) -> Path:
+    path = folder / name
+    path.write_bytes(header_bytes(**header) + b"\0" * 64)
+    os.utime(path, (mtime, mtime))
     return path
 
 
-def append(path: Path, *chunks: str) -> None:
-    with path.open("ab") as handle:
-        handle.write("".join(chunks).encode("utf-8"))
+class FakeReader(Reader):
+    """Lecteur simulé : réponses par nom de fichier, lectures notées."""
+
+    def __init__(self, answers: dict[str, dict[str, Any]], version: int = 15) -> None:
+        super().__init__(Path("replay-reader.exe"))
+        self.answers = answers
+        self._version = version
+        self.reads: list[str] = []
+
+    def version(self) -> int:
+        return self._version
+
+    def read(self, path: Path) -> dict[str, Any]:
+        self.reads.append(path.name)
+        answer = self.answers[path.name]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
 
 
-# --- lecture d'un journal ---------------------------------------------------------
-def test_a_battle_royale_match_runs_from_its_map_to_the_lobby(tmp_path: Path) -> None:
-    log = write(
-        tmp_path / "FortniteGame.log",
-        header(),
-        lobby(at(10)),
-        battle(at(10, 5)),
-        line(at(10, 10), "LogFort: rien"),
-        lobby(at(10, 20)),
-        creative(at(10, 30)),
-        lobby(at(10, 45)),
-        battle(at(11)),
-        lobby(at(11, 12)),
-    )
-    state = FileState()
-    found = scan_file(log, state, MARKER.encode(), finished=False)
-    assert found == [(at(10, 5), at(10, 20)), (at(11), at(11, 12))]
-    assert state.offset == log.stat().st_size
-    assert state.open is None
+def match(session: str, chests: int, *, start: str = "2026-11-10T10:00:00Z", **extra: Any) -> dict:
+    return {
+        "ok": True,
+        "session_id": session,
+        "start": start,
+        "battle_royale": True,
+        "chests": chests,
+        "destroyed": 1,
+        **extra,
+    }
 
 
-def test_a_match_still_running_stays_open_until_the_next_read(tmp_path: Path) -> None:
-    log = write(tmp_path / "FortniteGame.log", header(), lobby(at(10)), battle(at(10, 5)))
-    state = FileState()
-    assert scan_file(log, state, MARKER.encode(), finished=False) == []
-    assert state.open == at(10, 5)
-
-    append(log, line(at(10, 15), "LogFort: tir"), lobby(at(10, 22)))
-    assert scan_file(log, state, MARKER.encode(), finished=False) == [(at(10, 5), at(10, 22))]
+@pytest.fixture
+def demos(tmp_path: Path) -> Path:
+    folder = tmp_path / "Demos"
+    folder.mkdir()
+    return folder
 
 
-def test_an_unfinished_last_line_is_read_next_time(tmp_path: Path) -> None:
-    log = write(tmp_path / "FortniteGame.log", header(), battle(at(10)), lobby(at(10, 9))[:-2])
-    state = FileState()
-    assert scan_file(log, state, MARKER.encode(), finished=False) == []
-    assert state.open == at(10)
-
-    append(log, "\r\n")
-    assert scan_file(log, state, MARKER.encode(), finished=False) == [(at(10), at(10, 9))]
-
-
-def test_a_game_closed_mid_match_ends_at_the_last_line(tmp_path: Path) -> None:
-    log = write(
-        tmp_path / "FortniteGame.log",
-        header(),
-        battle(at(10)),
-        line(at(10, 7, 30), "LogExit: Exiting."),
-    )
-    state = FileState()
-    assert scan_file(log, state, MARKER.encode(), finished=True) == [(at(10), at(10, 7, 30))]
-    assert state.open is None
-
-
-def test_a_shorter_file_is_read_again_from_the_start(tmp_path: Path) -> None:
-    log = write(tmp_path / "FortniteGame.log", header(), battle(at(10)), lobby(at(10, 9)))
-    state = FileState(offset=10_000_000, open=at(9))
-    assert scan_file(log, state, MARKER.encode(), finished=False) == [(at(10), at(10, 9))]
-
-
-def test_first_stamp_skips_the_header(tmp_path: Path) -> None:
-    log = write(tmp_path / "FortniteGame.log", header(), lobby(at(10, 31, 23)), battle(at(11)))
-    assert first_stamp(log) == at(10, 31, 23)
-    assert first_stamp(write(tmp_path / "empty.log", header())) is None
-
-
-# --- plusieurs journaux -------------------------------------------------------------
-def test_a_journal_renamed_by_the_game_is_not_read_twice(tmp_path: Path) -> None:
-    current = write(tmp_path / "FortniteGame.log", header(), lobby(at(10)), battle(at(10, 5)))
-    store = Store()
-    assert scan_logs(store, tmp_path, "FortniteGame*.log", MARKER) == 0
-    assert store.tracked_since == at(10)
-
-    # le jeu relancé renomme l'ancien journal et en commence un autre
-    append(current, line(at(10, 14), "LogExit: Exiting."))
-    current.rename(tmp_path / "FortniteGame-backup-2026.11.03-10.14.00.log")
-    write(
-        tmp_path / "FortniteGame.log", header(), lobby(at(12)), battle(at(12, 2)), lobby(at(12, 9))
+def tracker_for(tmp_path: Path, demos: Path, reader: FakeReader) -> ChestTracker:
+    cfg = ChestsConfig(demos_dir=str(demos))
+    return ChestTracker(
+        cfg, tmp_path / "chests.json", reader, clock=lambda: NOW, now=lambda: UTC_NOW
     )
 
-    assert scan_logs(store, tmp_path, "FortniteGame*.log", MARKER) == 2
-    assert store.sorted_matches() == [(at(10, 5), at(10, 14)), (at(12, 2), at(12, 9))]
-    assert scan_logs(store, tmp_path, "FortniteGame*.log", MARKER) == 0
-    assert store.tracked_since == at(10)
+
+# --- en-tête ----------------------------------------------------------------------------
+def test_read_header_live_and_key(tmp_path: Path) -> None:
+    path = tmp_path / "a.replay"
+    path.write_bytes(header_bytes(live=True, key=b"\0" * 32))
+    assert read_header(path) == Header(live=True, key_missing=True)
+    path.write_bytes(header_bytes(live=False))
+    assert read_header(path) == Header(live=False, key_missing=False)
+    path.write_bytes(header_bytes(live=False, key=None, version=6))
+    assert read_header(path) == Header(live=False, key_missing=False)
 
 
-def test_the_store_survives_a_round_trip(tmp_path: Path) -> None:
+def test_read_header_rejects_other_files(tmp_path: Path) -> None:
+    path = tmp_path / "a.replay"
+    path.write_bytes(b"pas un replay")
+    assert read_header(path) is None
+    path.write_bytes(header_bytes(live=False)[:30])  # tronqué
+    assert read_header(path) is None
+    assert read_header(tmp_path / "absent.replay") is None
+
+
+# --- parties gardées ------------------------------------------------------------------
+def test_store_round_trip(tmp_path: Path) -> None:
+    path = tmp_path / "logs" / "chests.json"
     store = Store(
-        tracked_since=at(9),
-        files={"2026-11-03T09:00:00+00:00": FileState(1234, at(11))},
-        matches={at(10): at(10, 20)},
+        reader=15,
+        files={"a.replay|10|5": "s1", "b.replay|3|1": INCOMPLETE},
+        matches={"s1": MatchChests("s1", UTC_NOW, 8, 2, UTC_NOW)},
     )
-    path = tmp_path / "logs" / "matches.json"
     save_store(store, path)
     assert load_store(path) == store
 
 
-def test_an_unreadable_store_starts_over(tmp_path: Path) -> None:
-    path = tmp_path / "matches.json"
-    assert load_store(path) == Store()
-    path.write_text("{pas du json", encoding="utf-8")
+def test_unreadable_store_starts_over(tmp_path: Path) -> None:
+    path = tmp_path / "chests.json"
+    path.write_text("{", encoding="utf-8")
     assert load_store(path) == Store()
     path.write_text(json.dumps({"version": 99}), encoding="utf-8")
     assert load_store(path) == Store()
+    assert load_store(tmp_path / "absent.json") == Store()
 
 
-# --- estimation ------------------------------------------------------------------------
-MATCHES = [
-    (at(10), at(10, 20)),  # 20 min entre les paliers 0 et 100
-    (at(11), at(11, 30)),  # 30 min
-    (at(13), at(13, 10)),  # 10 min après le dernier palier
-    (at(14), at(14, 30)),  # 30 min
-]
-
-
-def test_minutes_between_clips_the_matches() -> None:
-    assert minutes_between(MATCHES, at(10, 10), at(11, 15)) == pytest.approx(25)
-
-
-def test_the_rate_comes_from_the_milestones_and_the_rest_is_extrapolated() -> None:
-    points = [Milestone(0, at(9)), Milestone(100, at(12))]
-    result = estimate(MATCHES, points, tracked_since=at(8), now=at(15))
-    # 100 coffres en 50 minutes, puis 40 minutes de partie : 100 + 80
-    assert result == Estimate(total=180, confirmed=100, matches=2, per_minute=2.0)
-
-
-def test_nothing_after_now_is_counted() -> None:
-    points = [Milestone(0, at(9)), Milestone(100, at(12))]
-    result = estimate(MATCHES, points, tracked_since=at(8), now=at(14, 15))
-    assert result is not None
-    assert result.matches == 1
-    assert result.total == 100 + 2 * (10 + 15)
-
-
-def test_intervals_before_the_journals_are_left_out() -> None:
-    # 0 → 100 tombe avant le plus ancien journal lu : ses parties sont inconnues
-    points = [Milestone(0, at(6)), Milestone(100, at(9)), Milestone(200, at(12))]
-    result = estimate(MATCHES, points, tracked_since=at(8), now=at(15))
-    assert result is not None
-    assert result.per_minute == pytest.approx(2.0)
-    assert result.total == 200 + 80
-
-
-def test_no_estimate_without_a_measured_interval() -> None:
-    assert estimate(MATCHES, [Milestone(100, at(12))], at(8), at(15)) is None
-    assert estimate(MATCHES, [], at(8), at(15)) is None
-    assert estimate(MATCHES, [Milestone(0, at(9)), Milestone(100, at(12))], None, at(15)) is None
-    # dernier palier avant les journaux : les parties jouées depuis sont en partie inconnues
-    late = [Milestone(0, at(9)), Milestone(100, at(12))]
-    assert estimate(MATCHES, late, tracked_since=at(12, 30), now=at(15)) is None
-
-
-def test_the_total_is_rounded_to_ten_and_never_below_the_milestone() -> None:
-    points = [Milestone(0, at(9)), Milestone(1000, at(12))]
-    few = [(at(10), at(10, 30)), (at(12), at(12, 0, 6))]  # 6 s après le palier
-    result = estimate(few, points, at(8), at(15))
-    assert result is not None
-    assert result.total == 1000
-
-
-# --- suivi et config -------------------------------------------------------------------
-def test_the_tracker_reads_saves_and_estimates(tmp_path: Path) -> None:
-    logs = tmp_path / "Logs"
-    logs.mkdir()
-    write(
-        logs / "FortniteGame.log",
-        header(),
-        lobby(at(8)),
-        *(chunk for begin, end in MATCHES for chunk in (battle(begin), lobby(end))),
-    )
-    cfg = config_mod.ChestsConfig(
-        logs_dir=str(logs),
-        milestones=[
-            {"count": 0, "at": "2026-11-03T09:00:00Z"},
-            {"count": 100, "at": "2026-11-03T12:00:00Z"},
-        ],
-    )
-    store_path = tmp_path / "matches.json"
-    tracker = ChestTracker(cfg, store_path, clock=lambda: at(15))
-    assert tracker.estimate() is None
+# --- suivi ------------------------------------------------------------------------------
+def test_counts_finished_replays_once(tmp_path: Path, demos: Path) -> None:
+    write_replay(demos, "old.replay", mtime=NOW - 3600, live=False)
+    reader = FakeReader({"old.replay": match("s1", 9)})
+    tracker = tracker_for(tmp_path, demos, reader)
+    summary = tracker.refresh()
+    assert (summary.total, summary.matches, summary.last) == (9, 1, 9)
+    assert summary.since == datetime(2026, 11, 10, 10, tzinfo=timezone.utc)
     tracker.refresh()
-    assert tracker.estimate() == Estimate(total=180, confirmed=100, matches=2, per_minute=2.0)
-    assert len(load_store(store_path).matches) == 4
+    assert reader.reads == ["old.replay"]
+    # un nouveau suivi (relance du panneau) ne relit pas non plus
+    again = tracker_for(tmp_path, demos, reader)
+    assert again.refresh().total == 9
+    assert reader.reads == ["old.replay"]
 
 
-def test_milestones_are_checked_when_loading_the_config() -> None:
-    good = {"chests": {"milestones": [{"count": 1000, "at": "2026-11-04T18:47:36Z"}]}}
-    cfg = config_mod.load_config(use_local=False, overrides=good)
-    assert cfg.chests.milestones[0]["count"] == 1000
-    for bad in (
-        {"count": -1, "at": "2026-11-04T18:47:36Z"},
-        {"count": 5, "at": "hier"},
-        {"count": 5},
-    ):
-        with pytest.raises(config_mod.ConfigError):
-            config_mod.load_config(use_local=False, overrides={"chests": {"milestones": [bad]}})
-    with pytest.raises(config_mod.ConfigError, match="fuseau"):
-        config_mod.parse_utc("2026-11-04T18:47:36")
+def test_live_replay_waits_for_the_end(tmp_path: Path, demos: Path) -> None:
+    path = write_replay(demos, "now.replay", mtime=NOW - 5, live=True, key=b"\0" * 32)
+    reader = FakeReader({"now.replay": match("s1", 4)})
+    tracker = tracker_for(tmp_path, demos, reader)
+    summary = tracker.refresh()
+    assert summary.recording and summary.replays and summary.total == 0
+    # fin de partie : plus en direct, clé écrite ; lu une fois sa taille stable
+    path.write_bytes(header_bytes(live=False) + b"\0" * 4096)  # fin du replay écrite
+    os.utime(path, (NOW - 5, NOW - 5))
+    assert tracker.refresh().total == 0  # taille changée depuis le tour d'avant
+    summary = tracker.refresh()
+    assert (summary.total, summary.recording) == (4, False)
 
 
-def test_parse_utc_reads_z_and_offsets() -> None:
-    assert config_mod.parse_utc("2026-11-04T19:47:36+01:00") == datetime(
-        2026, 11, 4, 18, 47, 36, tzinfo=timezone.utc
+def test_abandoned_recording_is_incomplete(tmp_path: Path, demos: Path) -> None:
+    write_replay(demos, "cut.replay", mtime=NOW - 3600, live=True, key=b"\0" * 32)
+    reader = FakeReader({})
+    tracker = tracker_for(tmp_path, demos, reader)
+    summary = tracker.refresh()
+    assert reader.reads == []
+    assert summary.total == 0 and not summary.recording
+    assert INCOMPLETE in load_store(tmp_path / "chests.json").files.values()
+
+
+def test_other_modes_and_errors(tmp_path: Path, demos: Path) -> None:
+    write_replay(demos, "a.replay", mtime=NOW - 3600, live=False)
+    write_replay(demos, "b.replay", mtime=NOW - 3500, live=False)
+    reader = FakeReader(
+        {
+            "a.replay": match("s1", 3, battle_royale=False),
+            "b.replay": {"ok": False, "error": "InvalidReplayException"},
+        }
     )
-    assert config_mod.parse_utc("2026-11-04T18:47:36.042Z") - datetime(
-        2026, 11, 4, 18, 47, 36, tzinfo=timezone.utc
-    ) == timedelta(microseconds=42000)
-
-
-# --- texte du panneau --------------------------------------------------------------------
-def test_chests_line() -> None:
-    nbsp = chr(0xA0)  # espace insécable
-    assert chests_line(None) == ""
-    line_ = chests_line(Estimate(total=2770, confirmed=1000, matches=158, per_minute=0.71))
-    assert line_ == f"Environ 2{nbsp}770, dont 1{nbsp}000{nbsp}confirmés"
-    assert chests_line(Estimate(total=1000, confirmed=1000, matches=0, per_minute=0.7)) == (
-        f"1{nbsp}000{nbsp}confirmés"
+    tracker = tracker_for(tmp_path, demos, reader)
+    summary = tracker.refresh()
+    assert (summary.total, summary.failed) == (0, True)
+    assert sorted(load_store(tmp_path / "chests.json").files.values()) == sorted(
+        [ERROR, OTHER_MODE]
     )
 
 
-# --- rythme par défaut, minimum, fourchette ------------------------------------------------
-def test_without_a_measured_interval_the_default_rate_is_used() -> None:
-    points = [Milestone(100, at(12))]
-    result = estimate(MATCHES, points, tracked_since=at(8), now=at(15), default_rate=1.0)
-    assert result is not None
-    assert not result.measured
-    assert result.total == 100 + 40  # 40 minutes de partie après le palier
-    assert result.partial_since is None
+def test_same_match_counts_once(tmp_path: Path, demos: Path) -> None:
+    write_replay(demos, "a.replay", mtime=NOW - 3600, live=False)
+    write_replay(demos, "copy.replay", mtime=NOW - 3000, live=False)
+    reader = FakeReader({"a.replay": match("s1", 6), "copy.replay": match("s1", 6)})
+    assert tracker_for(tmp_path, demos, reader).refresh().total == 6
 
 
-def test_journals_starting_after_the_last_milestone_give_a_minimum() -> None:
-    points = [Milestone(0, at(6)), Milestone(1000, at(9))]
-    result = estimate(MATCHES, points, tracked_since=at(10, 30), now=at(15), default_rate=2.0)
-    assert result is not None
-    assert result.partial_since == at(10, 30)
-    assert result.total == 1000 + 2 * (30 + 10 + 30)  # seules les parties lues
-    assert result.matches == 3
-    assert (result.low, result.high) == (0, 0)
-    assert chests_line(result).startswith("Plus de 1")
+def test_new_reader_rereads_present_replays(tmp_path: Path, demos: Path) -> None:
+    write_replay(demos, "a.replay", mtime=NOW - 3600, live=False)
+    tracker_for(tmp_path, demos, FakeReader({"a.replay": match("s1", 6)}, version=15)).refresh()
+    # le replay a disparu, mais la partie comptée reste
+    store = load_store(tmp_path / "chests.json")
+    store.matches["gone"] = MatchChests("gone", None, 5, 0, UTC_NOW)
+    save_store(store, tmp_path / "chests.json")
+    newer = FakeReader({"a.replay": match("s1", 7)}, version=16)
+    summary = tracker_for(tmp_path, demos, newer).refresh()
+    assert newer.reads == ["a.replay"]
+    assert (summary.total, summary.matches) == (12, 2)
 
 
-def test_two_long_intervals_give_a_range() -> None:
-    matches = [(at(9), at(10)), (at(11), at(12)), (at(13), at(13, 30))]  # 60, 60, 30 min
-    points = [Milestone(0, at(8)), Milestone(120, at(10, 30)), Milestone(300, at(12, 30))]
-    result = estimate(matches, points, tracked_since=at(7), now=at(14))
-    assert result is not None
-    assert result.per_minute == pytest.approx(300 / 120)
-    assert result.total == 300 + 80  # 2,5 coffres par minute sur 30 minutes, à la dizaine
-    assert (result.low, result.high) == (360, 390)  # 2 et 3 coffres par minute
+def test_no_demos_folder(tmp_path: Path) -> None:
+    tracker = tracker_for(tmp_path, tmp_path / "absent", FakeReader({}))
+    summary = tracker.refresh()
+    assert not summary.replays and summary.total == 0
 
 
-def test_a_short_interval_does_not_widen_the_range() -> None:
-    matches = [(at(9), at(9, 5)), (at(11), at(12)), (at(13), at(13, 30))]
-    points = [Milestone(0, at(8)), Milestone(25, at(10)), Milestone(145, at(12, 30))]
-    result = estimate(matches, points, tracked_since=at(7), now=at(14))
-    assert result is not None
-    assert (result.low, result.high) == (0, 0)  # 0 → 25 trop court : un seul intervalle retenu
+def test_missing_reader_stops_the_watch(tmp_path: Path, demos: Path) -> None:
+    def broken(command: list[str], timeout: float) -> str:
+        raise ReaderError("lecteur de replays introuvable")
+
+    cfg = ChestsConfig(demos_dir=str(demos), scan_interval_s=2)
+    tracker = ChestTracker(cfg, tmp_path / "chests.json", Reader(Path("x.exe"), run=broken))
+    tracker._watch()  # rend la main sans boucler
+    assert tracker.unavailable == "lecteur de replays introuvable"
 
 
-def test_an_unchanged_count_slows_the_rate_down() -> None:
-    # palier 100, puis le compteur lu sur le compte toujours à 100 après 30 minutes de partie
-    points = [Milestone(0, at(9)), Milestone(100, at(10, 30)), Milestone(100, at(12, 30))]
-    result = estimate(MATCHES, points, tracked_since=at(8), now=at(15))
-    assert result is not None
-    # sans l'intervalle 100 → 100, le rythme serait de 100 / 20
-    assert result.per_minute == pytest.approx(100 / (20 + 30))
+def test_reader_parses_last_json_line() -> None:
+    calls: list[list[str]] = []
+
+    def run(command: list[str], timeout: float) -> str:
+        calls.append(command)
+        if command[-1] == "--version":
+            return "15\n"
+        return 'bruit\n{"ok": true, "chests": 3}\n'
+
+    reader = Reader(Path("r.exe"), run=run)
+    assert reader.version() == 15
+    assert reader.read(Path("a.replay")) == {"ok": True, "chests": 3}
+    bad = Reader(Path("r.exe"), run=lambda c, t: "")
+    with pytest.raises(ReaderError):
+        bad.read(Path("a.replay"))
 
 
-# --- suivi : paliers donnés en cours de route ------------------------------------------------
-def test_new_milestones_are_applied_at_the_next_reading(tmp_path: Path) -> None:
-    logs = tmp_path / "Logs"
-    logs.mkdir()
-    write(
-        logs / "FortniteGame.log",
-        header(),
-        lobby(at(8)),
-        *(chunk for begin, end in MATCHES for chunk in (battle(begin), lobby(end))),
-    )
-    cfg = config_mod.ChestsConfig(logs_dir=str(logs), default_rate=0.0)
-    tracker = ChestTracker(cfg, tmp_path / "matches.json", clock=lambda: at(15))
-    tracker.refresh()
-    assert tracker.scanned
-    assert not tracker.has_milestones
-    assert tracker.estimate() is None
-
-    tracker.set_milestones([Milestone(100, at(12)), Milestone(0, at(9))])
-    assert tracker.has_milestones
-    assert not tracker.scanned
-    tracker.refresh()
-    assert tracker.scanned
-    assert tracker.estimate() == Estimate(total=180, confirmed=100, matches=2, per_minute=2.0)
+# --- config -------------------------------------------------------------------------------
+def test_old_estimate_settings_are_dropped(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    default = tmp_path / "default.json"
+    default.write_text(config_mod.DEFAULT_CONFIG_PATH.read_text("utf-8"), encoding="utf-8")
+    old = {"chests": {"milestones": [{"count": 1000, "at": "2026-11-01T00:00:00Z"}]}}
+    (tmp_path / "local.json").write_text(json.dumps(old), encoding="utf-8")
+    cfg = config_mod.load_config(default)
+    assert cfg.chests.enabled
+    assert "milestones" not in caplog.text
 
 
-def test_default_rate_is_checked() -> None:
-    with pytest.raises(config_mod.ConfigError, match="default_rate"):
-        config_mod.load_config(use_local=False, overrides={"chests": {"default_rate": -1}})
+# --- panneau ------------------------------------------------------------------------------
+def summary(**kw: Any) -> Summary:
+    base: dict[str, Any] = {
+        "total": 137,
+        "matches": 18,
+        "last": 9,
+        "since": datetime(2026, 11, 6, 10, tzinfo=timezone.utc),
+        "recording": False,
+        "replays": True,
+        "failed": False,
+    }
+    return Summary(**{**base, **kw})
 
 
-# --- section du panneau ------------------------------------------------------------------------
-def test_chests_notes() -> None:
-    nbsp = chr(0xA0)  # espace insécable
-    ranged = Estimate(2790, 1000, 159, 0.71, low=2630, high=3210)
-    assert chests_note(ranged) == f"Entre 2{nbsp}630 et 3{nbsp}210"
-    assumed = Estimate(1420, 1000, 40, 0.71, measured=False)
-    assert chests_note(assumed) == f"Au rythme supposé de 0,7{nbsp}coffre par minute"
-    since = datetime(2026, 11, 6, 12, 0, tzinfo=timezone.utc)
-    partial = Estimate(1840, 1000, 80, 0.71, measured=False, partial_since=since)
-    assert chests_note(partial) == f"Journaux du jeu lus depuis le 6{nbsp}novembre"
-    assert chests_note(Estimate(2790, 1000, 159, 0.71)) == ""
+def test_chests_view() -> None:
+    nbsp = chr(0xA0)
+    assert chests_view(ChestsState(None)).line == READING_REPLAYS
+    assert chests_view(ChestsState(None, "absent")).notice == ("caution", READER_DOWN)
+    off = summary(total=0, matches=0, last=None, since=None, replays=False)
+    assert chests_view(ChestsState(off)).notice == ("info", REPLAYS_OFF)
+    none = chests_view(ChestsState(summary(total=0, matches=0, last=None, since=None)))
+    assert (none.line, none.note) == (NO_MATCH_YET, "")
+    counted = chests_view(ChestsState(summary()))
+    assert counted.line == f"137 depuis le 6{nbsp}novembre"
+    assert counted.note == f"18{nbsp}parties, 9{nbsp}coffres à la dernière"
+    assert counted.notice is None
+    assert chests_view(ChestsState(summary(recording=True))).note == RECORDING
+    assert chests_view(ChestsState(summary(failed=True))).notice == ("caution", READ_FAILED)
+    one = chests_view(ChestsState(summary(total=1, matches=1, last=1)))
+    assert one.note == f"1{nbsp}partie, 1{nbsp}coffre à la dernière"
 
 
-def test_chests_view_follows_the_epic_link_first() -> None:
-    ranged = Estimate(2790, 1000, 159, 0.71, low=2630, high=3210)
-    idle = LinkState()
-    invite = chests_view(ChestsState(None, False, True, idle))
-    assert invite.notice is not None
-    assert invite.notice[2] == "Se connecter à Epic"
-    waiting = chests_view(ChestsState(None, False, True, LinkState("waiting")))
-    assert waiting.notice is not None
-    assert waiting.notice[2] == "Annuler"
-    reading = chests_view(ChestsState(None, False, True, LinkState("reading")))
-    assert reading.notice is not None
-    assert reading.notice[2] == ""
-    failed = chests_view(ChestsState(None, False, True, LinkState("failed", "délai dépassé")))
-    assert failed.notice is not None
-    assert failed.notice[0] == "caution"
-    assert failed.notice[1].endswith(": délai dépassé.")
-    assert chests_view(ChestsState(None, True, False, LinkState("done"))).line.startswith(
-        "Lecture des journaux"
-    )
-    assert chests_view(ChestsState(None, True, True, idle)).line == "Aucun journal du jeu trouvé"
-    shown = chests_view(ChestsState(ranged, True, True, idle))
-    assert shown.line.startswith("Environ 2")
-    assert shown.note.startswith("Entre")
-    assert shown.notice is None
+def test_kill_stops_a_running_read() -> None:
+    reader = Reader(Path(sys.executable))
+    failures: list[Exception] = []
+
+    def read() -> None:
+        try:
+            reader._spawn([sys.executable, "-c", "import time; time.sleep(30)"], 60)
+        except ReaderError as exc:
+            failures.append(exc)
+
+    worker = threading.Thread(target=read)
+    started = time.monotonic()
+    worker.start()
+    while reader._process is None and time.monotonic() - started < 10:
+        time.sleep(0.01)
+    reader.kill()
+    worker.join(10)
+    assert not worker.is_alive() and time.monotonic() - started < 10
+    assert len(failures) == 1 and isinstance(failures[0], ReaderStopped)
+    with pytest.raises(ReaderStopped):  # plus aucune lecture après l'arrêt
+        reader.version()
+
+
+def test_reader_timeout_and_exit_code() -> None:
+    reader = Reader(Path(sys.executable))
+    with pytest.raises(ReaderError, match="trop longue"):
+        reader._spawn([sys.executable, "-c", "import time; time.sleep(30)"], 0.5)
+    with pytest.raises(ReaderError, match="échec"):
+        reader._spawn([sys.executable, "-c", "raise SystemExit(3)"], 30)
+    assert reader._spawn([sys.executable, "-c", "print(15)"], 30).strip() == "15"

@@ -1,7 +1,8 @@
 """Construit l'application à distribuer : ``python packaging/build.py``.
 
 1. PyInstaller construit ``dist/Fortnite AutoReplay/`` (exécutable et ``_internal``).
-2. ``config/default.json``, ``templates/`` et ``Lisez-moi.txt`` sont posés à côté.
+2. ``config/default.json``, ``templates/`` et ``Lisez-moi.txt`` sont posés à côté,
+   avec le lecteur de replays (``replay-reader/``, voir ``build_reader.py``).
 3. Le tout est zippé dans ``dist/FortniteAutoReplay-<version>.zip``, sous un
    dossier « Fortnite AutoReplay » : extraire le zip donne l'application prête.
 
@@ -17,6 +18,8 @@ import subprocess
 import sys
 import zipfile
 from pathlib import Path
+
+import build_reader
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGING = ROOT / "packaging"
@@ -60,6 +63,7 @@ def add_files(app: Path, version: str) -> None:
         ignore=shutil.ignore_patterns("README.md"),
         dirs_exist_ok=True,
     )
+    build_reader.publish(app / "replay-reader")
     readme = (PACKAGING / "Lisez-moi.txt").read_text("utf-8").replace("{version}", version)
     # BOM : le Bloc-notes reconnaît l'UTF-8 à coup sûr
     (app / "Lisez-moi.txt").write_text(readme, encoding="utf-8-sig", newline="\r\n")

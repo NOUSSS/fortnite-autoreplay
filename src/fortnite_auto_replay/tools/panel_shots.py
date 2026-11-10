@@ -27,9 +27,8 @@ import mss
 import mss.tools
 
 from .. import config as config_mod
-from ..chests import Estimate
+from ..chests import Summary
 from ..engine import ClickRecord, Phase, Status
-from ..epic import LinkState
 from ..panel import ChestsState, Panel, Win32, counters_from
 from ..window import ensure_dpi_awareness
 
@@ -50,7 +49,7 @@ class Scene:
     started: bool = True
     hover: str = ""  # "primary", "chevron", "quit" ou une réponse du dialogue
     answers: tuple[str, ...] = ("ready", "not_yet", "ignore")
-    chests: str = "estimate"  # état de la section des coffres (voir CHESTS)
+    chests: str = "counted"  # état de la section des coffres (voir CHESTS)
 
 
 _BUSY = {"back_to_lobby": 31, "continue": 12, "pass_battle": 9, "ready": 2, "still_here_ready": 1}
@@ -72,21 +71,17 @@ _ORDER = (
 
 _SINCE = datetime(2026, 11, 6, 10, 33, tzinfo=timezone.utc)
 CHESTS = {
-    "invite": ChestsState(None, False, True, LinkState()),
-    "waiting": ChestsState(None, False, True, LinkState("waiting")),
-    "reading": ChestsState(None, False, True, LinkState("reading")),
-    "failed": ChestsState(None, False, True, LinkState("failed", "délai dépassé")),
-    "scanning": ChestsState(None, True, False, LinkState("done")),
-    "estimate": ChestsState(
-        Estimate(2790, 1000, 159, 0.71, low=2630, high=3210), True, True, LinkState()
+    "off": ChestsState(Summary(0, 0, None, None, recording=False, replays=False, failed=False)),
+    "reading": ChestsState(None),
+    "none": ChestsState(Summary(0, 0, None, None, recording=False, replays=True, failed=False)),
+    "counted": ChestsState(
+        Summary(137, 18, 9, _SINCE, recording=False, replays=True, failed=False)
     ),
-    "partial": ChestsState(
-        Estimate(1840, 1000, 80, 0.71, measured=False, partial_since=_SINCE),
-        True,
-        True,
-        LinkState(),
+    "recording": ChestsState(
+        Summary(137, 18, 9, _SINCE, recording=True, replays=True, failed=False)
     ),
-    "assumed": ChestsState(Estimate(1420, 1000, 40, 0.71, measured=False), True, True, LinkState()),
+    "failed": ChestsState(Summary(137, 18, 9, _SINCE, recording=False, replays=True, failed=True)),
+    "down": ChestsState(None, "lecteur de replays introuvable"),
 }
 
 SCENES = [
@@ -100,11 +95,11 @@ SCENES = [
         True,
         detail=f"«{NBSP}Retour au salon{NBSP}» toujours visible après 3 clics",
     ),
-    Scene("expanded-first", "paused", False, started=False, chests="invite"),
+    Scene("expanded-first", "paused", False, started=False, chests="off"),
     Scene("expanded-first-chests", "paused", False, started=False),
     *(
         Scene(f"expanded-chests-{state}", "paused", False, started=False, chests=state)
-        for state in ("waiting", "reading", "failed", "scanning", "partial", "assumed")
+        for state in ("reading", "none", "recording", "failed", "down")
     ),
     Scene("expanded-active", "active", False, actions=55, per_state=_BUSY, recent=5),
     Scene(
@@ -215,12 +210,6 @@ class DemoController:
 
     def chests(self) -> ChestsState | None:
         return CHESTS.get(self.scene.chests)
-
-    def connect_epic(self) -> None:
-        pass
-
-    def cancel_epic(self) -> None:
-        pass
 
 
 def _box(widget: tk.Misc, origin: tuple[int, int]) -> list[int] | None:

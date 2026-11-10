@@ -25,6 +25,10 @@ Utilisation
 - Le jeu peut rester au second plan, sur un écran visible : le bot clique quand même.
 
 
+Coffres ouverts
+
+Le panneau compte les coffres que vous ouvrez ou cassez, partie après partie. Il les lit dans les replays du jeu : activez « Enregistrer les rediffusions » dans Fortnite (Paramètres, Jeu, Rediffusions). Une partie est comptée quelques secondes après sa fin. Le lecteur de replays (dossier replay-reader) reprend le code de ChestCounter, sous licence MIT ; il ne touche ni au jeu ni à sa mémoire.
+
 En cas de problème
 
 - Le panneau signale tout blocage et dit quoi faire. Le détail est dans logs\bot.log.

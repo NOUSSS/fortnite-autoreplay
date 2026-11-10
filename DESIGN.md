@@ -164,7 +164,7 @@ Une palette neutre presque monochrome, un seul accent bleu clair, et quatre coul
 - **Filet** (stroke) : séparateurs d'un pixel sous l'en-tête et au-dessus du pied, contour des contrôles neutres, bordure de la fenêtre posée par DWM.
 - **Texte** (text) : mots d'état, intertitres, valeurs, libellés des contrôles.
 - **Texte secondaire** (text-secondary) : libellés des compteurs, détail de l'en-tête, lignes des totaux et des coffres, chevron.
-- **Texte tertiaire** (text-tertiary) : heures du journal, état vide, aide sous le sélecteur, légende sous l'estimation des coffres, rappel des raccourcis, segment désactivé.
+- **Texte tertiaire** (text-tertiary) : heures du journal, état vide, aide sous le sélecteur, ligne d'attente et légende des coffres, rappel des raccourcis, segment désactivé.
 
 ### Named Rules
 **La règle de la pastille.** Les couleurs d'état ne colorent qu'une pastille de 8 px ou l'icône d'un bandeau. Jamais un texte, un bouton ni un fond de section.
@@ -182,7 +182,7 @@ Une palette neutre presque monochrome, un seul accent bleu clair, et quatre coul
 ### Hierarchy
 - **Title** (semi-gras, 14 px) : mot d'état de l'en-tête, intertitres de section, libellé du segment choisi.
 - **Body** (normal, 14 px) : libellés de boutons et de segments, compteurs, journal, totaux, message des bandeaux.
-- **Caption** (normal, 12 px) : détail de l'en-tête (nombre de clics), aide sous le sélecteur, légende sous l'estimation des coffres (fourchette, ou ce qui la rend incertaine), rappel des raccourcis.
+- **Caption** (normal, 12 px) : détail de l'en-tête (nombre de clics), aide sous le sélecteur, légende sous le compteur des coffres (parties, dernière partie, partie en cours), rappel des raccourcis.
 - **Icon** (12 px) : chevron de repli et icône de gravité des bandeaux. La pastille d'état est le disque plein de la même police, à 8 px, pour un bord lissé.
 
 ### Named Rules
@@ -233,8 +233,8 @@ Contrôles natifs de Windows 11, sobres et plats.
 ### Bandeau (InfoBar)
 - **Style :** pleine largeur utile, coins de 4 px, 12 px de marge intérieure, icône de gravité de 12 px puis 8 px avant le message, message en Body blanc, retour à la ligne.
 - **Gravités :** critique (fond brique, icône rose), attention (fond ocre, icône jaune), information (fond couche, icône accent).
-- **Action :** un bouton standard facultatif sous le message, aligné sur lui, 8 px plus bas (Mettre à jour, Se connecter à Epic, Annuler, Réessayer). Jamais l'accent : il reste au bouton principal de l'en-tête.
-- **Présence :** il n'existe que s'il a quelque chose à dire ; sinon le corps commence directement par le sélecteur. Le bandeau de mise à jour (information, ou attention après un échec) suit celui du moteur, 16 px plus bas. Dans la section « Coffres ouverts », un bandeau tient la place de l'estimation tant qu'il manque les paliers : invitation à se connecter à Epic, attente de la confirmation, lecture, échec.
+- **Action :** un bouton standard facultatif sous le message, aligné sur lui, 8 px plus bas (Mettre à jour, Réessayer). Jamais l'accent : il reste au bouton principal de l'en-tête.
+- **Présence :** il n'existe que s'il a quelque chose à dire ; sinon le corps commence directement par le sélecteur. Le bandeau de mise à jour (information, ou attention après un échec) suit celui du moteur, 16 px plus bas. Dans la section « Coffres ouverts », un bandeau d'information tient la place du compteur tant que les rediffusions ne sont pas activées, un bandeau d'attention le remplace si le lecteur de replays ne démarre pas, et suit la légende, 8 px plus bas, quand le replay de la dernière partie n'a pas pu être lu.
 
 ### Ligne d'état (signature)
 Pastille de 8 px à la couleur de l'état, mot d'état en Title, détail en Caption secondaire (le nombre de clics, quand l'état est Actif ou En pause). Toute la ligne, sauf ses boutons, sert de poignée pour déplacer la fenêtre.

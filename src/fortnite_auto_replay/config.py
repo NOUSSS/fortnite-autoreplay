@@ -304,38 +304,22 @@ def parse_utc(value: str) -> datetime:
 
 @dataclass(slots=True)
 class ChestsConfig:
-    """Estimation des coffres ouverts, d'après les journaux de Fortnite (voir ``chests``)."""
+    """Compteur des coffres ouverts, d'après les replays de Fortnite (voir ``chests``)."""
 
-    enabled: bool = True  # lire les parties dans les journaux du jeu
-    logs_dir: str = "%LOCALAPPDATA%/FortniteGame/Saved/Logs"  # variables d'environnement lues
-    log_glob: str = "FortniteGame*.log"
-    # VerseURI d'une partie de Battle Royale, sur la ligne « LoadMap » qui la charge
-    match_marker: str = "/Fortnite.com/GameFeatures/BRRoot"
-    store_file: str = (
-        "logs/matches.json"  # parties lues, gardées quand Fortnite efface ses journaux
-    )
-    scan_interval_s: float = 300.0
-    # coffres par minute de partie quand aucun intervalle entre paliers n'est mesurable
-    # (0,71 : mesuré sur un joueur, entre ses paliers 250 et 1 000)
-    default_rate: float = 0.71
-    # paliers de la quête de coffres, lus sur le compte Epic : [{"count": 1000, "at": "…Z"}]
-    milestones: list[dict[str, Any]] = field(default_factory=list)
+    enabled: bool = True  # compter les coffres dans les replays
+    demos_dir: str = "%LOCALAPPDATA%/FortniteGame/Saved/Demos"  # variables d'environnement lues
+    reader: str = "replay-reader/replay-reader.exe"  # lecteur de replays (relatif à l'appli)
+    store_file: str = "logs/chests.json"  # parties comptées (le jeu efface ses vieux replays)
+    scan_interval_s: float = 10.0
 
     def validate(self) -> None:
-        if self.scan_interval_s < 10:
-            raise ConfigError("chests.scan_interval_s doit être >= 10")
-        if not 0 <= self.default_rate <= 10:
-            raise ConfigError("chests.default_rate doit être entre 0 et 10")
-        if not self.match_marker:
-            raise ConfigError("chests.match_marker ne peut pas être vide")
-        for milestone in self.milestones:
-            count = milestone.get("count") if isinstance(milestone, dict) else None
-            if not isinstance(count, int) or isinstance(count, bool) or count < 0:
-                raise ConfigError(f"chests.milestones : nombre invalide dans {milestone!r}")
-            parse_utc(milestone.get("at", ""))
+        if self.scan_interval_s < 2:
+            raise ConfigError("chests.scan_interval_s doit être >= 2")
+        if not self.reader:
+            raise ConfigError("chests.reader ne peut pas être vide")
 
-    def resolved_logs_dir(self) -> Path:
-        return Path(os.path.expandvars(self.logs_dir))
+    def resolved_demos_dir(self) -> Path:
+        return Path(os.path.expandvars(self.demos_dir))
 
 
 @dataclass(slots=True)
@@ -393,14 +377,21 @@ class Config:
     def resolved_stats_file(self) -> Path | None:
         return resolve_path(self.engine.stats_file) if self.engine.stats_file else None
 
-    def resolved_matches_file(self) -> Path:
+    def resolved_chests_file(self) -> Path:
         return resolve_path(self.chests.store_file)
+
+    def resolved_reader(self) -> Path:
+        return resolve_path(self.chests.reader)
 
 
 def resolve_path(value: str) -> Path:
     """Chemin de config : absolu tel quel, relatif à la racine du projet sinon."""
     path = Path(value)
     return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+# réglages de l'estimation d'avant le compteur (0.4.0), laissés dans config/local.json
+_OLD_CHESTS_KEYS = frozenset({"logs_dir", "log_glob", "match_marker", "default_rate", "milestones"})
 
 
 def _to_dataclass(cls: type, raw: dict[str, Any]) -> Any:
@@ -464,7 +455,10 @@ def load_config(
         hotkeys=_to_dataclass(HotkeyConfig, raw.get("hotkeys", {})),
         panel=_to_dataclass(PanelConfig, raw.get("panel", {})),
         update=_to_dataclass(UpdateConfig, raw.get("update", {})),
-        chests=_to_dataclass(ChestsConfig, raw.get("chests", {})),
+        chests=_to_dataclass(
+            ChestsConfig,
+            {k: v for k, v in raw.get("chests", {}).items() if k not in _OLD_CHESTS_KEYS},
+        ),
         template_dir=raw.get("template_dir", "templates"),
         log_level=raw.get("log_level", "INFO"),
     )

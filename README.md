@@ -40,7 +40,7 @@ python -m fortnite_auto_replay run
 # diagnostic
 python -m fortnite_auto_replay window   # fenêtre du jeu repérée et premier plan
 python -m fortnite_auto_replay stats    # totaux des sessions passées
-python -m fortnite_auto_replay chests   # coffres ouverts estimés (voir plus bas)
+python -m fortnite_auto_replay chests   # coffres ouverts comptés (voir plus bas)
 ```
 
 Raccourcis en jeu : `F8` = démarrer / mettre en pause, `F9` = quitter. Ils ne
@@ -90,53 +90,30 @@ Valeurs : `ready`, `not_yet`, `ignore`.
 
 ### Coffres ouverts
 
-Fortnite ne compte vos coffres que dans la quête de la chasse au trésor, qui
-s'arrête à son dernier palier (1 000 coffres). Le panneau en donne une
-estimation, par exemple « Environ 2 790, dont 1 000 confirmés », avec une
-fourchette dessous :
+Le panneau compte les coffres que vous ouvrez, partie après partie, par
+exemple « 137 depuis le 6 novembre », avec dessous le nombre de parties et
+les coffres de la dernière. Les coffres cassés (support détruit, explosion)
+comptent aussi ; les caisses de munitions, de nourriture et les canons à
+butin non.
 
-- les paliers de la quête atteints et leur date donnent le nombre de coffres
-  par minute de partie ;
-- les minutes de Battle Royale jouées depuis le dernier palier, lues dans les
-  journaux du jeu (`%LOCALAPPDATA%\FortniteGame\Saved\Logs`), donnent le reste.
+Il les lit dans les replays de Fortnite, qu'il faut donc activer dans le jeu :
+**Paramètres, Jeu, Rediffusions, Enregistrer les rediffusions : Activé**. Le
+jeu écrit un replay par partie dans `%LOCALAPPDATA%\FortniteGame\Saved\Demos`
+et n'écrit sa clé de déchiffrement qu'à la fin : une partie se compte quelques
+secondes après sa fin, pas pendant. Seul le joueur qui enregistre est compté,
+et seulement en Battle Royale.
 
-Les paliers se lisent sur votre compte Epic : cliquez sur « Se connecter à
-Epic » dans la section « Coffres ouverts » et confirmez sur la page Epic qui
-s'ouvre dans votre navigateur. L'application lit votre profil Fortnite, garde
-les paliers dans `config/local.json` et ferme aussitôt la session : elle ne
-garde ni jeton ni mot de passe. Si la quête n'est pas finie, son compteur du
-moment sert aussi de palier. En ligne de commande :
-`python -m fortnite_auto_replay chests --epic`.
+La lecture des replays est celle de
+[ChestCounter](https://github.com/LED-N/Fortnite-ChestCounter) (licence MIT),
+reprise dans `replay-reader/` (voir son README) : un petit programme à part,
+`replay-reader.exe`, livré avec l'application. Il ne touche ni au jeu ni à sa
+mémoire et n'envoie rien.
 
-La connexion passe par le client public du jeu Fortnite sur Switch, le seul
-qui accepte une confirmation dans le navigateur. Epic le tolère mais ne le
-garantit pas : s'il le coupe, la connexion échouera, et les paliers pourront
-encore se noter à la main dans `config/local.json`, en UTC :
-
-```json
-{
-  "chests": {
-    "milestones": [
-      { "count": 250, "at": "2026-11-03T11:00:52Z" },
-      { "count": 500, "at": "2026-11-03T16:06:43Z" },
-      { "count": 1000, "at": "2026-11-04T18:47:36Z" }
-    ]
-  }
-}
-```
-
-Le rythme se mesure entre deux paliers dont toutes les parties sont dans les
-journaux. Fortnite n'en garde qu'une quinzaine, soit quelques jours ; les
-parties lues sont gardées dans `logs/matches.json`, l'application peut donc
-compter au-delà. Sans écart mesurable, le panneau prend un rythme moyen
-(`chests.default_rate`, 0,71 coffre par minute, mesuré sur un joueur) et le
-dit. Si vos journaux commencent après votre dernier palier, les parties
-d'avant sont inconnues : le panneau affiche un minimum (« Plus de … »).
-`python -m fortnite_auto_replay chests` affiche le détail du calcul.
-
-Ce n'est qu'une estimation : elle suppose que vous ouvrez autant de coffres
-par minute qu'entre vos paliers. La fourchette va du plus lent au plus rapide
-de vos intervalles d'au moins 100 coffres.
+Les parties comptées sont gardées dans `logs/chests.json` : le jeu efface ses
+vieux replays, le compteur continue. Une partie jouée application fermée est
+comptée au lancement suivant, tant que son replay existe encore.
+`python -m fortnite_auto_replay chests` lit les replays terminés et affiche
+le total.
 
 ## Comment ça marche
 
@@ -159,8 +136,8 @@ window.py ──► capture.py ──► vision.py ──► engine.py ──►
   pyautogui), clics postés à la fenêtre du jeu au second plan.
 - `diagnostics.py` : traces des arrêts inattendus (`logs/crash.log`).
 - `panel.py` : panneau de contrôle (tkinter) ; le moteur tourne dans un thread.
-- `chests.py` : parties lues dans les journaux du jeu, estimation des coffres.
-- `epic.py` : paliers de la quête de coffres lus sur le compte Epic.
+- `chests.py` : coffres ouverts, comptés dans les replays du jeu par
+  `replay-reader.exe` (C#, `replay-reader/`).
 
 Rien n'est codé en dur : seuils, ROI, délais et zones de clic sont dans
 `config/default.json` (surchargé par `config/local.json`).

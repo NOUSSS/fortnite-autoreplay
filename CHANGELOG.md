@@ -5,6 +5,11 @@ Une section par version, la plus récente en haut, au format
 toutes, et le manifeste de mise à jour reprend celles de la dernière version
 (`packaging/release.py`).
 
+## 0.5.0 (2026-11-10)
+
+- Le panneau compte vraiment vos coffres, partie après partie, au lieu de les estimer : il lit les replays du jeu quelques secondes après chaque partie, coffres cassés compris. Activez l’enregistrement des rediffusions dans Fortnite (Paramètres, Jeu, Rediffusions).
+- La connexion au compte Epic et l’estimation disparaissent.
+
 ## 0.4.0 (2026-11-08)
 
 - L’estimation des coffres marche pour tout le monde : un clic sur « Se connecter à Epic » dans le panneau suffit à lire les paliers de votre quête, sans rien noter à la main. L’application ne garde ni jeton ni mot de passe.

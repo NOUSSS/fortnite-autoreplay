@@ -69,13 +69,10 @@
   },
   "chests": {
     "enabled": true,
-    "logs_dir": "%LOCALAPPDATA%/FortniteGame/Saved/Logs",
-    "log_glob": "FortniteGame*.log",
-    "match_marker": "/Fortnite.com/GameFeatures/BRRoot",
-    "store_file": "logs/matches.json",
-    "scan_interval_s": 300.0,
-    "default_rate": 0.71,
-    "milestones": []
+    "demos_dir": "%LOCALAPPDATA%/FortniteGame/Saved/Demos",
+    "reader": "replay-reader/replay-reader.exe",
+    "store_file": "logs/chests.json",
+    "scan_interval_s": 10.0
   },
   "template_dir": "templates",
   "log_level": "INFO",

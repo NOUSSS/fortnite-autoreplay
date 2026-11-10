@@ -44,9 +44,8 @@ attente du jeu ou bloqué.
   erreurs répétées), arrêté.
 - Informations demandées : compteurs de la session (clics par bouton, durée),
   journal des derniers clics, totaux de toutes les sessions (historique
-  `logs/sessions.jsonl`), coffres ouverts estimés (paliers de la quête de la
-  chasse au trésor, lus sur le compte Epic en un clic, et parties lues dans
-  les journaux du jeu), avec leur fourchette.
+  `logs/sessions.jsonl`), coffres ouverts comptés dans les replays du jeu
+  (rediffusions activées dans Fortnite), cassés compris.
 - Réponse au dialogue « Vous êtes toujours là ? » : Prêt (par défaut), Pas
   encore, ou ne rien faire ; modifiable dans le panneau.
 - Python 3.10+, tkinter de la bibliothèque standard, Windows uniquement.

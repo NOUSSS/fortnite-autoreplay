@@ -45,8 +45,7 @@ premier plan et des messages de fenêtre au second plan.
 | `diagnostics.py` | Exceptions non rattrapées au journal, piles des threads dans `logs/crash.log` |
 | `sounds.py` | Deux notes sur `F8` (reprise, pause) |
 | `panel.py` | Panneau de contrôle tkinter, moteur dans un thread, bandeau de mise à jour |
-| `chests.py` | Parties lues dans les journaux du jeu (`logs/matches.json`), estimation des coffres |
-| `epic.py` | Connexion au compte Epic (code d'appareil), paliers de la quête de coffres |
+| `chests.py` | Coffres comptés dans les replays du jeu par `replay-reader.exe` (`logs/chests.json`) |
 | `updater.py` | Manifeste signé, téléchargement vérifié, installation tout ou rien, relance |
 | `cli.py` | `run`, `check`, `config`, `window`, `stats`, `panel`, `update` + surcharges en ligne de commande |
 
@@ -166,35 +165,32 @@ capture n'apporterait rien. Tout le gain vient du matching.
   plus récente, https seulement (http vers la machine elle-même pour les
   essais), archive vérifiée par taille et sha256 avant extraction, chemins du
   zip qui sortiraient du dossier refusés.
-- **Coffres estimés, pas comptés** : la quête de la chasse au trésor cesse de
-  compter à 1 000, et les journaux du jeu ne notent aucun coffre ouvert. Ils
-  notent chaque chargement de carte : une partie de Battle Royale va du
-  `LoadMap` depuis un serveur (VerseURI `BRRoot`) au chargement suivant. Les
-  paliers de la quête (`chests.milestones`) donnent des coffres par minute de
-  partie, appliqués aux minutes jouées depuis le dernier palier. Un intervalle
-  entre paliers ne compte que si tous ses journaux ont été lus (après le plus
-  ancien journal lu, `tracked_since`). Fortnite efface ses vieux journaux :
-  chaque journal est reconnu par l'horodatage de sa première ligne (inchangé
-  quand il devient `FortniteGame-backup-….log`), lu une fois depuis l'octet où
-  la lecture s'était arrêtée, par blocs de 4 Mio cherchés en C (0,6 s pour
-  800 Mo de journaux), dans un thread à part toutes les 5 minutes.
-- **Paliers lus sur le compte Epic** : connexion par code d'appareil avec le
-  client public de Fortnite sur Switch (le seul qui l'accepte), lecture du
-  profil `athena`, puis fermeture de la session ; le jeton ne quitte pas la
-  mémoire. Une étape franchie de la quête crée la suivante : la date de
-  création de l'étape suivante est celle du palier (la date de changement
-  d'état de l'étape franchie est celle où la récompense a été réclamée, parfois
-  plusieurs minutes plus tard). Écartés après mesure : les minutes par période
-  de `statsv2` (121 parties là où les journaux en lisent 159, sans les parties
-  classées) et les autres compteurs de la chasse au trésor (`rarity`,
-  `sprites`), qui ne suivent pas le nombre de coffres. Les distinctions
-  (« 5 coffres fouillés dans une partie ») sont comptées par un autre service,
-  non documenté.
-- **Fiabilité de l'estimation** : entre deux paliers, le rythme varie autant en
-  minutes de partie qu'en minutes au sol (saut du bus à la mort) ; le nombre de
-  parties varie plus. L'écart vient du jeu du joueur : il se montre en
-  fourchette plutôt que de se cacher dans une autre mesure. Un compteur lu
-  sans changement depuis un palier compte comme un intervalle à zéro coffre.
+- **Coffres comptés dans les replays** : la quête de la chasse au trésor cesse
+  de compter à 1 000 et les journaux du jeu ne notent aucun coffre. Le replay
+  d'une partie contient l'état de chaque coffre (`bAlreadySearched`,
+  `bDestroyed`) et le pion qui l'a fouillé ou cassé (`SearchingPawn`). La
+  lecture vient de ChestCounter (C#, lui-même parti de
+  FortniteReplayDecompressor), reprise telle quelle dans `replay-reader/vendor`
+  et appelée par `replay-reader.exe`, une ligne JSON par replay : la réécrire
+  en Python serait long et suivrait mal les changements de format du jeu.
+  Exécutable autonome (.NET embarqué, 38 Mo), lancé sans fenêtre et en
+  priorité basse, un replay à la fois (1 à 2 s).
+- **Quand lire un replay** : le jeu le complète toutes les 25 s environ en
+  partie, drapeau « en direct » levé et clé de déchiffrement à zéro ; il écrit
+  la clé et baisse le drapeau à la fin. L'en-tête est lu en Python
+  (`read_header`) : un replay terminé se lit une fois sa taille stable sur deux
+  tours (4 s de calme), un replay encore « en direct » mais intouché depuis
+  10 minutes est un enregistrement coupé (jeu fermé), noté incomplet sans être
+  lu. Mêmes délais que ChestCounter.
+- **Une partie, une fois** : un replay est reconnu par nom, taille et date ; une
+  partie par son `session_id`, si bien qu'un replay renommé ou copié ne compte
+  pas deux fois. Une nouvelle version du lecteur (`--version`, version de
+  l'analyse de ChestCounter) relit les replays encore présents et remplace
+  leurs parties ; celles dont le replay a disparu restent.
+- **Lecteur arrêté avec le panneau** : `ChestTracker.stop` tue la lecture en
+  cours, qui tiendrait le dossier `replay-reader/` pendant l'installation
+  d'une mise à jour, et rien n'est retenu de ce replay (relu au lancement
+  suivant).
 - **Aucune valeur dans le code** : tout est configuration.
 
 ## Points d'extension prévus

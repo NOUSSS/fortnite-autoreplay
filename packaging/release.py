@@ -60,7 +60,6 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "packaging"))
 
 import build  # noqa: E402
-
 from fortnite_auto_replay import updater  # noqa: E402
 
 SITE_URL = "https://autoreplay.feitanx.com"

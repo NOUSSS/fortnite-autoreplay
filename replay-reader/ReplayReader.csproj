@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Lecteur de replays de Fortnite Auto Replay : voir README.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>replay-reader</AssemblyName>
+    <RootNamespace>ReplayReader</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Le lecteur découvre ses types par réflexion : pas d'élagage. -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="vendor\ChestCounter\*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="vendor\FortniteReplayReader\FortniteReplayReader.csproj" />
+  </ItemGroup>
+</Project>
