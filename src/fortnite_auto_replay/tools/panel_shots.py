@@ -19,7 +19,7 @@ import json
 import time
 import tkinter as tk
 import traceback
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,7 +29,8 @@ import mss.tools
 from .. import config as config_mod
 from ..chests import Summary
 from ..engine import ClickRecord, Phase, Status
-from ..panel import ChestsState, Panel, Win32, counters_from
+from ..panel import ChestsState, Panel, Win32
+from ..updater import UpdateState
 from ..window import ensure_dpi_awareness
 
 NBSP = "\u00a0"
@@ -41,18 +42,16 @@ class Scene:
     phase: Phase
     collapsed: bool
     detail: str = ""
-    actions: int = 0
-    per_state: dict[str, int] = field(default_factory=dict)
     recent: int = 0
     still_here: str = "ready"
     dry_run: bool = False
     started: bool = True
     hover: str = ""  # "primary", "chevron", "quit" ou une réponse du dialogue
     answers: tuple[str, ...] = ("ready", "not_yet", "ignore")
-    chests: str = "counted"  # état de la section des coffres (voir CHESTS)
+    update: str = "idle"  # phase de la mise à jour (bandeau au-dessus de Quitter)
+    chests: str = "counted"  # état de la ligne des coffres (voir CHESTS ; absent : compteur coupé)
 
 
-_BUSY = {"back_to_lobby": 31, "continue": 12, "pass_battle": 9, "ready": 2, "still_here_ready": 1}
 _LABELS = {
     "back_to_lobby": "Retour au salon",
     "continue": "Continuer",
@@ -86,8 +85,8 @@ CHESTS = {
 
 SCENES = [
     Scene("collapsed-first", "paused", True, started=False),
-    Scene("collapsed-active", "active", True, actions=55, per_state=_BUSY),
-    Scene("collapsed-paused", "paused", True, actions=55, per_state=_BUSY),
+    Scene("collapsed-active", "active", True),
+    Scene("collapsed-paused", "paused", True),
     Scene("collapsed-waiting", "no_game", True),
     Scene(
         "collapsed-stuck",
@@ -101,17 +100,13 @@ SCENES = [
         Scene(f"expanded-chests-{state}", "paused", False, started=False, chests=state)
         for state in ("reading", "none", "recording", "failed", "down")
     ),
-    Scene("expanded-active", "active", False, actions=55, per_state=_BUSY, recent=5),
-    Scene(
-        "expanded-two-clicks", "active", False, actions=2, per_state={"back_to_lobby": 2}, recent=2
-    ),
+    Scene("expanded-active", "active", False, recent=5),
+    Scene("expanded-two-clicks", "active", False, recent=2),
     Scene(
         "expanded-stuck",
         "stuck",
         False,
         detail=f"«{NBSP}Retour au salon{NBSP}» toujours visible après 3 clics",
-        actions=55,
-        per_state=_BUSY,
         recent=5,
     ),
     Scene(
@@ -119,19 +114,15 @@ SCENES = [
         "covered",
         False,
         detail=f"Le panneau couvre le bouton «{NBSP}Retour au salon{NBSP}»",
-        actions=55,
-        per_state=_BUSY,
         recent=5,
     ),
-    Scene("expanded-background", "background", False, actions=55, per_state=_BUSY, recent=5),
-    Scene("expanded-hidden", "hidden", False, actions=55, per_state=_BUSY, recent=5),
+    Scene("expanded-background", "background", False, recent=5),
+    Scene("expanded-hidden", "hidden", False, recent=5),
     Scene(
         "expanded-mouse",
         "mouse",
         False,
         detail=f"Clic sur «{NBSP}Retour au salon{NBSP}» en attente",
-        actions=55,
-        per_state=_BUSY,
         recent=5,
     ),
     Scene("expanded-capture", "capture", False, detail="aucun écran à capturer", recent=0),
@@ -141,9 +132,7 @@ SCENES = [
         "active",
         False,
         dry_run=True,
-        actions=3,
         recent=3,
-        per_state={"back_to_lobby": 3},
     ),
     Scene(
         "expanded-not-yet",
@@ -155,6 +144,10 @@ SCENES = [
     ),
     Scene("expanded-hover-primary", "active", False, hover="primary"),
     Scene("expanded-hover-quit", "paused", False, hover="quit"),
+    Scene("expanded-update", "active", False, recent=2, update="available"),
+    Scene("expanded-update-failed", "active", False, update="failed"),
+    Scene("collapsed-no-chests", "active", True, chests="disabled"),
+    Scene("expanded-no-chests", "active", False, recent=2, chests="disabled"),
 ]
 
 
@@ -178,8 +171,8 @@ class DemoController:
             phase=scene.phase,
             detail=scene.detail,
             started_at=self.started_at,
-            actions=scene.actions,
-            per_state=dict(scene.per_state),
+            actions=len(recent),
+            per_state={},
             recent=recent,
             still_here=scene.still_here,
             dry_run=scene.dry_run,
@@ -200,16 +193,22 @@ class DemoController:
     def set_still_here(self, answer: str) -> None:
         self.scene.still_here = answer
 
-    def totals(self, status: Status) -> tuple[int, int, float]:
-        if status.dry_run:
-            return 36, 1229, 21 * 3600.0
-        return 37, 1229 + status.actions, 21 * 3600.0 + time.time() - status.started_at
-
-    def counters(self) -> list[tuple[str, tuple[str, ...]]]:
-        return counters_from(self.cfg)
-
     def chests(self) -> ChestsState | None:
         return CHESTS.get(self.scene.chests)
+
+
+class DemoUpdates:
+    """Mises à jour simulées : la scène dit la phase, rien ne se télécharge."""
+
+    def __init__(self, controller: DemoController) -> None:
+        self.controller = controller
+
+    def state(self) -> UpdateState:
+        error = "signature invalide" if self.controller.scene.update == "failed" else ""
+        return UpdateState(self.controller.scene.update, "0.6.0", error=error)  # type: ignore[arg-type]
+
+    def download(self) -> None:
+        pass
 
 
 def _box(widget: tk.Misc, origin: tuple[int, int]) -> list[int] | None:
@@ -229,35 +228,34 @@ def _geometry(panel: Panel) -> dict[str, object]:
         "header": panel.header,
         "dot": panel.dot,
         "title": panel.title,
-        "detail": panel.detail,
+        "state": panel.state,
         "primary": panel.primary,
         "chevron": panel.chevron,
-        "divider": panel.divider,
-        "body": panel.body,
+        "bot_body": panel.bot_body,
         "notice": panel.notice,
         "s_dialog": panel.s_dialog,
         "segmented": panel.segmented,
-        "s_session": panel.s_session,
-        "grid": panel.grid,
         "s_recent": panel.s_recent,
         "empty": panel.empty,
-        "s_totals": panel.s_totals,
-        "totals": panel.totals,
-        "s_chests": panel.s_chests,
-        "chests": panel.chests,
-        "chests_text": panel.chests_text,
+        "chests_rule": panel.chests_rule,
+        "chests_row": panel.chests_row,
+        "chests_dot": panel.chests_dot,
+        "chests_state": panel.chests_state,
+        "chests_value": panel.chests_value,
+        "chests_body": panel.chests_body,
         "chests_note": panel.chests_note,
         "chests_notice": panel.chests_notice,
         "footer_rule": panel.footer_rule,
+        "update_box": panel.update_box,
+        "update_notice": panel.update_notice,
         "footer": panel.footer,
         "quit": panel.quit_button,
         "hint": panel.hint,
     }
     boxes = {name: _box(widget, origin) for name, widget in named.items()}
-    sections = (panel.s_dialog, panel.s_session, panel.s_recent, panel.s_totals, panel.s_chests)
+    sections = (panel.s_dialog, panel.s_recent)
     boxes["headings"] = [_box(section.winfo_children()[0], origin) for section in sections]
     boxes["recent_rows"] = [_box(row, origin) for row, _, _ in panel.recent]
-    boxes["cells"] = [_box(name.master, origin) for name, _ in panel.cells]
     return {
         "window": [panel.root.winfo_width(), panel.root.winfo_height()],
         "position": list(panel._pos),
@@ -300,7 +298,16 @@ def _shoot_all(args: argparse.Namespace) -> int:
 
     controller = DemoController(cfg)
     root = tk.Tk()
-    panel = Panel(root, controller, cfg.panel, home=home, persist=False, win32=win32)
+    updates = DemoUpdates(controller)
+    panel = Panel(
+        root,
+        controller,
+        cfg.panel,
+        home=home,
+        persist=False,
+        win32=win32,
+        updates=updates,  # type: ignore[arg-type]
+    )
     scenes = [s for s in SCENES if not args.only or args.only in s.name]
     report: dict[str, object] = {
         "before": before,
@@ -321,9 +328,8 @@ def _shoot_all(args: argparse.Namespace) -> int:
         controller.scene = scene
         panel._started = scene.started
         panel.collapsed = scene.collapsed
-        panel._last = ()
+        panel._shape = ()
         panel._render(controller.status())
-        panel._apply_layout()
         for button in (panel.primary, panel.chevron, panel.quit_button):
             button._set(hover=False, pressed=False)
         panel.segmented._set_hover("")

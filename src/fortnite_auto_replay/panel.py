@@ -1,4 +1,4 @@
-"""Panneau de contrôle du bot : état, pause, réponse au dialogue, compteurs.
+"""Panneau de contrôle du bot : relance (état, pause, réponse au dialogue), coffres.
 
 Une petite fenêtre sans bordure, toujours au-dessus du jeu :
 
@@ -12,7 +12,8 @@ Une petite fenêtre sans bordure, toujours au-dessus du jeu :
 - les captures d'écran ne la voient pas (``WDA_EXCLUDEFROMCAPTURE``) : posée sur
   le jeu, elle ne cache aucun bouton au bot. Un clic qui tomberait sur elle est
   annulé par le moteur (``GameWindow.covering``) ;
-- repliée, elle tient sur une ligne : pastille, état, bouton Pause.
+- une ligne par fonction, chacune avec son état : la relance (bouton Pause)
+  et les coffres, comptés même en pause ; repliée, elle tient sur ces deux lignes.
 
 Le moteur tourne dans un thread à part ; seul le thread principal touche à Tk.
 Toute fermeture est journalisée avec sa cause ; un moteur qui ne répond plus
@@ -37,7 +38,7 @@ from datetime import datetime
 from types import TracebackType
 from typing import Protocol
 
-from . import diagnostics, history
+from . import diagnostics
 from .actions import Actions
 from .capture import CaptureError, Frame, ScreenCapture
 from .chests import ChestTracker, Reader, Summary
@@ -88,9 +89,10 @@ C = Palette()
 
 # grille de 4 px, en pixels à 96 ppp (multipliés par l'échelle d'affichage)
 WIDTH = 320
-HEADER_H = 44
+FEATURE_H = 52  # ligne d'une fonction : nom et état sur deux lignes
 PAD = 12  # marge intérieure de la fenêtre et des bandeaux
 GAP = 8  # entre éléments voisins d'une ligne, sous un intertitre
+DETAIL_GAP = 4  # entre la ligne d'une fonction et son détail déplié
 SECTION_GAP = 16
 ROW_H = 24
 CONTROL_H = 28
@@ -134,17 +136,6 @@ NO_CLICK = "Aucun clic pour l\u2019instant."
 
 
 # --- textes -------------------------------------------------------------------
-def duration(seconds: float) -> str:
-    """« 12 min », « 1 h 05 », « 31 h » (au-delà de 10 h, les minutes se taisent)."""
-    minutes = max(0, int(seconds // 60))
-    hours, rest = divmod(minutes, 60)
-    if hours == 0:
-        return f"{minutes}{NBSP}min"
-    if hours >= 10:
-        return f"{hours}{NBSP}h"
-    return f"{hours}{NBSP}h{NBSP}{rest:02d}"
-
-
 def number(value: int) -> str:
     """Séparateur de milliers à la française (espace insécable : Segoe UI n'a pas l'espace fine)."""
     return f"{value:,}".replace(",", NBSP)
@@ -227,13 +218,6 @@ def primary_label(phase: Phase, started: bool) -> str:
     return "Pause"
 
 
-def header_detail(status: Status) -> str:
-    """À côté de l'état, quand il est court : les clics de la session, s'il y en a."""
-    if status.actions and status.phase in ("active", "paused"):
-        return plural(status.actions, "clic")
-    return ""
-
-
 MONTHS = (
     "janvier",
     "février",
@@ -255,8 +239,11 @@ REPLAYS_OFF = (
 READER_DOWN = "Le lecteur de replays ne démarre pas, vos coffres ne sont pas comptés."
 READ_FAILED = "Le replay de votre dernière partie n\u2019a pas pu être lu."
 READING_REPLAYS = "Lecture des replays…"
-NO_MATCH_YET = "Aucune partie comptée pour l\u2019instant."
+NO_MATCH_YET = "Aucune partie comptée pour l\u2019instant"
 RECORDING = f"Partie en cours{NBSP}: comptée à sa fin"
+REPLAYS_OFF_SHORT = "Rediffusions désactivées dans Fortnite"
+READER_DOWN_SHORT = "Lecteur de replays indisponible"
+READ_FAILED_SHORT = "Dernier replay illisible"
 
 
 def day_month(when: datetime) -> str:
@@ -275,43 +262,38 @@ class ChestsState:
 
 @dataclass(frozen=True, slots=True)
 class ChestsView:
-    line: str = ""  # ligne de données
-    note: str = ""  # légende sous la ligne
-    notice: tuple[str, str] | None = None  # gravité, message
-    muted: bool = False  # ligne d'attente, en gris clair comme « Aucun clic »
+    """Ligne « Coffres » : pastille, état, total à droite ; dépliée, légende et bandeau."""
+
+    dot: str  # couleur de la pastille
+    state: str  # sous « Coffres », une ligne
+    value: str = ""  # total à droite, vide tant qu'il n'y en a pas
+    note: str = ""  # légende dépliée
+    notice: tuple[str, str] | None = None  # gravité, message (déplié)
 
 
 def chests_view(state: ChestsState) -> ChestsView:
-    """Contenu de la section « Coffres ouverts »."""
+    """Ce que montre la ligne « Coffres », indépendante de la relance (pause comprise)."""
     if state.unavailable:
-        return ChestsView(notice=("caution", READER_DOWN))
+        return ChestsView(C.caution, READER_DOWN_SHORT, notice=("caution", READER_DOWN))
     summary = state.summary
     if summary is None:
-        return ChestsView(line=READING_REPLAYS, muted=True)
+        return ChestsView(C.neutral, READING_REPLAYS)
     if not summary.replays:
-        return ChestsView(notice=("info", REPLAYS_OFF))
-    notice = ("caution", READ_FAILED) if summary.failed else None
+        return ChestsView(C.caution, REPLAYS_OFF_SHORT, notice=("caution", REPLAYS_OFF))
+    dot, notice = C.success, None
+    if summary.failed:
+        dot, notice = C.caution, ("caution", READ_FAILED)
     if summary.since is None or summary.last is None:
-        note = RECORDING if summary.recording else ""
-        return ChestsView(line=NO_MATCH_YET, note=note, notice=notice, muted=True)
-    line = f"{number(summary.total)} depuis le {day_month(summary.since)}"
+        shown = RECORDING if summary.recording else NO_MATCH_YET
+        return ChestsView(dot, shown, value="0", notice=notice)
     if summary.recording:
-        note = RECORDING
+        shown = RECORDING
+    elif summary.failed:
+        shown = READ_FAILED_SHORT
     else:
-        last = plural(summary.last, "coffre")
-        note = f"{plural(summary.matches, 'partie')}, {last} à la dernière"
-    return ChestsView(line=line, note=note, notice=notice)
-
-
-def counters_from(cfg: Config) -> list[tuple[str, tuple[str, ...]]]:
-    """Un compteur par bouton, les deux réponses au dialogue réunies sous « Toujours là »."""
-    rows: list[tuple[str, tuple[str, ...]]] = [
-        (s.label, (s.slug,)) for s in cfg.states if s.enabled and not s.still_here
-    ]
-    dialog = tuple(s.slug for s in cfg.states if s.enabled and s.still_here)
-    if dialog:
-        rows.append(("Toujours là", dialog))
-    return rows
+        shown = f"{plural(summary.last, 'coffre')} à la dernière partie"
+    note = f"{plural(summary.matches, 'partie')} depuis le {day_month(summary.since)}"
+    return ChestsView(dot, shown, value=number(summary.total), note=note, notice=notice)
 
 
 # --- géométrie ----------------------------------------------------------------
@@ -391,14 +373,6 @@ class Controller(Protocol):
 
     def set_still_here(self, answer: str) -> None: ...
 
-    def totals(self, status: Status) -> tuple[int, int, float]:
-        """Toutes les sessions, celle-ci comprise : (sessions, clics, secondes)."""
-        ...
-
-    def counters(self) -> list[tuple[str, tuple[str, ...]]]:
-        """Compteurs de la session : (libellé, slugs additionnés)."""
-        ...
-
     def chests(self) -> ChestsState | None:
         """Coffres ouverts comptés ; None si le compteur est désactivé."""
         ...
@@ -425,13 +399,6 @@ class EngineController:
         self._fatal = ""
         self._quit = threading.Event()
         self._stall_reported = False
-        path = cfg.resolved_stats_file()
-        past = history.summarize(history.read_sessions(path)) if path is not None else {}
-        self._past = (
-            int(past.get("sessions", 0)),
-            int(past.get("actions", 0)),
-            float(past.get("uptime_h", 0.0)) * 3600,
-        )
         self._chests = (
             ChestTracker(cfg.chests, cfg.resolved_chests_file(), Reader(cfg.resolved_reader()))
             if cfg.chests.enabled
@@ -493,15 +460,6 @@ class EngineController:
 
     def set_still_here(self, answer: str) -> None:
         self.engine.set_still_here(answer)
-
-    def totals(self, status: Status) -> tuple[int, int, float]:
-        sessions, actions, seconds = self._past
-        if status.dry_run:  # une simulation n'entre pas dans l'historique
-            return sessions, actions, seconds
-        return sessions + 1, actions + status.actions, seconds + time.time() - status.started_at
-
-    def counters(self) -> list[tuple[str, tuple[str, ...]]]:
-        return counters_from(self._cfg)
 
     def chests(self) -> ChestsState | None:
         if self._chests is None:
@@ -1091,7 +1049,7 @@ class Panel:
         self.width = self.px(WIDTH)
         self._started = False  # bot déjà lancé une fois : « Reprendre » plutôt que « Lancer »
         self._drag: tuple[int, int] | None = None
-        self._last: tuple[object, ...] = ()
+        self._shape: tuple[object, ...] = ()  # disposition affichée (hauteur des blocs)
         start = tuple(cfg.position) if cfg.position else home
         self._pos = (int(start[0]), int(start[1]))
 
@@ -1105,7 +1063,6 @@ class Panel:
         self._fonts()
         self._build()
         self._render(controller.status())
-        self._apply_layout()
         root.update_idletasks()
         self.hwnd = self.win32.top_level(root.winfo_id())
         self.win32.style(self.hwnd, exclude_from_capture=cfg.exclude_from_capture)
@@ -1155,30 +1112,20 @@ class Panel:
         root, px = self.root, self.px
         inner = self.width - 2 * px(PAD)
 
-        self.header = tk.Frame(root, bg=C.bg, height=px(HEADER_H), width=self.width)
-        self.header.pack_propagate(False)
-        self.dot = self._label(self.header, self.f_dot, C.neutral, text=ICON_DOT)
-        self.dot.pack(side="left", padx=(px(PAD), px(GAP)))
-        self.title = self._label(self.header, self.f_strong, C.text)
-        self.title.pack(side="left")
-        self.detail = self._label(self.header, self.f_caption, C.text_2)
-        self.detail.pack(side="left", padx=(px(GAP), 0))
+        # relance : la ligne d'en-tête, puis, dépliée, ses réglages et ses derniers clics
+        self.bot = tk.Frame(root, bg=C.bg)
+        self.header, self.dot, self.title, self.state = self._feature_row(self.bot, "Relance auto")
+        primary_w = max(self.f_body.measure(t) for t in PRIMARY_LABELS) + 2 * px(PAD)
+        self.primary = self._button(self.header, "Lancer", self._primary, "accent", primary_w)
+        self.primary.grid(row=1, column=2, rowspan=2)
         self.chevron = self._button(
             self.header, ICON_UP, self._toggle_collapsed, "subtle", px(CONTROL_H)
         )
-        self.chevron.pack(side="right", padx=(px(GAP), px(PAD)))
-        primary_w = max(self.f_body.measure(t) for t in PRIMARY_LABELS) + 2 * px(PAD)
-        self.primary = self._button(self.header, "Lancer", self._primary, "accent", primary_w)
-        self.primary.pack(side="right")
-        for widget in (self.header, self.dot, self.title, self.detail):
-            widget.bind("<ButtonPress-1>", self._drag_start)
-            widget.bind("<B1-Motion>", self._drag_move)
-            widget.bind("<ButtonRelease-1>", self._drag_end)
+        self.chevron.grid(row=1, column=3, rowspan=2, padx=(px(GAP), px(PAD)))
 
-        self.divider = tk.Frame(root, bg=C.stroke, height=1)
-        self.body = tk.Frame(root, bg=C.bg, padx=px(PAD))
+        self.bot_body = tk.Frame(self.bot, bg=C.bg, padx=px(PAD))
         self.notice = Notice(
-            self.body,
+            self.bot_body,
             width=inner,
             pad=px(PAD),
             gap=px(GAP),
@@ -1186,18 +1133,7 @@ class Panel:
             font=self.f_body,
             icon_font=self.f_icon,
         )
-        self.update_notice = Notice(
-            self.body,
-            width=inner,
-            pad=px(PAD),
-            gap=px(GAP),
-            radius=px(RADIUS),
-            font=self.f_body,
-            icon_font=self.f_icon,
-            make_button=self._notice_button,
-        )
-
-        self.s_dialog = self._section("Vous êtes toujours là\u00a0?")
+        self.s_dialog = self._section(self.bot_body, "Vous êtes toujours là\u00a0?")
         self.segmented = Segmented(
             self.s_dialog,
             ANSWERS,
@@ -1214,13 +1150,7 @@ class Panel:
             self.s_dialog, self.f_caption, C.text_3, anchor="w", justify="left", wraplength=inner
         )
 
-        self.s_session = self._section("Session")
-        self.grid = tk.Frame(self.s_session, bg=C.bg)
-        self.grid.pack(fill="x")
-        self.grid.columnconfigure((0, 1), weight=1, uniform="col")
-        self.cells: list[tuple[tk.Label, tk.Label]] = []
-
-        self.s_recent = self._section("Derniers clics")
+        self.s_recent = self._section(self.bot_body, "Derniers clics")
         self.recent: list[tuple[tk.Frame, tk.Label, tk.Label]] = []
         # chiffres proportionnels : la colonne de l'heure a la largeur de la plus large
         clock_w = max(self.f_body.measure(f"{d}{d}:{d}{d}") for d in range(10))
@@ -1239,23 +1169,34 @@ class Panel:
         empty = self._label(self.empty, self.f_body, C.text_3, text=NO_CLICK)
         empty.pack(side="left")
 
-        self.s_totals = self._section("Toutes les sessions")
-        self.totals = tk.Frame(self.s_totals, bg=C.bg, height=px(ROW_H))
-        self.totals.pack_propagate(False)
-        self.totals_text = self._label(self.totals, self.f_body, C.text_2, anchor="w")
-        self.totals_text.pack(side="left")
-        self.totals.pack(fill="x")
-
-        self.s_chests = self._section("Coffres ouverts")
-        self.chests = tk.Frame(self.s_chests, bg=C.bg, height=px(ROW_H))
-        self.chests.pack_propagate(False)
-        self.chests_text = self._label(self.chests, self.f_body, C.text_2, anchor="w")
-        self.chests_text.pack(side="left")
+        # coffres : comptés à chaque fin de partie, que la relance tourne ou non
+        self.chests_rule = tk.Frame(root, bg=C.stroke, height=1)
+        self.chests_block = tk.Frame(root, bg=C.bg)
+        self.chests_row, self.chests_dot, _, self.chests_state = self._feature_row(
+            self.chests_block, "Coffres"
+        )
+        # le total sur la ligne du nom, au bord droit du contenu, comme une ligne de données
+        self.chests_value = self._label(self.chests_row, self.f_strong, C.text, anchor="e")
+        self.chests_value.grid(row=1, column=2, sticky="e", padx=(px(GAP), px(PAD)))
+        self._draggable(self.chests_value)
+        self.chests_body = tk.Frame(self.chests_block, bg=C.bg, padx=px(PAD))
         self.chests_note = self._label(
-            self.s_chests, self.f_caption, C.text_3, anchor="w", justify="left", wraplength=inner
+            self.chests_body, self.f_body, C.text_2, anchor="w", justify="left", wraplength=inner
         )
         self.chests_notice = Notice(
-            self.s_chests,
+            self.chests_body,
+            width=inner,
+            pad=px(PAD),
+            gap=px(GAP),
+            radius=px(RADIUS),
+            font=self.f_body,
+            icon_font=self.f_icon,
+        )
+
+        self.footer_rule = tk.Frame(root, bg=C.stroke, height=1)
+        self.update_box = tk.Frame(root, bg=C.bg, padx=px(PAD))
+        self.update_notice = Notice(
+            self.update_box,
             width=inner,
             pad=px(PAD),
             gap=px(GAP),
@@ -1264,8 +1205,7 @@ class Panel:
             icon_font=self.f_icon,
             make_button=self._notice_button,
         )
-
-        self.footer_rule = tk.Frame(root, bg=C.stroke, height=1)
+        self.update_notice.pack(fill="x")
         self.footer = tk.Frame(root, bg=C.bg, padx=px(PAD), pady=px(PAD))
         quit_w = self.f_body.measure("Quitter") + 2 * px(PAD)
         self.quit_button = self._button(self.footer, "Quitter", self._quit, "standard", quit_w)
@@ -1275,6 +1215,31 @@ class Panel:
         hint = f"En jeu, {toggle}{NBSP}: pause, {stop}{NBSP}: quitter"
         self.hint = self._label(self.footer, self.f_caption, C.text_3, text=hint)
         self.hint.pack(side="right")
+
+    def _feature_row(
+        self, parent: tk.Misc, name: str
+    ) -> tuple[tk.Frame, tk.Label, tk.Label, tk.Label]:
+        """Ligne d'une fonction : pastille et nom, son état dessous ; colonnes 2 et 3 libres."""
+        px = self.px
+        row = tk.Frame(parent, bg=C.bg, height=px(FEATURE_H), width=self.width)
+        row.grid_propagate(False)
+        row.rowconfigure((0, 3), weight=1)  # le bloc de texte reste centré en hauteur
+        row.columnconfigure(1, weight=1)
+        dot = self._label(row, self.f_dot, C.neutral, text=ICON_DOT)
+        dot.grid(row=1, column=0, padx=(px(PAD), px(GAP)))
+        title = self._label(row, self.f_strong, C.text, text=name, anchor="w")
+        title.grid(row=1, column=1, sticky="w")
+        state = self._label(row, self.f_caption, C.text_2, anchor="w")
+        state.grid(row=2, column=1, sticky="w")
+        row.pack(fill="x")
+        self._draggable(row, dot, title, state)
+        return row, dot, title, state
+
+    def _draggable(self, *widgets: tk.Misc) -> None:
+        for widget in widgets:
+            widget.bind("<ButtonPress-1>", self._drag_start)
+            widget.bind("<B1-Motion>", self._drag_move)
+            widget.bind("<ButtonRelease-1>", self._drag_end)
 
     def _notice_button(
         self, parent: tk.Misc, text: str, command: Callable[[], None], bg: str
@@ -1292,68 +1257,71 @@ class Panel:
             bg=bg,
         )
 
-    def _section(self, title: str) -> tk.Frame:
-        frame = tk.Frame(self.body, bg=C.bg)
-        heading = self._label(frame, self.f_strong, C.text, text=title, anchor="w")
+    def _section(self, parent: tk.Misc, title: str) -> tk.Frame:
+        """Réglage ou liste d'une fonction : intertitre discret, sous le nom de la fonction."""
+        frame = tk.Frame(parent, bg=C.bg)
+        heading = self._label(frame, self.f_body, C.text_2, text=title, anchor="w")
         heading.pack(fill="x", pady=(0, self.px(GAP)))
         return frame
 
     # --- disposition --------------------------------------------------------
-    def _apply_layout(self) -> None:
-        for widget in (self.header, self.divider, self.body, self.footer_rule, self.footer):
-            widget.pack_forget()
-        self.header.pack(fill="x")
-        if not self.collapsed:
-            self.divider.pack(fill="x")
-            self.body.pack(fill="x")
-            self.footer_rule.pack(fill="x", pady=(self.px(PAD), 0))
-            self.footer.pack(fill="x")
-        self.chevron.set_text(ICON_DOWN if self.collapsed else ICON_UP)
-        self._place(*self._pos)
-
-    def _layout_body(
+    def _layout(
         self,
         notice: tuple[str, str] | None,
         update: tuple[str, str, str] | None,
         chests: ChestsView | None,
     ) -> None:
-        sections = (self.s_dialog, self.s_session, self.s_recent, self.s_totals)
-        for widget in (self.notice, self.update_notice, *sections, self.s_chests):
+        """Replié : une ligne par fonction. Déplié : chacune avec son détail, puis Quitter."""
+        px = self.px
+        for widget in (
+            self.bot,
+            self.bot_body,
+            self.notice,
+            self.s_dialog,
+            self.s_recent,
+            self.chests_rule,
+            self.chests_block,
+            self.chests_body,
+            self.chests_note,
+            self.chests_notice,
+            self.footer_rule,
+            self.update_box,
+            self.footer,
+        ):
             widget.pack_forget()
+        self.chevron.set_text(ICON_DOWN if self.collapsed else ICON_UP)
+        self.bot.pack(fill="x")
+        if not self.collapsed:
+            if notice is not None:
+                self.notice.show(*notice)
+                self.notice.pack(fill="x", pady=(0, px(SECTION_GAP)))
+            self.s_dialog.pack(fill="x")
+            self.s_recent.pack(fill="x", pady=(px(SECTION_GAP), 0))
+            self.bot_body.pack(fill="x", pady=(px(DETAIL_GAP), px(PAD)))
         if chests is not None:  # absente si le compteur est désactivé
-            self._layout_chests(chests)
-            sections = (*sections, self.s_chests)
-        top = self.px(PAD)
-        if notice is not None:
-            self.notice.show(*notice)
-            self.notice.pack(fill="x", pady=(top, 0))
-            top = self.px(SECTION_GAP)
-        if update is not None:
-            self._show_update(update)
-            self.update_notice.pack(fill="x", pady=(top, 0))
-            top = self.px(SECTION_GAP)
-        for section in sections:
-            section.pack(fill="x", pady=(top, 0))
-            top = self.px(SECTION_GAP)
-
-    def _layout_chests(self, view: ChestsView) -> None:
-        for widget in (self.chests, self.chests_note, self.chests_notice):
-            widget.pack_forget()
-        if view.line:
-            self.chests.pack(fill="x")
-        if view.note:
-            self._text(self.chests_note, view.note)
-            self.chests_note.pack(fill="x")
-        if view.notice is not None:
-            self.chests_notice.show(*view.notice)
-            top = self.px(GAP) if view.line or view.note else 0
-            self.chests_notice.pack(fill="x", pady=(top, 0))
+            self.chests_rule.pack(fill="x")
+            self.chests_block.pack(fill="x")
+            if not self.collapsed and (chests.note or chests.notice):
+                if chests.note:
+                    self.chests_note.pack(fill="x")
+                if chests.notice is not None:
+                    self.chests_notice.show(*chests.notice)
+                    top = px(GAP) if chests.note else 0
+                    self.chests_notice.pack(fill="x", pady=(top, 0))
+                self.chests_body.pack(fill="x", pady=(px(DETAIL_GAP), px(PAD)))
+        if not self.collapsed:
+            self.footer_rule.pack(fill="x")
+            if update is not None:
+                self._show_update(update)
+                self.update_box.pack(fill="x", pady=(px(PAD), 0))
+            self.footer.pack(fill="x")
+        self._place(*self._pos)
 
     def _place(self, x: int, y: int) -> None:
         """Pose la fenêtre à (x, y), hauteur au contenu, entière sur son écran."""
         self.root.update_idletasks()
         height = self.root.winfo_reqheight()
-        area = self.win32.work_area(x + self.width // 2, y + self.px(HEADER_H) // 2)
+        area = self.win32.work_area(x + self.width // 2, y + self.px(FEATURE_H) // 2)
         self._pos = clamp(x, y, self.width, height, area)
         self.root.geometry(f"{self.width}x{height}+{self._pos[0]}+{self._pos[1]}")
 
@@ -1384,9 +1352,8 @@ class Panel:
 
     def _toggle_collapsed(self) -> None:
         self.collapsed = not self.collapsed
-        self._last = ()
+        self._shape = ()
         self._render(self.controller.status())
-        self._apply_layout()
         self._save({"panel": {"collapsed": self.collapsed}})
 
     def _choose(self, answer: str) -> None:
@@ -1477,70 +1444,53 @@ class Panel:
 
     def _render(self, status: Status) -> None:
         look = LOOKS[status.phase]
-        if self.dot.cget("fg") != look.dot:
-            self.dot.configure(fg=look.dot)
+        self._color(self.dot, look.dot)
         if status.phase not in ("paused", "stopped"):
             self._started = True
-        self._text(self.title, look.title)
-        self._text(self.detail, header_detail(status))
+        self._text(self.state, look.title)
         self.primary.set_text(primary_label(status.phase, self._started))
+        chests_state = self.controller.chests()
+        chests = chests_view(chests_state) if chests_state is not None else None
+        if chests is not None:
+            self._color(self.chests_dot, chests.dot)
+            self._text(self.chests_state, chests.state)
+            self._text(self.chests_value, chests.value)
+            self._text(self.chests_note, chests.note)
+
         if self.collapsed:
+            shape: tuple[object, ...] = (True, chests is not None)
+            if shape != self._shape:
+                self._shape = shape
+                self._layout(None, None, chests)
             return
 
         notice = explain(status)
         update = update_notice(self.updates.state()) if self.updates is not None else None
-        # gravité et bouton du bandeau de mise à jour : sa hauteur (le texte suit le téléchargement)
-        update_key = None if update is None else (update[0], update[2])
-        counts = [
-            (name, number(sum(status.per_state.get(slug, 0) for slug in slugs)))
-            for name, slugs in self.controller.counters()
-        ]
-        counts.append(("Durée", duration(time.time() - status.started_at)))
-        sessions, clicks, seconds = self.controller.totals(status)
-        totals = f"{plural(sessions, 'session')}, {plural(clicks, 'clic')}, {duration(seconds)}"
         recent = tuple(
             (time.strftime("%H:%M", time.localtime(c.ts)), c.label)
             for c in status.recent[:RECENT_ROWS]
         )
         disabled = frozenset(a for a, _ in ANSWERS) - set(self.controller.still_here_answers())
         hint = missing_hint(disabled)
-        chests_state = self.controller.chests()
-        chests = chests_view(chests_state) if chests_state is not None else None
-        # hauteur de la section : ligne présente ou non, légende et bandeau
-        chests_key = None if chests is None else (bool(chests.line), chests.note, chests.notice)
-        state = (
+        self.segmented.set(status.still_here, disabled)
+        self._fill_recent(recent)
+        # ce qui change la hauteur ; le texte du bandeau de mise à jour suit le téléchargement
+        shape = (
+            False,
             notice,
-            update_key,
+            None if update is None else (update[0], update[2]),
             len(recent),
             hint,
-            chests_key,
-            tuple(counts),
-            recent,
-            totals,
-            chests.line if chests is not None else "",
-            status.still_here,
-            update,
+            None if chests is None else (bool(chests.note), chests.notice),
         )
-        if state == self._last:
-            return
-        reflow = not self._last or self._last[:5] != state[:5]  # hauteur changée
-        self._last = state
-
-        self.segmented.set(status.still_here, disabled)
-        self._fill_grid(counts)
-        self._fill_recent(recent)
-        self._text(self.totals_text, totals)
-        self._text(self.chests_text, chests.line if chests is not None else "")
-        muted = chests is not None and chests.muted
-        self.chests_text.configure(fg=C.text_3 if muted else C.text_2)
-        if reflow:
+        if shape != self._shape:
+            self._shape = shape
             self._text(self.dialog_hint, hint)
             if hint:
                 self.dialog_hint.pack(fill="x", pady=(self.px(GAP), 0))
             else:
                 self.dialog_hint.pack_forget()
-            self._layout_body(notice, update, chests)
-            self._place(*self._pos)
+            self._layout(notice, update, chests)
         elif update is not None and self._show_update(update):  # message passé à la ligne
             self._place(*self._pos)
 
@@ -1571,28 +1521,10 @@ class Panel:
         if label.cget("text") != text:
             label.configure(text=text)
 
-    def _fill_grid(self, items: list[tuple[str, str]]) -> None:
-        px = self.px
-        while len(self.cells) < len(items):
-            index = len(self.cells)
-            cell = tk.Frame(self.grid, bg=C.bg, height=px(ROW_H))
-            cell.pack_propagate(False)
-            name = self._label(cell, self.f_body, C.text_2, anchor="w")
-            name.pack(side="left")
-            value = self._label(cell, self.f_body, C.text, anchor="e")
-            value.pack(side="right")
-            column = index % 2
-            half = px(PAD)  # gouttière de 24 px : une valeur ne colle pas au libellé voisin
-            cell.grid(
-                row=index // 2,
-                column=column,
-                sticky="ew",
-                padx=(0, half) if column == 0 else (half, 0),
-            )
-            self.cells.append((name, value))
-        for (name, value), (text, shown) in zip(self.cells, items, strict=False):
-            self._text(name, text)
-            self._text(value, shown)
+    @staticmethod
+    def _color(label: tk.Label, color: str) -> None:
+        if label.cget("fg") != color:
+            label.configure(fg=color)
 
     def _fill_recent(self, rows: tuple[tuple[str, str], ...]) -> None:
         for index, (row, when, what) in enumerate(self.recent):

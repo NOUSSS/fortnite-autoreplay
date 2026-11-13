@@ -54,15 +54,18 @@ Double-cliquer sur **`Lancer le panneau.cmd`** (ou
 `python -m fortnite_auto_replay panel`, avec `--dry-run` pour une simulation).
 Une petite fenêtre s'ouvre au-dessus du jeu et lance le moteur :
 
-- en-tête : pastille et état (Actif, En pause, En attente du jeu, Bloqué,
-  Clic annulé…), clics de la session, bouton Lancer / Pause / Reprendre, et le
-  chevron qui replie le panneau sur cette seule ligne ;
-- déplié : la réponse au dialogue « Vous êtes toujours là ? », les compteurs de
-  la session, les cinq derniers clics, les totaux de toutes les sessions et
-  Quitter. Un bandeau explique tout état anormal (bouton qui ne part pas, jeu
-  réduit, clic en attente, capture en échec, clic annulé).
+- une ligne par fonction, chacune avec sa pastille et son état. **Relance
+  auto** : Actif, En pause, En attente du jeu, Bloqué, Clic annulé…, avec le
+  bouton Lancer / Pause / Reprendre et le chevron qui replie le panneau sur ces
+  deux lignes. **Coffres** : le total compté et la dernière partie. Le compteur
+  de coffres ne dépend pas de la relance : il compte aussi en pause ;
+- déplié : sous la relance, la réponse au dialogue « Vous êtes toujours là ? »
+  et les cinq derniers clics ; sous les coffres, le nombre de parties
+  comptées ; puis Quitter. Un bandeau explique tout état anormal (bouton qui
+  ne part pas, jeu réduit, clic en attente, capture en échec, clic annulé,
+  rediffusions désactivées).
 
-Le panneau se déplace en le tirant par son en-tête ; sa position, son état
+Le panneau se déplace en le tirant par l'une de ses lignes ; sa position, son état
 replié et la réponse au dialogue sont gardés dans `config/local.json`. Il ne
 garde jamais le focus : s'il le prend (un instant à son ouverture), il le rend
 aussitôt à la fenêtre d'avant, ou au jeu si elle n'existe plus. Pendant une
@@ -90,9 +93,10 @@ Valeurs : `ready`, `not_yet`, `ignore`.
 
 ### Coffres ouverts
 
-Le panneau compte les coffres que vous ouvrez, partie après partie, par
-exemple « 137 depuis le 6 novembre », avec dessous le nombre de parties et
-les coffres de la dernière. Les coffres cassés (support détruit, explosion)
+Le panneau compte les coffres que vous ouvrez, partie après partie, que la
+relance tourne ou soit en pause : sa ligne « Coffres » donne le total et les
+coffres de la dernière partie ; dépliée, le nombre de parties comptées et leur
+date de début. Les coffres cassés (support détruit, explosion)
 comptent aussi ; les caisses de munitions, de nourriture et les canons à
 butin non.
 

@@ -42,10 +42,13 @@ attente du jeu ou bloqué.
 - États du bot : Actif, En pause, En attente du jeu (fenêtre absente ou
   réduite), Clic en attente (souris utilisée), Bloqué (clic sans effet ou
   erreurs répétées), arrêté.
-- Informations demandées : compteurs de la session (clics par bouton, durée),
-  journal des derniers clics, totaux de toutes les sessions (historique
-  `logs/sessions.jsonl`), coffres ouverts comptés dans les replays du jeu
-  (rediffusions activées dans Fortnite), cassés compris.
+- Informations demandées : deux fonctions, chacune sur sa ligne avec sa
+  pastille et son état. La relance, avec le journal des cinq derniers clics
+  pour garder une trace. Les coffres ouverts, cassés compris, comptés dans
+  les replays du jeu (rediffusions activées dans Fortnite) : ils se comptent
+  aussi quand la relance est en pause, le panneau ne doit pas laisser croire
+  le contraire. Ni compteurs de session ni totaux de toutes les sessions :
+  décoratifs (l'historique reste écrit dans `logs/sessions.jsonl`).
 - Réponse au dialogue « Vous êtes toujours là ? » : Prêt (par défaut), Pas
   encore, ou ne rien faire ; modifiable dans le panneau.
 - Python 3.10+, tkinter de la bibliothèque standard, Windows uniquement.
@@ -58,8 +61,8 @@ capitales espacées, pas de ton marketing, pas de point d'exclamation.
 
 ## Evidence on Hand
 
-Aucune donnée inventée : les compteurs et totaux viennent du moteur et de
-l'historique réels.
+Aucune donnée inventée : les derniers clics viennent du moteur, les coffres
+des replays réels.
 
 ## Product Principles
 

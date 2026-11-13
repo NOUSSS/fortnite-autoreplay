@@ -2,28 +2,21 @@
 
 from __future__ import annotations
 
-import json
 import time
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from fortnite_auto_replay import config as config_mod
 from fortnite_auto_replay.engine import Status
 from fortnite_auto_replay.panel import (
     NBSP,
-    EngineController,
     Panel,
     clamp,
-    counters_from,
     default_home,
-    duration,
     explain,
     focus_step,
     give_back_targets,
-    header_detail,
     missing_hint,
     mouse_through,
     number,
@@ -48,21 +41,6 @@ def status(phase: str = "active", **changes: Any) -> Status:
     return Status(**fields)
 
 
-@pytest.mark.parametrize(
-    ("seconds", "text"),
-    [
-        (-5, "0 min"),
-        (59, "0 min"),
-        (61, "1 min"),
-        (3600 + 5 * 60, "1 h 05"),
-        (9 * 3600 + 59 * 60, "9 h 59"),
-        (31 * 3600 + 10, "31 h"),
-    ],
-)
-def test_duration(seconds: float, text: str) -> None:
-    assert duration(seconds) == text.replace(" ", NBSP)
-
-
 def test_number_and_plural() -> None:
     assert number(1284) == f"1{NBSP}284"
     assert plural(0, "clic") == f"0{NBSP}clic"
@@ -85,13 +63,6 @@ def test_number_and_plural() -> None:
 )
 def test_primary_label_says_what_it_does(phase: str, started: bool, label: str) -> None:
     assert primary_label(phase, started) == label  # type: ignore[arg-type]
-
-
-def test_header_detail_only_with_clicks() -> None:
-    assert header_detail(status("active")) == ""
-    assert header_detail(status("active", actions=3)) == f"3{NBSP}clics"
-    assert header_detail(status("paused", actions=1)) == f"1{NBSP}clic"
-    assert header_detail(status("no_game", actions=3)) == ""
 
 
 def test_explain_is_quiet_when_all_is_well() -> None:
@@ -150,12 +121,6 @@ def test_missing_hint_names_the_answers_without_template() -> None:
     assert f"«{NBSP}Prêt{NBSP}» et «{NBSP}Pas encore{NBSP}»" in both
 
 
-def test_counters_group_the_dialog_answers() -> None:
-    rows = counters_from(config_mod.load_config(use_local=False))
-    assert rows[-1] == ("Toujours là", ("still_here_ready", "still_here_not_yet"))
-    assert all(len(slugs) == 1 for _, slugs in rows[:-1])
-
-
 LEFT_SCREEN = (-1920, 114, 0, 1194)
 
 
@@ -193,22 +158,6 @@ def test_focus_step_gives_the_foreground_back() -> None:
 
 class _Engine:
     """EngineController ne touche pas au moteur à sa construction."""
-
-
-def test_totals_add_the_current_session_except_in_simulation(tmp_path: Path) -> None:
-    stats = tmp_path / "sessions.jsonl"
-    lines = [{"actions": 10, "uptime_s": 3600}, {"actions": 5, "uptime_s": 1800}]
-    stats.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
-    cfg = config_mod.load_config(use_local=False, overrides={"engine": {"stats_file": str(stats)}})
-    controller = EngineController(_Engine(), cfg, None)  # type: ignore[arg-type]
-    started = time.time() - 600
-
-    sessions, clicks, seconds = controller.totals(status(actions=3, started_at=started))
-    assert (sessions, clicks) == (3, 18)
-    assert seconds == pytest.approx(3600 + 1800 + 600, abs=5)
-
-    dry = controller.totals(status(actions=3, started_at=started, dry_run=True))
-    assert dry == (2, 15, pytest.approx(5400))
 
 
 # --- premier plan rendu, souris traversante, panneau unique ----------------------
