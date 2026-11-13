@@ -56,8 +56,10 @@ from PySide6.QtGui import (
     QCloseEvent,
     QFont,
     QFontMetricsF,
+    QImage,
     QMouseEvent,
     QPainter,
+    QPainterPath,
     QPaintEvent,
     QPixmap,
 )
@@ -69,6 +71,7 @@ from .capture import CaptureError, Frame, ScreenCapture
 from .chests import ChestTracker, Reader, Summary
 from .config import Config, PanelConfig, update_local_config
 from .engine import Engine, Phase, Status
+from .panel_glass import GlassFeed, GlassWorker
 from .panel_style import (
     ACTION_MIN_W,
     BUTTON_PAD,
@@ -82,6 +85,8 @@ from .panel_style import (
     FEATURE_H,
     FOOTER_TOP,
     GAP,
+    GLASS_MS,
+    GLASS_TINT,
     HEADING_GAP,
     ICON,
     JOURNAL_GAP,
@@ -111,6 +116,7 @@ from .panel_style import (
     draw_sliders,
     fill_round,
     make_fonts,
+    qcolor,
     tabular,
 )
 from .panel_widgets import (
@@ -150,23 +156,22 @@ PREVIEW_S = 0.7  # aperçu de l'opacité après le dernier mouvement du curseur
 
 @dataclass(frozen=True, slots=True)
 class Look:
-    title: str  # sous « Relance auto »
     short: str  # dans la pastille du repos
     dot: str
 
 
 LOOKS: dict[Phase, Look] = {
-    "active": Look("Actif", "Relance active", C.success),
-    "paused": Look("Désactivé", "Relance désactivée", C.neutral),
-    "stuck": Look("Bloqué", "Relance bloquée", C.critical),
-    "errors": Look("Bloqué", "Relance bloquée", C.critical),
-    "no_game": Look("En attente du jeu", "En attente du jeu", C.caution),
-    "hidden": Look("En attente du jeu", "En attente du jeu", C.caution),
-    "background": Look("En attente du jeu", "En attente du jeu", C.caution),
-    "capture": Look("Capture impossible", "Capture impossible", C.critical),
-    "covered": Look("Clic annulé", "Clic annulé", C.caution),
-    "mouse": Look("Clic en attente", "Clic en attente", C.caution),
-    "stopped": Look("Arrêté", "Relance arrêtée", C.neutral),
+    "active": Look("Relance active", C.success),
+    "paused": Look("Relance désactivée", C.neutral),
+    "stuck": Look("Relance bloquée", C.critical),
+    "errors": Look("Relance bloquée", C.critical),
+    "no_game": Look("En attente du jeu", C.caution),
+    "hidden": Look("En attente du jeu", C.caution),
+    "background": Look("En attente du jeu", C.caution),
+    "capture": Look("Capture impossible", C.critical),
+    "covered": Look("Clic annulé", C.caution),
+    "mouse": Look("Clic en attente", C.caution),
+    "stopped": Look("Relance arrêtée", C.neutral),
 }
 
 ANSWERS = (("ready", "Prêt"), ("not_yet", "Pas encore"), ("ignore", "Ignorer"))
@@ -290,14 +295,9 @@ REPLAYS_OFF = (
 READER_DOWN = "Le lecteur de replays ne démarre pas, vos coffres ne sont pas comptés."
 READ_FAILED = "Le replay de votre dernière partie n\u2019a pas pu être lu."
 READING_REPLAYS = "Lecture des replays…"
-NO_MATCH_YET = "Aucune partie comptée pour l\u2019instant"
 RECORDING = f"Partie en cours{NBSP}: comptée à la sortie"  # replay fermé en quittant
 COUNTING = "Comptage de votre dernière partie…"
-INTERRUPTED_SHORT = f"Partie interrompue{NBSP}: jeu fermé"
 INTERRUPTED = f"Le jeu s\u2019est fermé pendant la partie{NBSP}: ses coffres ne sont pas comptés."
-REPLAYS_OFF_SHORT = "Rediffusions désactivées dans Fortnite"
-READER_DOWN_SHORT = "Lecteur de replays indisponible"
-READ_FAILED_SHORT = "Dernier replay illisible"
 
 SHORT_MONTHS = (
     "janv.",
@@ -334,7 +334,7 @@ class ChestsView:
     """Ligne « Coffres » : pastille, état, total ; dessous, bandeau et dernières parties."""
 
     dot: str  # couleur de la pastille
-    state: str  # sous « Coffres », une ligne
+    state: str = ""  # sous « Coffres » : ce qui est en cours, rien sinon
     value: str = ""  # total à droite, vide tant qu'il n'y en a pas
     notice: tuple[str, str] | None = None  # gravité, message
     games: tuple[tuple[str, str], ...] = ()  # dernières parties : (début, coffres)
@@ -343,35 +343,29 @@ class ChestsView:
 def chests_view(state: ChestsState, *, game_open: bool = True) -> ChestsView:
     """Ce que montre la ligne « Coffres », indépendante de la relance (désactivée comprise).
 
-    L'état dit d'abord ce qui est en train de se passer : partie quittée en
-    cours de comptage, partie en cours, partie interrompue (jeu fermé : son
-    replay reste « en direct »), replay illisible ; sinon la dernière partie.
+    Une ligne d'état seulement pour ce qui est en cours : premier tour des
+    replays, partie en cours, comptage de la partie qui vient de finir. Ce qui
+    empêche de compter (partie interrompue, jeu fermé : son replay reste « en
+    direct » ; replay illisible ; lecteur absent) a son bandeau.
     """
     if state.unavailable:
-        return ChestsView(C.caution, READER_DOWN_SHORT, notice=("caution", READER_DOWN))
+        return ChestsView(C.caution, notice=("caution", READER_DOWN))
     summary = state.summary
     if summary is None:
         return ChestsView(C.neutral, READING_REPLAYS)
     if not summary.replays:
-        return ChestsView(C.caution, REPLAYS_OFF_SHORT, notice=("caution", REPLAYS_OFF))
+        return ChestsView(C.caution, notice=("caution", REPLAYS_OFF))
     interrupted = summary.interrupted or (summary.recording and not game_open)
     dot, notice = C.success, None
     if interrupted:
         dot, notice = C.caution, ("caution", INTERRUPTED)
     elif summary.failed:
         dot, notice = C.caution, ("caution", READ_FAILED)
+    shown = ""
     if summary.counting:
         shown = COUNTING
     elif summary.recording and game_open:
         shown = RECORDING
-    elif interrupted:
-        shown = INTERRUPTED_SHORT
-    elif summary.failed:
-        shown = READ_FAILED_SHORT
-    elif summary.last is not None:
-        shown = f"{plural(summary.last, 'coffre')} à la dernière partie"
-    else:
-        shown = NO_MATCH_YET
     if summary.since is None or summary.last is None:
         return ChestsView(dot, shown, value="0", notice=notice)
     games = tuple((match_time(when), plural(count, "coffre")) for when, count in summary.recent)
@@ -821,17 +815,34 @@ class Win32:
 
 # --- fenêtres -------------------------------------------------------------------------
 class Surface(QWidget):
-    """Fond du panneau : encre, coins arrondis, filet d'un pixel à l'intérieur."""
+    """Fond du panneau : encre, coins arrondis, filet d'un pixel à l'intérieur.
+
+    En verre, le jeu flouté (``backdrop``, petite image agrandie en douceur)
+    passe sous une encre translucide ; sans lui, l'encre est pleine.
+    """
 
     def __init__(self, radius: float, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._radius = radius
+        self.backdrop: QImage | None = None
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
     def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        fill_round(painter, QRectF(self.rect()), self._radius, C.bg, C.stroke)
+        rect = QRectF(self.rect())
+        if self.backdrop is None:
+            fill_round(painter, rect, self._radius, C.bg, C.stroke)
+            return
+        radius = min(self._radius, rect.height() / 2, rect.width() / 2)
+        path = QPainterPath()
+        path.addRoundedRect(rect, radius, radius)
+        painter.save()
+        painter.setClipPath(path)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.drawImage(rect, self.backdrop)
+        painter.restore()
+        fill_round(painter, rect, self._radius, qcolor(C.bg, GLASS_TINT), C.stroke)
 
 
 class Ghost(QWidget):
@@ -976,6 +987,8 @@ class Panel:
         self.scale = self.win32.scale()
         self.rest = cfg.rest  # "pill" ou "panel" : ce qui reste affiché sans la souris
         self.rest_opacity = snap_opacity(cfg.rest_opacity)
+        self._glass = GlassFeed()  # vue qui s'ouvre : tout de suite, dans ce thread
+        self._glass_worker: GlassWorker | None = None  # rafraîchissement continu
         self.follow_cursor = follow_cursor
         self.animate = show  # pas d'animation pour les captures : l'état final directement
         self.expanded = False  # curseur sur le panneau (ou sorti depuis moins de LEAVE_S)
@@ -1015,6 +1028,9 @@ class Panel:
             self._every(_POLL_MS, self._poll)
             if follow_cursor:
                 self._every(_HOVER_MS, self._follow)
+            self._glass_worker = GlassWorker()
+            self._glass_worker.ready.connect(self._glass_ready)
+            self._every(GLASS_MS, self._glass_tick)
 
     def px(self, value: float) -> int:
         return round(value * self.scale)
@@ -1109,9 +1125,8 @@ class Panel:
         self.action = self._button(
             DEACTIVATE, self._toggle, "standard", strong=True, min_width=action_w
         )
-        self.header, self.dot, self.title, self.state = self._feature_row(
-            "Relance auto", self.action
-        )
+        # l'état de la relance se lit à la pastille et au bouton : pas de ligne dessous
+        self.header, self.dot, self.title, _ = self._feature_row("Relance auto", side=self.action)
         column.addWidget(self.header)
 
         self.bot_body = QWidget()
@@ -1134,7 +1149,7 @@ class Panel:
         # le total sur la ligne du nom, aligné sur le bord droit du bouton de la relance
         self.chests_value = self._text(fonts.title, C.text, align=Qt.AlignmentFlag.AlignRight)
         self.chests_row, self.chests_dot, _, self.chests_state = self._feature_row(
-            "Coffres", self.chests_value, top=True
+            "Coffres", value=self.chests_value
         )
         block.addWidget(self.chests_row)
         self.chests_body = QWidget()
@@ -1182,9 +1197,10 @@ class Panel:
         return holder
 
     def _feature_row(
-        self, name: str, side: QWidget, *, top: bool = False
+        self, name: str, *, side: QWidget | None = None, value: QWidget | None = None
     ) -> tuple[QWidget, Dot, Text, Text]:
-        """Ligne d'une fonction : pastille et nom, son état dessous ; à droite, ``side``."""
+        """Ligne d'une fonction : pastille et nom, ``value`` au bout de la ligne du nom ;
+        dessous, une ligne d'état cachée tant qu'elle est vide ; à droite, ``side``."""
         px, fonts = self.px, self.fonts
         row = QWidget()
         row.setFixedHeight(px(FEATURE_H))
@@ -1202,24 +1218,21 @@ class Panel:
         title_line.addWidget(dot, 0, Qt.AlignmentFlag.AlignVCenter)
         title_line.addWidget(title, 0, Qt.AlignmentFlag.AlignVCenter)
         title_line.addStretch(1)
+        if value is not None:
+            title_line.addWidget(value, 0, Qt.AlignmentFlag.AlignVCenter)
         lines.addLayout(title_line)
         state = self._text(fonts.caption, C.text_2, elide=True)
+        state.hide()
         state_line = QHBoxLayout()
         state_line.setContentsMargins(px(DOT) + px(GAP), 0, 0, 0)
         state_line.addWidget(state)
         lines.addLayout(state_line)
         layout.addWidget(names, 1, Qt.AlignmentFlag.AlignVCenter)
-        if top:  # total : en haut, sur la ligne du nom (8 px du bord)
-            column = QVBoxLayout()
-            column.setContentsMargins(0, px(GAP), 0, 0)
-            column.addWidget(side)
-            column.addStretch(1)
-            layout.addLayout(column)
-        else:
+        if side is not None:
             layout.addWidget(side, 0, Qt.AlignmentFlag.AlignVCenter)
         self._draggable(row, names, dot, title, state)
-        if top:
-            self._draggable(side)
+        if value is not None:
+            self._draggable(value)
         return row, dot, title, state
 
     def _section(self, title: str) -> tuple[QWidget, QVBoxLayout]:
@@ -1366,6 +1379,7 @@ class Panel:
             self.chests_body.setVisible(chests.notice is not None or bool(chests.games))
         if update is not None:
             self._show_update(update)
+        self.update_notice.setVisible(update is not None)  # caché à sa création
         self.update_box.setVisible(update is not None)
         self.pill_chests.setVisible(chests is not None and bool(chests.value))
         self._fit()
@@ -1443,6 +1457,7 @@ class Panel:
             self._fit()
             return
         self._size(self.card, self.px(WIDTH))
+        self._glass_now(self.card)
         snapshot = self.card.grab()
         self.card.hide()
         if card:
@@ -1487,6 +1502,7 @@ class Panel:
             return
         self.popover.hide()
         self.settings.show()
+        self._glass_now(self.popover)
         snapshot = self.popover.grab()
         width, height = self.popover.width(), self.popover.height()
         origin = QPointF(0 if on_right else width, height)  # depuis le coin contre la carte
@@ -1514,6 +1530,39 @@ class Panel:
         self.rest_choice.set(rest)
         self._render(self.controller.status())
         self._save({"panel": {"rest": rest}})
+
+    def _glass_now(self, surface: Surface) -> None:
+        """Le jeu flouté sous cette surface, tout de suite (vue qui s'ouvre)."""
+        if self._glass_worker is None:  # captures de relecture : rien n'est à l'écran
+            return
+        at = surface.mapToGlobal(QPoint(0, 0))
+        surface.backdrop = self._glass.grab(at.x(), at.y(), surface.width(), surface.height())
+        surface.update()
+
+    def _surfaces(self) -> dict[str, Surface]:
+        return {"pill": self.pill, "card": self.card, "popover": self.popover}
+
+    def _glass_tick(self) -> None:
+        """Verre : le jeu flouté sous chaque surface visible, une quinzaine de fois par seconde."""
+        if self._glass_worker is None:
+            return
+        zones = []
+        for key, surface in self._surfaces().items():
+            if surface.isVisible():
+                at = surface.mapToGlobal(QPoint(0, 0))
+                zones.append((key, (at.x(), at.y(), surface.width(), surface.height())))
+        if zones:
+            self._glass_worker.request(zones)
+
+    def _glass_ready(self, results: list[tuple[str, QImage | None]]) -> None:
+        surfaces = self._surfaces()
+        for key, image in results:
+            surfaces[key].backdrop = image
+            surfaces[key].update()
+
+    def close_glass(self) -> None:
+        if self._glass_worker is not None:
+            self._glass_worker.stop()
 
     def _choose_opacity(self, value: int, final: bool) -> None:
         """Aperçu sur la carte pendant le réglage ; enregistré au relâchement."""
@@ -1663,7 +1712,6 @@ class Panel:
         look = LOOKS[status.phase]
         self.dot.set_color(look.dot)
         self.pill_dot.set_color(look.dot)
-        self.state.set_text(look.title)
         self.pill_text.set_text(look.short)
         label = action_label(status.phase)
         self.action.set_text(label)
@@ -1677,6 +1725,7 @@ class Panel:
             chests = chests_view(chests_state, game_open=game_open)
             self.chests_dot.set_color(chests.dot)
             self.chests_state.set_text(chests.state)
+            self.chests_state.setVisible(bool(chests.state))
             self.chests_value.set_text(chests.value)
             self.pill_total.set_text(chests.value)
             self._fill_journal(self.games, chests.games[:RECENT_ROWS])
@@ -1854,6 +1903,7 @@ def _open_panel(
                 # il lirait encore ses modules dans _internal pendant qu'on le remplace
                 log.warning("mise à jour reportée : le moteur tourne encore")
                 updates.install_requested = False
+        panel.close_glass()
         panel.settings.hide()
         panel.window.hide()
         sys.excepthook = previous_hook

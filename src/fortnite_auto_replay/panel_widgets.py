@@ -679,6 +679,7 @@ class Notice(QWidget):
         if label != self._label:
             self._label = label
             if self.button is not None:
+                self.button.hide()  # détruit seulement au prochain tour de boucle
                 self.button.deleteLater()
                 self.button = None
             if label and self._make_button is not None:

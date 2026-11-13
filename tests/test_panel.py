@@ -72,7 +72,7 @@ def test_action_label_says_what_it_does(phase: str, label: str) -> None:
 
 
 def test_every_phase_has_a_short_state_for_the_pill() -> None:
-    assert LOOKS["paused"].title == "Désactivé"
+    assert LOOKS["paused"].short == "Relance désactivée"
     assert all(look.short and len(look.short) <= 20 for look in LOOKS.values())
 
 

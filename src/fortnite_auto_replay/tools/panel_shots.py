@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from PIL import Image
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtWidgets import QWidget
@@ -26,6 +27,7 @@ from .. import config as config_mod
 from ..chests import Summary
 from ..engine import ClickRecord, Phase, Status
 from ..panel import POPOVER_GAP, ChestsState, Panel, qt_app
+from ..panel_glass import blur, to_qimage
 from ..updater import UpdateState
 
 NBSP = "\u00a0"
@@ -247,7 +249,6 @@ def _geometry(panel: Panel, offset: QPoint) -> dict[str, object]:
         "header": panel.header,
         "dot": panel.dot,
         "title": panel.title,
-        "state": panel.state,
         "action": panel.action,
         "bot_body": panel.bot_body,
         "notice": panel.notice,
@@ -292,6 +293,39 @@ def _geometry(panel: Panel, offset: QPoint) -> dict[str, object]:
     return {"view": [view.width(), view.height()], "boxes": boxes}
 
 
+BACKDROP_AT = (24, 120)  # coin du panneau sur l'image de fond (son coin par défaut)
+
+
+def _glass(panel: Panel, backdrop: Image.Image) -> None:
+    """Le verre de chaque surface, flouté depuis l'image de fond, à sa place dans la capture."""
+    view = panel.card if panel.card_shown else panel.pill
+    surfaces = [(view, 0, 0)]
+    if panel.settings_open:
+        pop = panel.popover
+        height = max(view.height(), pop.height())
+        surfaces = [
+            (view, 0, height - view.height()),
+            (pop, view.width() + panel.px(POPOVER_GAP), height - pop.height()),
+        ]
+    x0, y0 = BACKDROP_AT
+    for surface, dx, dy in surfaces:
+        x, y = x0 + dx, y0 + dy
+        zone = backdrop.crop((x, y, x + surface.width(), y + surface.height()))
+        surface.backdrop = to_qimage(blur(zone))
+
+
+def _on_backdrop(image: QPixmap, backdrop: Image.Image, margin: int) -> Image.Image:
+    """La capture posée sur l'image de fond, avec une marge autour."""
+    x0, y0 = BACKDROP_AT
+    box = (x0 - margin, y0 - margin, x0 + image.width() + margin, y0 + image.height() + margin)
+    canvas = backdrop.crop(box).convert("RGBA")
+    shot = image.toImage().convertToFormat(image.toImage().Format.Format_RGBA8888)
+    raw = bytes(shot.constBits())
+    layer = Image.frombuffer("RGBA", (shot.width(), shot.height()), raw, "raw", "RGBA", 0, 1)
+    canvas.alpha_composite(layer, (margin, margin))
+    return canvas
+
+
 def _shot(panel: Panel) -> tuple[QPixmap, QPoint]:
     """La vue affichée ; avec les réglages, posés à droite de la carte, bas alignés."""
     view = panel.card if panel.card_shown else panel.pill
@@ -316,6 +350,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=Path(".impeccable/review"))
     parser.add_argument("--only", help="ne capturer que les scènes dont le nom contient ce texte")
+    parser.add_argument(
+        "--backdrop",
+        type=Path,
+        help="image de jeu en 1920 sur 1080 : le panneau y est posé, son verre flouté depuis elle",
+    )
     args = parser.parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
     try:
@@ -327,6 +366,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _shoot_all(args: argparse.Namespace) -> int:
     qt_app()
+    backdrop = Image.open(args.backdrop).convert("RGB") if args.backdrop else None
     cfg = config_mod.load_config(None, use_local=False)
     controller = DemoController(cfg)
     updates = DemoUpdates(controller)
@@ -359,8 +399,13 @@ def _shoot_all(args: argparse.Namespace) -> int:
             buttons[scene.hover].set_state(hover=True)
         elif scene.hover:
             panel.segmented.set_hover(scene.hover)
+        if backdrop is not None:
+            _glass(panel, backdrop)
         image, offset = _shot(panel)
-        image.save(str(args.out / f"{scene.name}.png"))
+        if backdrop is not None:
+            _on_backdrop(image, backdrop, panel.px(24)).save(args.out / f"{scene.name}.png")
+        else:
+            image.save(str(args.out / f"{scene.name}.png"))
         (args.out / f"{scene.name}.json").write_text(
             json.dumps(_geometry(panel, offset), indent=2), encoding="utf-8"
         )

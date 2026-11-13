@@ -36,16 +36,11 @@ from fortnite_auto_replay.config import ChestsConfig
 from fortnite_auto_replay.panel import (
     COUNTING,
     INTERRUPTED,
-    INTERRUPTED_SHORT,
-    NO_MATCH_YET,
     READ_FAILED,
-    READ_FAILED_SHORT,
     READER_DOWN,
-    READER_DOWN_SHORT,
     READING_REPLAYS,
     RECORDING,
     REPLAYS_OFF,
-    REPLAYS_OFF_SHORT,
     C,
     ChestsState,
     chests_view,
@@ -377,22 +372,20 @@ def test_chests_view() -> None:
     reading = chests_view(ChestsState(None))
     assert (reading.state, reading.value, reading.dot) == (READING_REPLAYS, "", C.neutral)
     down = chests_view(ChestsState(None, "absent"))
-    assert (down.state, down.notice) == (READER_DOWN_SHORT, ("caution", READER_DOWN))
+    assert (down.state, down.notice) == ("", ("caution", READER_DOWN))
     off = summary(total=0, matches=0, last=None, since=None, replays=False)
     shown = chests_view(ChestsState(off))
-    assert (shown.state, shown.value, shown.dot) == (REPLAYS_OFF_SHORT, "", C.caution)
+    assert (shown.state, shown.value, shown.dot) == ("", "", C.caution)
     assert shown.notice == ("caution", REPLAYS_OFF)
     none = chests_view(ChestsState(summary(total=0, matches=0, last=None, since=None)))
-    assert (none.state, none.value, none.dot) == (NO_MATCH_YET, "0", C.success)
+    assert (none.state, none.value, none.dot) == ("", "0", C.success)
     counted = chests_view(ChestsState(summary()))
     assert (counted.value, counted.dot, counted.notice) == ("137", C.success, None)
-    assert counted.state == f"9{nbsp}coffres à la dernière partie"
+    assert counted.state == ""  # rien en cours : pas de ligne sous « Coffres »
     assert chests_view(ChestsState(summary(recording=True))).state == RECORDING
     failed = chests_view(ChestsState(summary(failed=True)))
-    assert (failed.state, failed.dot) == (READ_FAILED_SHORT, C.caution)
+    assert (failed.state, failed.dot) == ("", C.caution)
     assert failed.notice == ("caution", READ_FAILED)
-    one = chests_view(ChestsState(summary(total=1, matches=1, last=1)))
-    assert one.state == f"1{nbsp}coffre à la dernière partie"
     games = summary(recent=((datetime(2026, 11, 13, 18, 12).astimezone(), 1),))
     assert chests_view(ChestsState(games)).games == ((f"13{nbsp}nov. 18:12", f"1{nbsp}coffre"),)
     assert counted.games == ()
@@ -401,10 +394,10 @@ def test_chests_view() -> None:
     both = chests_view(ChestsState(summary(counting=True, recording=True)))
     assert both.state == COUNTING
     closed = chests_view(ChestsState(summary(recording=True)), game_open=False)
-    assert (closed.state, closed.dot) == (INTERRUPTED_SHORT, C.caution)
+    assert (closed.state, closed.dot) == ("", C.caution)
     assert closed.notice == ("caution", INTERRUPTED)
     cut = chests_view(ChestsState(summary(interrupted=True)))
-    assert (cut.state, cut.notice) == (INTERRUPTED_SHORT, ("caution", INTERRUPTED))
+    assert (cut.state, cut.notice) == ("", ("caution", INTERRUPTED))
     big = chests_view(ChestsState(summary(total=1234)))
     assert big.value == f"1{nbsp}234"
 

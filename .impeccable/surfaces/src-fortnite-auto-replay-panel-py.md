@@ -25,7 +25,8 @@ THESIS: Discret. Au repos, une pastille qui dit l'état de la relance et le tota
 des coffres ; au survol, la carte entière ; les réglages à côté. Refuse le
 tableau de bord et le chiffre décoratif.
 
-OWN-WORLD: Encre #11201E, couche #1A2C29, filet #2A403C, texte #F4F0E6,
+OWN-WORLD: Verre : le jeu flouté sous l'encre #0B1715 à 70 %, contrôles et
+filets en voiles blancs (7 à 12 %) ; texte #F4F0E6,
 secondaire #B8C3BB, or #F0B93A sur encre #1E1604 ; succès #7BD88F, attention
 #FF9A4D, critique #FF7B7B, neutre #7D8D86. Figtree et Bricolage Grotesque
 (livrées, OFL), icônes dessinées. Carte et popover à 12 px, bandeaux à 8 px,
@@ -37,8 +38,9 @@ Réglages pour l'opacité, le mode au repos ou la réponse au dialogue.
 
 FIRST VIEWPORT: Une pastille de 32 px : pastille d'état, « Relance active », filet,
 boîte et total. Au survol, la carte de 320 px : Relance auto (nom en Bricolage,
-état dessous, bouton Activer en or ou Désactiver), bandeau éventuel, trois
-derniers clics ; filet ; Coffres (total à droite), bandeau, trois dernières
+bouton Activer en or ou Désactiver), bandeau éventuel, trois
+derniers clics ; filet ; Coffres (total à droite, ce qui
+est en cours dessous), bandeau, trois dernières
 parties ; filet ; Réglages et Quitter. Réglages dans un popover à côté : au
 repos, opacité au repos, réponse au dialogue, raccourcis.
 

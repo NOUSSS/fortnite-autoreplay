@@ -19,6 +19,8 @@
   ```
 
   Chaque scène donne un PNG (fond transparent) et la position des blocs (JSON).
+  `--backdrop <image de jeu en 1920 sur 1080>` pose chaque vue sur l'image, son
+  verre flouté depuis elle : c'est là qu'on juge la lisibilité.
 - Mise à jour réelle : `python packaging/update_e2e.py <ancien.zip> <nouveau.zip>`
   (panneau sur un bureau Windows caché, qui ne voit pas le jeu). Le nouveau zip
   se construit en montant la version le temps d'un `python packaging/build.py`.

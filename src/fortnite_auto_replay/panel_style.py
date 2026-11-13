@@ -19,13 +19,17 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class Palette:
-    """Encre vert sombre, or pour ce qui agit ou est choisi, quatre couleurs d'état."""
+    """Verre d'encre vert sombre, or pour ce qui agit ou est choisi, quatre couleurs d'état.
 
-    bg: str = "#11201E"
-    layer: str = "#1A2C29"
-    layer_hover: str = "#22372F"
-    layer_pressed: str = "#162622"
-    stroke: str = "#2A403C"
+    Le fond est le jeu flouté sous l'encre (``GLASS_TINT``) ; les couches des
+    contrôles sont des voiles blancs (``#AARRGGBB``).
+    """
+
+    bg: str = "#0B1715"
+    layer: str = "#12FFFFFF"
+    layer_hover: str = "#1CFFFFFF"
+    layer_pressed: str = "#0DFFFFFF"
+    stroke: str = "#1FFFFFFF"
     text: str = "#F4F0E6"
     text_2: str = "#B8C3BB"
     text_3: str = "#7D8D86"
@@ -42,6 +46,14 @@ class Palette:
 
 
 C = Palette()
+
+# verre : le jeu flouté derrière le panneau, sous l'encre ; sans capture, l'encre pleine
+GLASS_TINT = 0.70  # opacité de l'encre posée sur le flou
+GLASS_MS = 66  # flou rafraîchi environ 15 fois par seconde
+GLASS_SHRINK = 8  # le flou se calcule sur une image 8 fois plus petite
+GLASS_BLUR = 3.0  # rayon du flou sur la petite image (environ 24 px à l'écran)
+GLASS_SATURATION = 1.6
+
 
 # grille de 4 px
 WIDTH = 320  # carte
@@ -94,8 +106,9 @@ _FALLBACK = "Segoe UI"
 
 
 def qcolor(color: str, alpha: float = 1.0) -> QColor:
+    """Couleur (``#RRGGBB`` ou ``#AARRGGBB``), sa transparence multipliée par ``alpha``."""
     result = QColor(color)
-    result.setAlphaF(max(0.0, min(1.0, alpha)))
+    result.setAlphaF(result.alphaF() * max(0.0, min(1.0, alpha)))
     return result
 
 

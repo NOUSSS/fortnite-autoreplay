@@ -46,6 +46,7 @@ premier plan et des messages de fenêtre au second plan.
 | `panel.py` | Panneau de contrôle Qt (PySide6), moteur dans un thread, bandeau de mise à jour |
 | `panel_style.py` | Jetons du panneau : couleurs, grille, polices, icônes |
 | `panel_widgets.py` | Widgets dessinés du panneau : texte, boutons, sélecteur, curseur, bandeau |
+| `panel_glass.py` | Verre du panneau : l'écran sous lui (il est exclu des captures), capturé dans un thread puis flouté |
 | `chests.py` | Coffres comptés dans les replays du jeu par `replay-reader.exe` (`logs/chests.json`) |
 | `updater.py` | Manifeste signé, téléchargement vérifié, installation tout ou rien, relance |
 | `cli.py` | `run`, `check`, `config`, `window`, `stats`, `panel`, `update` + surcharges en ligne de commande |

@@ -56,11 +56,11 @@ Une petite fenêtre s'ouvre au-dessus du jeu et lance le moteur :
 - au repos, une **pastille** : l'état de la relance (Relance active,
   désactivée, bloquée, En attente du jeu…) et le total des coffres ;
 - le curseur posé dessus ouvre la **carte** entière, qui se referme quand il
-  s'en va. Une ligne par fonction, chacune avec sa pastille et son état.
-  **Relance auto** : Actif, Désactivé, En attente du jeu, Bloqué, Clic
-  annulé…, avec le bouton Activer ou Désactiver, et les trois derniers clics.
-  **Coffres** : le total compté, la dernière partie et les trois dernières
-  (début et coffres). Le compteur de coffres ne dépend pas de la relance : il
+  s'en va. Son fond laisse deviner le jeu, flouté. Une ligne par fonction,
+  chacune avec sa pastille d'état. **Relance auto** : le bouton Activer ou
+  Désactiver et les trois derniers clics. **Coffres** : le total compté, ce
+  qui est en cours (lecture des replays, partie en cours, comptage) et les
+  trois dernières parties (début et coffres). Le compteur de coffres ne dépend pas de la relance : il
   compte aussi relance désactivée. Un bandeau explique tout état anormal
   (bouton qui ne part pas, jeu réduit, clic en attente, capture en échec, clic
   annulé, rediffusions désactivées). En bas, Réglages et Quitter ;
@@ -99,9 +99,8 @@ Valeurs : `ready`, `not_yet`, `ignore`.
 ### Coffres ouverts
 
 Le panneau compte les coffres que vous ouvrez, partie après partie, que la
-relance soit active ou non : la pastille donne le total ; la carte, le total,
-les coffres de la dernière partie et les trois dernières parties (début et
-coffres). Les coffres cassés (support détruit, explosion)
+relance soit active ou non : la pastille donne le total ; la carte, le total
+et les trois dernières parties (début et coffres). Les coffres cassés (support détruit, explosion)
 comptent aussi ; les caisses de munitions, de nourriture et les canons à
 butin non.
 

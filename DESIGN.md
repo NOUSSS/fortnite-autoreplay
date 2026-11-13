@@ -2,11 +2,11 @@
 name: Fortnite AutoReplay
 description: Panneau de contrôle de bureau du bot de rejeu, une pastille discrète qui s'ouvre au survol.
 colors:
-  bg: "#11201E"
-  layer: "#1A2C29"
-  layer-hover: "#22372F"
-  layer-pressed: "#162622"
-  stroke: "#2A403C"
+  bg: "#0B1715"
+  layer: "#FFFFFF12"
+  layer-hover: "#FFFFFF1C"
+  layer-pressed: "#FFFFFF0D"
+  stroke: "#FFFFFF1F"
   text: "#F4F0E6"
   text-secondary: "#B8C3BB"
   text-tertiary: "#7D8D86"
@@ -127,7 +127,8 @@ Le rendu est mesuré à 96 ppp et chaque valeur de grille est multipliée par l'
 
 **Key Characteristics:**
 - Au repos, une pastille ; au survol, la carte entière ; les réglages dans un popover à côté.
-- Une ligne de 52 px par fonction, chacune avec son état : désactiver la relance ne touche pas aux coffres.
+- Un fond en verre : le jeu flouté derrière le panneau, sous l'encre à 70 %.
+- Une ligne de 52 px par fonction, chacune avec sa pastille d'état : désactiver la relance ne touche pas aux coffres.
 - Boutons et sélecteurs en pilule de 32 px ; le bouton de la relance dit ce qu'il fera (Activer ou Désactiver).
 - Deux tailles de texte (14 et 12 px) ; la hiérarchie passe par la police, la graisse et la couleur.
 - Aucune ombre sous les fenêtres ni les boutons : le survol et l'appui changent la surface.
@@ -147,12 +148,13 @@ Une encre vert sombre presque monochrome, un seul accent or, et quatre couleurs 
 - **Brun sombre** (caution-bg) et **brique sombre** (critical-bg) : fonds des bandeaux d'attention et critique, seuls fonds colorés du panneau.
 
 ### Neutral
-- **Encre** (bg) : fond de la pastille, de la carte et du popover ; fond au repos des boutons discrets.
+- **Encre** (bg) : posée à 70 % sur le jeu flouté, fond de la pastille, de la carte et du popover (pleine si la capture échoue) ; fond au repos des boutons discrets.
+- Couches et filet sont des voiles blancs (7 %, 11 %, 5 %, filet 12 %) : ils éclaircissent le verre au lieu de le boucher.
 - **Couche** (layer) : surface des boutons standard, piste des sélecteurs, fond du bandeau d'information, survol des boutons discrets.
 - **Couche survolée** (layer-hover) et **couche appuyée** (layer-pressed) : états des contrôles neutres ; la piste vide du curseur prend la couche survolée.
 - **Filet** (stroke) : contour des contrôles neutres, séparateurs d'un pixel entre les blocs de la carte (inscrits à 12 px des bords), séparateur de la pastille, bordure intérieure des fenêtres.
 - **Texte** (text) : noms des fonctions, total des coffres, libellés du journal, des boutons et des segments survolés, poignée du curseur.
-- **Texte secondaire** (text-secondary) : état sous le nom d'une fonction, libellés des segments au repos, bouton Réglages au repos, icône de boîte.
+- **Texte secondaire** (text-secondary) : ce qui est en cours sous « Coffres », libellés des segments au repos, bouton Réglages au repos, icône de boîte.
 - **Texte tertiaire** (text-tertiary) : intertitres, heures du journal, état vide, aide sous le dialogue, rappel des raccourcis.
 
 ### Named Rules
@@ -173,7 +175,7 @@ Une encre vert sombre presque monochrome, un seul accent or, et quatre couleurs 
 - **Strong** (Figtree SemiBold, 14 px) : bouton Activer / Désactiver, segment choisi, total dans la pastille.
 - **Body** (Figtree, 14 px) : état dans la pastille, journal, libellés des boutons et segments, message des bandeaux.
 - **Heading** (Figtree SemiBold, 12 px, texte tertiaire) : intertitres (Derniers clics, Dernières parties, Au repos, Opacité au repos et sa valeur, Vous êtes toujours là ?).
-- **Caption** (Figtree, 12 px) : état sous le nom d'une fonction, aide sous le dialogue, rappel des raccourcis.
+- **Caption** (Figtree, 12 px) : ce qui est en cours sous « Coffres », aide sous le dialogue, rappel des raccourcis.
 - **Icon** (14 px) : boîte de la pastille, curseurs du bouton Réglages ; badge rond « i » ou « ! » des bandeaux (Badge). La pastille d'état est un disque plein de 8 px ; la poignée du curseur, un disque de 18 px.
 
 ### Named Rules
@@ -189,7 +191,7 @@ Une encre vert sombre presque monochrome, un seul accent or, et quatre couleurs 
 ### Carte (survol)
 320 px de large, hauteur au contenu, gardée entière dans la zone de travail de l'écran.
 
-- **Ligne d'une fonction** : 52 px. Pastille à 12 px du bord, 8 px, puis le nom (19 px) et l'état dessous (16 px), bloc centré en hauteur. À droite, à 12 px du bord : le bouton Activer / Désactiver (32 px, largeur fixe de son plus long libellé, 104 px au moins) pour la relance, le total en Title sur la ligne du nom pour les coffres.
+- **Ligne d'une fonction** : 52 px. Pastille à 12 px du bord, 8 px, puis le nom (19 px), centré en hauteur. Sous « Coffres » seulement, ce qui est en cours (16 px, bloc recentré) : première lecture des replays, partie en cours, comptage de la partie finie. À droite, à 12 px du bord : le bouton Activer / Désactiver (32 px, largeur fixe de son plus long libellé, 104 px au moins) pour la relance, le total en Title sur la ligne du nom pour les coffres.
 - **Détail d'une fonction** : marges de 12 px, à 4 px sous la ligne. Bandeau, puis 12 px, puis la liste ; 12 px avant le filet suivant. Pas de détail des coffres tant qu'il n'y a ni bandeau ni partie comptée.
 - **Journal** : intertitre, 4 px, rangées de 24 px. Colonne du moment à la largeur de sa forme la plus large dans la police (« 00:00 », « 00 sept. 00:00 »), puis 12 px avant le libellé ; trois lignes au plus (derniers clics, dernières parties).
 - **Pied** : filet ; le bandeau de mise à jour s'il y en a un, 12 px plus bas ; puis, 8 px sous lui et 12 px au-dessus du bas, Réglages à gauche et Quitter à droite.
@@ -205,7 +207,10 @@ Une encre vert sombre presque monochrome, un seul accent or, et quatre couleurs 
 
 ## Elevation & Depth
 
-Le système est plat. Aucune ombre sous les fenêtres : ses pixels prendraient les clics au-dessus du jeu. La profondeur vient de l'écart entre l'encre et la couche des contrôles, et de filets d'un pixel ; seule la poignée du curseur porte une ombre douce. Les surfaces (pastille, carte, popover) sont dessinées avec leurs coins et un filet intérieur, sur une fenêtre transparente. L'opacité au repos est celle de toute la fenêtre, atteinte en 150 ms.
+Le système est plat. Aucune ombre sous les fenêtres : ses pixels prendraient les clics au-dessus du jeu. La profondeur vient du verre, des voiles des contrôles et de filets d'un pixel ; seule la poignée du curseur porte une ombre douce. Les surfaces (pastille, carte, popover) sont dessinées avec leurs coins et un filet intérieur, sur une fenêtre transparente. L'opacité au repos est celle de toute la fenêtre, atteinte en 150 ms.
+
+### Verre
+Chaque surface montre le jeu qui est derrière elle : réduit au huitième, flouté (rayon 3), saturé à 160 %, sous l'encre à 70 %, rafraîchi toutes les 66 ms. Windows ne floute pas une fenêtre qui ne prend jamais le focus : le panneau capture l'écran sous lui, dont il est exclu, dans un thread à part. Si la capture échoue, l'encre est pleine.
 
 ### Mouvement
 Repris du prototype. La carte s'ouvre en 180 ms (rapide puis doux), de 96 à 100 % de sa taille et de transparente à opaque, depuis le coin de la pastille ; elle se referme en 120 ms. Le popover apparaît de même depuis son coin contre la carte. Les couleurs des contrôles changent en 150 ms ; un bouton enfoncé passe à 97 % en 100 ms, la poignée du curseur à 90 %.
@@ -240,7 +245,7 @@ Pleine largeur utile, coins de 8 px, 12 px de marge sur les côtés et 10 px en 
 - **Présence** : seulement s'il a quelque chose à dire. Celui du moteur sous la ligne de la relance ; celui des coffres sous la leur ; celui de la mise à jour au-dessus du pied.
 
 ### Ligne de fonction (signature)
-Pastille de 8 px à la couleur de l'état de la fonction, nom en Title, état dessous en Caption secondaire, et à droite ce que la fonction offre. Chaque ligne, la pastille du repos comprise, sert de poignée pour déplacer la fenêtre.
+Pastille de 8 px à la couleur de l'état de la fonction, nom en Title, et à droite ce que la fonction offre. L'état se lit à la pastille, au bouton et aux bandeaux ; seule la ligne des coffres dit dessous, en Caption secondaire, ce qui est en cours. Chaque ligne, la pastille du repos comprise, sert de poignée pour déplacer la fenêtre.
 
 ### Journal
 Rangées de 24 px sans fond ni séparateur : moment en texte tertiaire, libellé en texte. Derniers clics sous la relance (« Aucun clic pour l'instant. » sinon), dernières parties (début et coffres) sous les coffres, absentes tant qu'aucune partie n'est comptée.
@@ -253,11 +258,12 @@ Rangées de 24 px sans fond ni séparateur : moment en texte tertiaire, libellé
 - **Do** réserver les couleurs d'état à la pastille et à l'icône des bandeaux.
 - **Do** donner aux contrôles voisins la même hauteur (32 px) et au bouton de la relance une largeur fixe.
 - **Do** dire un état bloqué ou une erreur dans un bandeau, avec la marche à suivre.
-- **Do** donner son propre état à chaque fonction : un état global laisserait croire que désactiver la relance arrête aussi les coffres.
+- **Do** donner sa propre pastille à chaque fonction : un état global laisserait croire que désactiver la relance arrête aussi les coffres.
 
 ### Don't:
 - **Don't** ajouter d'ombre, de halo ou de lueur à un bouton, au repos comme au survol.
-- **Don't** poser des cartes ou des fonds de section dans la carte : le détail reste sur l'encre.
+- **Don't** poser des cartes ou des fonds de section dans la carte : le détail reste sur le verre.
+- **Don't** écrire sous le nom d'une fonction ce que la pastille, le bouton ou un bandeau disent déjà.
 - **Don't** afficher de chiffre décoratif (clics de la session, nombre de parties depuis une date, totaux de toutes les sessions) : seuls les derniers clics et les coffres servent.
 - **Don't** ajouter une troisième taille de texte.
 - **Don't** écrire un libellé en capitales ou en lettres espacées, ni ajouter « → » à un bouton.
