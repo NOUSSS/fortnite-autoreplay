@@ -37,7 +37,8 @@ dialogue ou lire les clics, replie.
 FIRST VIEWPORT: Deux lignes de 52 px, séparées par un filet. Relance auto :
 pastille 8 px, nom en 14 semi-gras, état en 12 secondaire dessous, bouton
 d'accent Pause/Lancer et chevron de repli à droite. Coffres : même forme, total
-en 14 semi-gras à droite sur la ligne du nom, dernière partie dessous. Déplié :
+en 14 semi-gras sur la ligne du nom avant son propre chevron, dernière partie
+dessous. Chaque ligne se déplie à part :
 sous la relance, bandeau d'alerte si bloqué, segment Prêt / Pas encore /
 Ignorer, derniers clics ; sous les coffres, parties comptées, bandeau et
 dernières parties ; puis

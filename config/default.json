@@ -61,7 +61,8 @@
     "topmost": true,
     "exclude_from_capture": true,
     "position": null,
-    "collapsed": false
+    "collapsed": false,
+    "chests_collapsed": false
   },
   "update": {
     "enabled": true,

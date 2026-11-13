@@ -293,6 +293,11 @@ class ChestsView:
     notice: tuple[str, str] | None = None  # gravité, message (déplié)
     games: tuple[tuple[str, str], ...] = ()  # dernières parties : (début, coffres)
 
+    @property
+    def foldable(self) -> bool:
+        """Un détail à déplier : sans lui, la ligne n'a pas de chevron."""
+        return bool(self.note or self.notice or self.games)
+
 
 def chests_view(state: ChestsState) -> ChestsView:
     """Ce que montre la ligne « Coffres », indépendante de la relance (pause comprise)."""
@@ -1071,7 +1076,8 @@ class Panel:
         self._holding = False  # premier plan gardé faute de pouvoir le rendre (déjà signalé)
         self._through = False  # la souris traverse le panneau (partie en cours)
         self.scale = self.win32.scale()
-        self.collapsed = cfg.collapsed
+        self.collapsed = cfg.collapsed  # détail de la relance replié
+        self.chests_collapsed = cfg.chests_collapsed  # détail des coffres replié
         self.width = self.px(WIDTH)
         self._started = False  # bot déjà lancé une fois : « Reprendre » plutôt que « Lancer »
         self._drag: tuple[int, int] | None = None
@@ -1191,10 +1197,16 @@ class Panel:
         self.chests_row, self.chests_dot, _, self.chests_state = self._feature_row(
             self.chests_block, "Coffres"
         )
-        # le total sur la ligne du nom, au bord droit du contenu, comme une ligne de données
+        # le total sur la ligne du nom, aligné sur le bord droit du bouton de la relance
         self.chests_value = self._label(self.chests_row, self.f_strong, C.text, anchor="e")
-        self.chests_value.grid(row=1, column=2, sticky="e", padx=(px(GAP), px(PAD)))
+        self.chests_value.grid(row=1, column=2, sticky="e", padx=(px(GAP), 0))
         self._draggable(self.chests_value)
+        self.chests_chevron = self._button(
+            self.chests_row, ICON_UP, self._toggle_chests, "subtle", px(CONTROL_H)
+        )
+        self.chests_chevron.grid(row=1, column=3, rowspan=2, padx=(px(GAP), px(PAD)))
+        # rien à déplier : chevron caché, sa colonne garde sa place
+        self.chests_row.columnconfigure(3, minsize=px(GAP) + px(CONTROL_H) + px(PAD))
         self.chests_body = tk.Frame(self.chests_block, bg=C.bg, padx=px(PAD))
         self.chests_note = self._label(
             self.chests_body, self.f_body, C.text_2, anchor="w", justify="left", wraplength=inner
@@ -1310,7 +1322,7 @@ class Panel:
         update: tuple[str, str, str] | None,
         chests: ChestsView | None,
     ) -> None:
-        """Replié : une ligne par fonction. Déplié : chacune avec son détail, puis Quitter."""
+        """Chaque fonction se replie sur sa ligne ; Quitter suit dès que l'une est dépliée."""
         px = self.px
         for widget in (
             self.bot,
@@ -1341,25 +1353,42 @@ class Panel:
         if chests is not None:  # absente si le compteur est désactivé
             self.chests_rule.pack(fill="x")
             self.chests_block.pack(fill="x")
-            if not self.collapsed and (chests.note or chests.notice or chests.games):
-                top = 0
-                if chests.note:
-                    self.chests_note.pack(fill="x")
-                    top = px(GAP)
-                if chests.notice is not None:
-                    self.chests_notice.show(*chests.notice)
-                    self.chests_notice.pack(fill="x", pady=(top, 0))
-                if chests.games:
-                    top = px(SECTION_GAP) if chests.note or chests.notice else 0
-                    self.s_games.pack(fill="x", pady=(top, 0))
-                self.chests_body.pack(fill="x", pady=(px(DETAIL_GAP), px(PAD)))
-        if not self.collapsed:
+            self._layout_chests(chests)
+        if self._footer_shown(chests):
             self.footer_rule.pack(fill="x")
             if update is not None:
                 self._show_update(update)
                 self.update_box.pack(fill="x", pady=(px(PAD), 0))
             self.footer.pack(fill="x")
         self._place(*self._pos)
+
+    def _layout_chests(self, chests: ChestsView) -> None:
+        """Chevron seulement s'il y a un détail ; détail : légende, bandeau, dernières parties."""
+        px = self.px
+        foldable = chests.foldable
+        if foldable:
+            self.chests_chevron.set_text(ICON_DOWN if self.chests_collapsed else ICON_UP)
+            self.chests_chevron.grid()
+        else:
+            self.chests_chevron.grid_remove()
+        if self.chests_collapsed or not foldable:
+            return
+        top = 0
+        if chests.note:
+            self.chests_note.pack(fill="x")
+            top = px(GAP)
+        if chests.notice is not None:
+            self.chests_notice.show(*chests.notice)
+            self.chests_notice.pack(fill="x", pady=(top, 0))
+        if chests.games:
+            top = px(SECTION_GAP) if chests.note or chests.notice else 0
+            self.s_games.pack(fill="x", pady=(top, 0))
+        self.chests_body.pack(fill="x", pady=(px(DETAIL_GAP), px(PAD)))
+
+    def _footer_shown(self, chests: ChestsView | None) -> bool:
+        """Pied (mise à jour, Quitter) : dès qu'une fonction est dépliée."""
+        chests_open = chests is not None and chests.foldable and not self.chests_collapsed
+        return not self.collapsed or chests_open
 
     def _place(self, x: int, y: int) -> None:
         """Pose la fenêtre à (x, y), hauteur au contenu, entière sur son écran."""
@@ -1399,6 +1428,12 @@ class Panel:
         self._shape = ()
         self._render(self.controller.status())
         self._save({"panel": {"collapsed": self.collapsed}})
+
+    def _toggle_chests(self) -> None:
+        self.chests_collapsed = not self.chests_collapsed
+        self._shape = ()
+        self._render(self.controller.status())
+        self._save({"panel": {"chests_collapsed": self.chests_collapsed}})
 
     def _choose(self, answer: str) -> None:
         try:
@@ -1502,26 +1537,27 @@ class Panel:
             self._text(self.chests_note, chests.note)
             self._fill_journal(self.games, chests.games)
 
-        if self.collapsed:
-            shape: tuple[object, ...] = (True, chests is not None)
-            if shape != self._shape:
-                self._shape = shape
-                self._layout(None, None, chests)
-            return
-
-        notice = explain(status)
-        update = update_notice(self.updates.state()) if self.updates is not None else None
-        recent = tuple(
-            (time.strftime("%H:%M", time.localtime(c.ts)), c.label)
-            for c in status.recent[:RECENT_ROWS]
-        )
-        disabled = frozenset(a for a, _ in ANSWERS) - set(self.controller.still_here_answers())
-        hint = missing_hint(disabled)
-        self.segmented.set(status.still_here, disabled)
-        self._fill_recent(recent)
+        notice: tuple[str, str] | None = None
+        recent: tuple[tuple[str, str], ...] = ()
+        hint = ""
+        if not self.collapsed:
+            notice = explain(status)
+            recent = tuple(
+                (time.strftime("%H:%M", time.localtime(c.ts)), c.label)
+                for c in status.recent[:RECENT_ROWS]
+            )
+            answers = set(self.controller.still_here_answers())
+            disabled = frozenset(a for a, _ in ANSWERS) - answers
+            hint = missing_hint(disabled)
+            self.segmented.set(status.still_here, disabled)
+            self._fill_recent(recent)
+        update = None
+        if self.updates is not None and self._footer_shown(chests):
+            update = update_notice(self.updates.state())
         # ce qui change la hauteur ; le texte du bandeau de mise à jour suit le téléchargement
         shape = (
-            False,
+            self.collapsed,
+            self.chests_collapsed,
             notice,
             None if update is None else (update[0], update[2]),
             len(recent),

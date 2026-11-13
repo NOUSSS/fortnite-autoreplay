@@ -272,7 +272,8 @@ class PanelConfig:
     # confond jamais avec le jeu, même posé par-dessus
     exclude_from_capture: bool = True
     position: list[int] | None = None  # [x, y] écran ; None = coin libre près du jeu
-    collapsed: bool = False  # réduit à sa ligne d'état
+    collapsed: bool = False  # relance réduite à sa ligne
+    chests_collapsed: bool = False  # coffres réduits à leur ligne
 
     def validate(self) -> None:
         if self.position is not None and len(self.position) != 2:

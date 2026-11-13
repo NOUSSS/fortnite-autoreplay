@@ -344,6 +344,8 @@ def test_chests_view() -> None:
     games = summary(recent=((datetime(2026, 11, 13, 18, 12).astimezone(), 1),))
     assert chests_view(ChestsState(games)).games == ((f"13{nbsp}nov. 18:12", f"1{nbsp}coffre"),)
     assert counted.games == ()
+    assert counted.foldable and down.foldable
+    assert not reading.foldable and not none.foldable
     big = chests_view(ChestsState(summary(total=1234)))
     assert big.value == f"1{nbsp}234"
 

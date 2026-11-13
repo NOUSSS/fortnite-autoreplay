@@ -132,7 +132,7 @@ components:
 
 Un seul écran, une petite fenêtre sans bordure de 320 px posée sur le jeu. Le système est celui du thème sombre de Windows 11, exécuté avec soin plutôt que réinventé : couches grises à peine décalées, un filet d'un pixel, un accent bleu clair sur texte noir, Segoe UI Variable et les icônes Segoe Fluent. Il s'agit du standard de la catégorie, choisi tel quel.
 
-La densité est celle d'un outil qu'on regarde du coin de l'œil. Le panneau porte deux fonctions indépendantes, la relance des parties et le compteur de coffres, et donne à chacune sa ligne de 52 px : pastille, nom, état dessous. La relance porte le bouton d'action principal et le chevron de repli ; les coffres, leur total. Repliées, ces deux lignes suffisent. Dépliée, chaque fonction montre son détail sous sa ligne, sur le fond de la fenêtre, jamais dans une carte. La profondeur vient des couches de couleur, pas des ombres.
+La densité est celle d'un outil qu'on regarde du coin de l'œil. Le panneau porte deux fonctions indépendantes, la relance des parties et le compteur de coffres, et donne à chacune sa ligne de 52 px : pastille, nom, état dessous. La relance porte le bouton d'action principal ; les coffres, leur total ; chacune a son chevron de repli. Repliées, ces deux lignes suffisent. Dépliée, chaque fonction montre son détail sous sa ligne, sur le fond de la fenêtre, jamais dans une carte. La profondeur vient des couches de couleur, pas des ombres.
 
 Le rendu est mesuré à 96 ppp et chaque valeur de grille est multipliée par l'échelle d'affichage du système (`px()`), sur une grille de 4 px.
 
@@ -194,11 +194,11 @@ Une palette neutre presque monochrome, un seul accent bleu clair, et quatre coul
 
 Fenêtre de 320 px de large, hauteur ajustée au contenu, gardée entière dans la zone de travail de l'écran.
 
-- **Ligne d'une fonction** : 52 px de haut, marges latérales de 12 px (pad). Pastille, 8 px (gap), puis le nom (19 px) et l'état dessous (16 px), bloc centré en hauteur (8 px au-dessus). La pastille est centrée sur la ligne du nom. Relance : à droite le bouton principal, 8 px (gap), puis le chevron, à 12 px du bord, contrôles de 28 px centrés. Coffres : le total sur la ligne du nom, aligné à droite à 12 px du bord.
+- **Ligne d'une fonction** : 52 px de haut, marges latérales de 12 px (pad). Pastille, 8 px (gap), puis le nom (19 px) et l'état dessous (16 px), bloc centré en hauteur (8 px au-dessus). La pastille est centrée sur la ligne du nom. À droite, le chevron de la fonction, à 12 px du bord, et 8 px (gap) avant lui : le bouton principal pour la relance, le total pour les coffres (sur la ligne du nom, aligné sur le bord droit du bouton). Contrôles de 28 px centrés. Sans détail à montrer (lecture des replays, aucune partie), le chevron des coffres s'efface et sa colonne garde sa place.
 - **Détail d'une fonction** (déplié) : marge intérieure de 12 px, largeur utile de 296 px, à 4 px sous la ligne (13 px sous l'état). 16 px (section) entre bandeau et sections et entre sections ; 8 px entre un intertitre et son contenu ou entre le sélecteur et son aide ; 12 px avant le filet suivant.
 - **Lignes du journal** : 24 px de haut, comme l'état vide. Colonne du moment à la largeur de sa forme la plus large dans la police (« 00:00 » pour les derniers clics, « 00 sept. 00:00 » pour les dernières parties), puis 12 px avant le libellé ; cinq lignes au plus.
-- **Pied** : filet sous la dernière fonction ; le bandeau de mise à jour s'il y en a un, 12 px plus bas ; puis 12 px de marge autour de Quitter (à gauche) et du rappel des raccourcis (à droite).
-- **Replié** : les deux lignes et leur filet, la fenêtre fait 320 × 105 px (320 × 52 px sans compteur de coffres).
+- **Pied** : dès qu'une fonction est dépliée, filet sous la dernière fonction ; le bandeau de mise à jour s'il y en a un, 12 px plus bas ; puis 12 px de marge autour de Quitter (à gauche) et du rappel des raccourcis (à droite).
+- **Replié** : chaque fonction se replie à part. Les deux repliées, la fenêtre fait 320 × 105 px (320 × 52 px sans compteur de coffres).
 
 ### Named Rules
 **La règle d'une ligne par fonction.** Chaque fonction a sa pastille et son état ; aucun état ne parle pour tout le panneau. Replié, il ne manque rien pour piloter la relance et lire ses coffres.
@@ -221,7 +221,7 @@ Contrôles natifs de Windows 11, sobres et plats.
 - **Shape :** coins arrondis de 4 px, 28 px de haut, 12 px de marge latérale autour du libellé.
 - **Accent :** fond accent, texte noir, sur la ligne de la relance seulement. Le bouton principal prend la largeur de son plus long libellé possible (Pause, Lancer, Reprendre, Quitter) pour ne jamais changer de taille.
 - **Standard :** fond couche, contour filet, texte blanc. Sert à Quitter dans le pied.
-- **Discret :** carré de 28 px sur le fond de la fenêtre, glyphe en texte secondaire. Sert au chevron de repli.
+- **Discret :** carré de 28 px sur le fond de la fenêtre, glyphe en texte secondaire. Sert aux chevrons de repli, un par fonction.
 - **Survol / appui :** changement de surface seul ; le clic part au relâchement, si le pointeur est resté sur le bouton.
 
 ### Sélecteur à segments
@@ -235,7 +235,7 @@ Contrôles natifs de Windows 11, sobres et plats.
 - **Présence :** il n'existe que s'il a quelque chose à dire, dans le détail de la fonction qu'il concerne. Celui du moteur ouvre le détail de la relance, 16 px au-dessus du sélecteur. Sous les coffres, il suit la légende, 8 px plus bas : attention quand les rediffusions sont désactivées, que le lecteur de replays ne démarre pas ou que le dernier replay n'a pas pu être lu. Celui de la mise à jour (information, ou attention après un échec) concerne l'application : il se pose au-dessus de Quitter.
 
 ### Ligne de fonction (signature)
-Pastille de 8 px à la couleur de l'état de la fonction, nom en Title, état dessous en Caption secondaire, et à droite ce que la fonction offre : le bouton principal et le chevron pour la relance, le total pour les coffres. Chaque ligne, sauf ses boutons, sert de poignée pour déplacer la fenêtre.
+Pastille de 8 px à la couleur de l'état de la fonction, nom en Title, état dessous en Caption secondaire, et à droite ce que la fonction offre (le bouton principal pour la relance, le total pour les coffres) puis son chevron. Chaque ligne, sauf ses boutons, sert de poignée pour déplacer la fenêtre.
 
 ### Journal
 Rangées de 24 px sans fond ni séparateur : moment en texte tertiaire, libellé en texte. Deux journaux : derniers clics sous la relance, dernières parties (début et coffres) sous les coffres, absent tant qu'aucune partie n'est comptée. La hauteur constante tient la grille.

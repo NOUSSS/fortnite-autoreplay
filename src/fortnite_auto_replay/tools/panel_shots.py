@@ -49,6 +49,7 @@ class Scene:
     hover: str = ""  # "primary", "chevron", "quit" ou une réponse du dialogue
     answers: tuple[str, ...] = ("ready", "not_yet", "ignore")
     update: str = "idle"  # phase de la mise à jour (bandeau au-dessus de Quitter)
+    chests_collapsed: bool | None = None  # None : comme la relance
     chests: str = "counted"  # état de la ligne des coffres (voir CHESTS ; absent : compteur coupé)
 
 
@@ -159,6 +160,10 @@ SCENES = [
     Scene("expanded-update", "active", False, recent=2, update="available"),
     Scene("expanded-update-failed", "active", False, update="failed"),
     Scene("collapsed-no-chests", "active", True, chests="disabled"),
+    Scene("only-chests-open", "active", True, recent=3, chests_collapsed=False),
+    Scene("only-bot-open", "active", False, recent=3, chests_collapsed=True),
+    Scene("only-chests-open-failed", "paused", True, chests="failed", chests_collapsed=False),
+    Scene("collapsed-chests-reading", "paused", True, chests="reading", chests_collapsed=False),
     Scene("expanded-no-chests", "active", False, recent=2, chests="disabled"),
 ]
 
@@ -243,6 +248,7 @@ def _geometry(panel: Panel) -> dict[str, object]:
         "state": panel.state,
         "primary": panel.primary,
         "chevron": panel.chevron,
+        "chests_chevron": panel.chests_chevron,
         "bot_body": panel.bot_body,
         "notice": panel.notice,
         "s_dialog": panel.s_dialog,
@@ -342,6 +348,8 @@ def _shoot_all(args: argparse.Namespace) -> int:
         controller.scene = scene
         panel._started = scene.started
         panel.collapsed = scene.collapsed
+        folded = scene.chests_collapsed
+        panel.chests_collapsed = scene.collapsed if folded is None else folded
         panel._shape = ()
         panel._render(controller.status())
         for button in (panel.primary, panel.chevron, panel.quit_button):

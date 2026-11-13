@@ -56,17 +56,19 @@ Une petite fenêtre s'ouvre au-dessus du jeu et lance le moteur :
 
 - une ligne par fonction, chacune avec sa pastille et son état. **Relance
   auto** : Actif, En pause, En attente du jeu, Bloqué, Clic annulé…, avec le
-  bouton Lancer / Pause / Reprendre et le chevron qui replie le panneau sur ces
-  deux lignes. **Coffres** : le total compté et la dernière partie. Le compteur
-  de coffres ne dépend pas de la relance : il compte aussi en pause ;
+  bouton Lancer / Pause / Reprendre. **Coffres** : le total compté et la
+  dernière partie. Le compteur de coffres ne dépend pas de la relance : il
+  compte aussi en pause. Chaque ligne a son chevron, qui la déplie ou la
+  replie sans toucher à l'autre ;
 - déplié : sous la relance, la réponse au dialogue « Vous êtes toujours là ? »
   et les cinq derniers clics ; sous les coffres, le nombre de parties
-  comptées et les cinq dernières, avec leurs coffres ; puis Quitter. Un bandeau explique tout état anormal (bouton qui
+  comptées et les cinq dernières, avec leurs coffres ; puis Quitter, dès
+  qu'une ligne est dépliée. Un bandeau explique tout état anormal (bouton qui
   ne part pas, jeu réduit, clic en attente, capture en échec, clic annulé,
   rediffusions désactivées).
 
-Le panneau se déplace en le tirant par l'une de ses lignes ; sa position, son état
-replié et la réponse au dialogue sont gardés dans `config/local.json`. Il ne
+Le panneau se déplace en le tirant par l'une de ses lignes ; sa position, ce
+qui est replié et la réponse au dialogue sont gardés dans `config/local.json`. Il ne
 garde jamais le focus : s'il le prend (un instant à son ouverture), il le rend
 aussitôt à la fenêtre d'avant, ou au jeu si elle n'existe plus. Pendant une
 partie (jeu au premier plan, curseur masqué ou retenu dans sa fenêtre), la
