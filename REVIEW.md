@@ -24,7 +24,10 @@
 - Mise à jour réelle : `python packaging/update_e2e.py <ancien.zip> <nouveau.zip>`
   (panneau sur un bureau Windows caché, qui ne voit pas le jeu). Le nouveau zip
   se construit en montant la version le temps d'un `python packaging/build.py`.
-  Aucun panneau ne doit tourner (mutex commun à la session).
+  Aucun panneau ne doit tourner (mutex commun à la session ; une 0.5.0 ne sait
+  pas fermer un panneau Qt). Les deux chemins comptent avant une publication :
+  depuis la version publiée, et depuis la nouvelle vers une suivante d'essai
+  (le panneau qui clique change avec la version).
 - `release.py` : ne jamais afficher ni écrire ailleurs la clé privée ; `publish`
   écrit sur le VPS et se demande avant. Les tests de `export-key` et
   `import-key` passent `--key` vers `tmp_path` et remplacent `KEY_FILE` et

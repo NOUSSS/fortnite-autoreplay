@@ -193,7 +193,7 @@ Une encre vert sombre monochrome, du blanc pour ce qui agit ou est choisi, et qu
 ### Carte (survol)
 320 px de large, hauteur au contenu, gardée entière dans la zone de travail de l'écran.
 
-- **Ligne d'une fonction** : 52 px. Pastille à 12 px du bord, 8 px, puis le nom (19 px), centré en hauteur. Sous « Coffres » seulement, ce qui est en cours (16 px, bloc recentré) : première lecture des replays, partie en cours, comptage de la partie finie. À droite, à 12 px du bord : le bouton Activer / Désactiver (32 px, largeur fixe de son plus long libellé, 104 px au moins) pour la relance, le total en Title sur la ligne du nom pour les coffres.
+- **Ligne d'une fonction** : 52 px. Pastille à 12 px du bord, 8 px, puis le nom (19 px), centré en hauteur. Sous « Coffres » seulement, ce qui passe vite (16 px, bloc recentré) : première lecture des replays, comptage de la partie finie. Jamais la partie en cours : elle dure toute la partie. À droite, à 12 px du bord : le bouton Activer / Désactiver (32 px, largeur fixe de son plus long libellé, 104 px au moins) pour la relance, le total en Title sur la ligne du nom pour les coffres.
 - **Détail d'une fonction** : marges de 12 px, à 4 px sous la ligne. Bandeau, puis 12 px, puis la liste ; 12 px avant le filet suivant. Pas de détail des coffres tant qu'il n'y a ni bandeau ni partie comptée.
 - **Journal** : intertitre, 4 px, rangées de 24 px. Colonne du moment à la largeur de sa forme la plus large dans la police (« 00:00 », « 00 sept. 00:00 »), puis 12 px avant le libellé ; trois lignes au plus (derniers clics, dernières parties).
 - **Pied** : filet ; le bandeau de mise à jour s'il y en a un, 12 px plus bas ; puis, 8 px sous lui et 12 px au-dessus du bas, Réglages à gauche et Quitter à droite.

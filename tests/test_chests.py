@@ -39,7 +39,6 @@ from fortnite_auto_replay.panel import (
     READ_FAILED,
     READER_DOWN,
     READING_REPLAYS,
-    RECORDING,
     REPLAYS_OFF,
     C,
     ChestsState,
@@ -382,7 +381,7 @@ def test_chests_view() -> None:
     counted = chests_view(ChestsState(summary()))
     assert (counted.value, counted.dot, counted.notice) == ("137", C.success, None)
     assert counted.state == ""  # rien en cours : pas de ligne sous « Coffres »
-    assert chests_view(ChestsState(summary(recording=True))).state == RECORDING
+    assert chests_view(ChestsState(summary(recording=True))).state == ""  # dure toute la partie
     failed = chests_view(ChestsState(summary(failed=True)))
     assert (failed.state, failed.dot) == ("", C.caution)
     assert failed.notice == ("caution", READ_FAILED)

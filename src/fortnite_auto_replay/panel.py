@@ -295,7 +295,6 @@ REPLAYS_OFF = (
 READER_DOWN = "Le lecteur de replays ne démarre pas, vos coffres ne sont pas comptés."
 READ_FAILED = "Le replay de votre dernière partie n\u2019a pas pu être lu."
 READING_REPLAYS = "Lecture des replays…"
-RECORDING = f"Partie en cours{NBSP}: comptée à la sortie"  # replay fermé en quittant
 COUNTING = "Comptage de votre dernière partie…"
 INTERRUPTED = f"Le jeu s\u2019est fermé pendant la partie{NBSP}: ses coffres ne sont pas comptés."
 
@@ -343,8 +342,9 @@ class ChestsView:
 def chests_view(state: ChestsState, *, game_open: bool = True) -> ChestsView:
     """Ce que montre la ligne « Coffres », indépendante de la relance (désactivée comprise).
 
-    Une ligne d'état seulement pour ce qui est en cours : premier tour des
-    replays, partie en cours, comptage de la partie qui vient de finir. Ce qui
+    Une ligne d'état seulement pour ce qui passe vite : premier tour des
+    replays, comptage de la partie qui vient de finir (pas la partie en cours,
+    qui durerait toute la partie). Ce qui
     empêche de compter (partie interrompue, jeu fermé : son replay reste « en
     direct » ; replay illisible ; lecteur absent) a son bandeau.
     """
@@ -361,11 +361,7 @@ def chests_view(state: ChestsState, *, game_open: bool = True) -> ChestsView:
         dot, notice = C.caution, ("caution", INTERRUPTED)
     elif summary.failed:
         dot, notice = C.caution, ("caution", READ_FAILED)
-    shown = ""
-    if summary.counting:
-        shown = COUNTING
-    elif summary.recording and game_open:
-        shown = RECORDING
+    shown = COUNTING if summary.counting else ""
     if summary.since is None or summary.last is None:
         return ChestsView(dot, shown, value="0", notice=notice)
     games = tuple((match_time(when), plural(count, "coffre")) for when, count in summary.recent)

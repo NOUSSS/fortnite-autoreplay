@@ -5,6 +5,12 @@ Une section par version, la plus récente en haut, au format
 toutes, et le manifeste de mise à jour reprend celles de la dernière version
 (`packaging/release.py`).
 
+## 0.6.0 (2026-11-13)
+
+- Nouveau panneau : au repos, une pastille discrète qui donne l’état de la relance et le total de vos coffres ; le curseur posé dessus ouvre la carte complète. Son fond en verre laisse deviner le jeu, flouté.
+- Chaque fonction a sa ligne : désactiver la relance n’arrête pas le compteur de coffres. Sous les coffres, vos dernières parties, et le comptage de celle qui vient de finir.
+- F8 ne fait plus de son.
+
 ## 0.5.0 (2026-11-10)
 
 - Le panneau compte vraiment vos coffres, partie après partie, au lieu de les estimer : il lit les replays du jeu quelques secondes après chaque partie, coffres cassés compris. Activez l’enregistrement des rediffusions dans Fortnite (Paramètres, Jeu, Rediffusions).

@@ -2,7 +2,8 @@
 
 Extrait l'ancienne version dans un dossier temporaire, sert la nouvelle en local
 (manifeste signé par la clé de publication, ``release.sign``), ouvre le panneau
-sur un bureau Windows caché, clique sur « Mettre à jour », puis vérifie que la
+sur un bureau Windows caché, clique sur « Mettre à jour » (panneau Tk jusqu'à la
+0.5.0, Qt ensuite), puis vérifie que la
 nouvelle version est installée et relancée, ``.update/`` effacé et les fichiers
 de l'utilisateur gardés.
 
@@ -128,6 +129,41 @@ def _set_left_button(down: bool) -> None:
     user32.SetKeyboardState(keys)
 
 
+def _post_click(hwnd: int, x: int, y: int) -> None:
+    point = y << 16 | x
+    user32.PostMessageW(hwnd, 0x0200, 0, point)  # WM_MOUSEMOVE
+    user32.PostMessageW(hwnd, 0x0201, 1, point)  # WM_LBUTTONDOWN, MK_LBUTTON
+    time.sleep(0.15)
+    user32.PostMessageW(hwnd, 0x0202, 0, point)  # WM_LBUTTONUP
+
+
+def click_update_qt(wait_s: float) -> int:
+    """Qt dessine ses boutons dans une seule fenêtre : pas de bouton à trouver.
+
+    Carte toujours ouverte (``panel.rest`` à ``panel``) : « Mettre à jour » est au
+    bas du bandeau, juste au-dessus du pied, à 80 px du bas. Clics répétés, sans
+    effet tant que le bandeau n'est pas là (le journal occupe cette place),
+    jusqu'à ce que le panneau se ferme pour s'installer.
+    """
+    deadline = time.time() + wait_s
+    clicked = False
+    while time.time() < deadline:
+        panel = _panel_window()
+        if panel is None:
+            if clicked:
+                return 0
+        else:
+            scale = user32.GetDpiForWindow(panel) / 96
+            box = wintypes.RECT()
+            user32.GetWindowRect(panel, ctypes.byref(box))
+            height = box.bottom - box.top
+            if height > round(200 * scale):
+                _post_click(panel, round(70 * scale), height - round(80 * scale))
+                clicked = True
+        time.sleep(1.5)
+    return 0 if clicked else 1
+
+
 def click_update(wait_s: float) -> int:
     """Attend le bouton puis clique : Tk lit l'état du bouton (``GetKeyState``), d'où
     le partage de l'état d'entrée avec son fil avant de poster les messages."""
@@ -200,6 +236,15 @@ def _serve(folder: Path) -> tuple[http.server.ThreadingHTTPServer, int]:
     return server, server.server_address[1]
 
 
+def _contains(found: object, wanted: object) -> bool:
+    """``wanted`` se retrouve dans ``found`` ; des clés en plus sont permises."""
+    if isinstance(wanted, dict):
+        return isinstance(found, dict) and all(
+            key in found and _contains(found[key], value) for key, value in wanted.items()
+        )
+    return found == wanted
+
+
 def _version_of(archive: Path) -> str:
     match = re.fullmatch(r"FortniteAutoReplay-(\d+(?:\.\d+)*)\.zip", archive.name)
     if match is None:
@@ -231,7 +276,10 @@ def run(old_zip: Path, new_zip: Path) -> int:
         }
     )
     (served / "latest.json").write_text(json.dumps(manifest, ensure_ascii=False), "utf-8")
-    local = {"update": {"manifest_url": f"http://127.0.0.1:{port}/latest.json"}}
+    local: dict[str, object] = {"update": {"manifest_url": f"http://127.0.0.1:{port}/latest.json"}}
+    qt = any(app.rglob("Qt6Core.dll"))  # panneau Qt : carte toujours ouverte, voir click_update_qt
+    if qt:
+        local["panel"] = {"rest": "panel"}
     (app / "config" / "local.json").write_text(json.dumps(local), "utf-8")
     (app / "logs").mkdir(exist_ok=True)
     (app / "logs" / "marqueur.txt").write_text("à garder", "utf-8")
@@ -244,7 +292,7 @@ def run(old_zip: Path, new_zip: Path) -> int:
     installed = False
     try:
         _start_hidden([str(exe)], app)
-        _start_hidden([sys.executable, __file__, "--click", "40"], ROOT)
+        _start_hidden([sys.executable, __file__, "--click-qt" if qt else "--click", "40"], ROOT)
         deadline = time.time() + TIMEOUT_S
         while time.time() < deadline and not installed:
             time.sleep(1)
@@ -260,10 +308,11 @@ def run(old_zip: Path, new_zip: Path) -> int:
         user32.CloseDesktop(desktop)
         server.shutdown()
 
+    kept = json.loads((app / "config" / "local.json").read_text("utf-8"))
     checks = {
         f"version {new} installée et relancée, .update/ effacé": installed,
-        "config/local.json gardé": json.loads((app / "config" / "local.json").read_text("utf-8"))
-        == local,
+        # le panneau peut y ajouter les siens (position enregistrée après un clic Qt)
+        "config/local.json gardé": _contains(kept, local),
         "logs/ gardé": (app / "logs" / "marqueur.txt").exists(),
     }
     for label, ok in checks.items():
@@ -282,6 +331,8 @@ def run(old_zip: Path, new_zip: Path) -> int:
 def main(argv: list[str]) -> int:
     if argv[:1] == ["--click"]:
         return click_update(float(argv[1]))
+    if argv[:1] == ["--click-qt"]:
+        return click_update_qt(float(argv[1]))
     if len(argv) != 2:
         print(__doc__.splitlines()[0])
         return 2

@@ -58,9 +58,9 @@ Une petite fenêtre s'ouvre au-dessus du jeu et lance le moteur :
 - le curseur posé dessus ouvre la **carte** entière, qui se referme quand il
   s'en va. Son fond laisse deviner le jeu, flouté. Une ligne par fonction,
   chacune avec sa pastille d'état. **Relance auto** : le bouton Activer ou
-  Désactiver et les trois derniers clics. **Coffres** : le total compté, ce
-  qui est en cours (lecture des replays, partie en cours, comptage) et les
-  trois dernières parties (début et coffres). Le compteur de coffres ne dépend pas de la relance : il
+  Désactiver et les trois derniers clics. **Coffres** : le total compté, le
+  comptage en cours juste après une partie et les trois dernières parties
+  (début et coffres). Le compteur de coffres ne dépend pas de la relance : il
   compte aussi relance désactivée. Un bandeau explique tout état anormal
   (bouton qui ne part pas, jeu réduit, clic en attente, capture en échec, clic
   annulé, rediffusions désactivées). En bas, Réglages et Quitter ;
@@ -111,13 +111,13 @@ et ne le termine qu'au moment où vous quittez la partie (retour au salon ou
 « Rejouer ») : mort ou devant le classement, elle n'est pas encore comptée. La
 ligne « Coffres » dit où en est le compteur :
 
-- « Partie en cours : comptée à la sortie » tant que vous êtes dans la partie ;
+- « Lecture des replays… » au lancement, le temps de lire ceux déjà là ;
 - « Comptage de votre dernière partie… » juste après votre sortie, le temps
   que le jeu finisse le replay et qu'il soit lu (une vingtaine de secondes au
-  plus) ;
-- « 9 coffres à la dernière partie » une fois comptée ;
-- « Partie interrompue : jeu fermé » si Fortnite se ferme en pleine partie :
-  son replay reste inachevé et ses coffres ne sont pas comptés.
+  plus) ; la partie rejoint ensuite les dernières parties.
+
+Si Fortnite se ferme en pleine partie, un bandeau le dit : son replay reste
+inachevé et ses coffres ne sont pas comptés.
 
 Seul le joueur qui enregistre est compté, et seulement en Battle Royale.
 
