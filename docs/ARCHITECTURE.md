@@ -182,6 +182,14 @@ capture n'apporterait rien. Tout le gain vient du matching.
   tours (4 s de calme), un replay encore « en direct » mais intouché depuis
   10 minutes est un enregistrement coupé (jeu fermé), noté incomplet sans être
   lu. Mêmes délais que ChestCounter.
+- **Ce que le panneau dit du comptage** : le jeu ne termine le replay qu'à la
+  sortie de la partie. Un replay terminé mais pas encore lu met le résumé en
+  « comptage » (`Summary.counting`), publié aussi pendant la lecture, pour ne
+  jamais présenter l'avant-dernière partie comme la dernière. Un replay
+  encore « en direct » sans fenêtre du jeu est une partie interrompue : le
+  panneau le dit tout de suite, sans attendre les 10 minutes, puis
+  `Summary.interrupted` le retient jusqu'à la partie suivante (seulement pour
+  une partie jouée panneau ouvert).
 - **Une partie, une fois** : un replay est reconnu par nom, taille et date ; une
   partie par son `session_id`, si bien qu'un replay renommé ou copié ne compte
   pas deux fois. Une nouvelle version du lecteur (`--version`, version de

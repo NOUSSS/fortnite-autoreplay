@@ -34,6 +34,9 @@ from fortnite_auto_replay.chests import (
 )
 from fortnite_auto_replay.config import ChestsConfig
 from fortnite_auto_replay.panel import (
+    COUNTING,
+    INTERRUPTED,
+    INTERRUPTED_SHORT,
     NO_MATCH_YET,
     READ_FAILED,
     READ_FAILED_SHORT,
@@ -203,6 +206,57 @@ def test_abandoned_recording_is_incomplete(tmp_path: Path, demos: Path) -> None:
     assert INCOMPLETE in load_store(tmp_path / "chests.json").files.values()
 
 
+def test_a_quit_match_shows_as_counting_until_read(tmp_path: Path, demos: Path) -> None:
+    write_replay(demos, "a.replay", mtime=NOW - 3600, live=False)
+    reader = FakeReader({"a.replay": match("s1", 9), "b.replay": match("s2", 4)})
+    tracker = tracker_for(tmp_path, demos, reader)
+    assert not tracker.refresh().counting  # premier tour : pas de « comptage »
+    # partie quittée : replay fini, taille pas encore vue stable
+    write_replay(demos, "b.replay", mtime=NOW - 5, live=False)
+    summary = tracker.refresh()
+    assert summary.counting and summary.last == 9
+    seen: list[bool] = []
+    real_read = reader.read
+
+    def read(path: Path) -> dict[str, Any]:
+        seen.append(tracker.summary().counting)  # ce que voit le panneau pendant la lecture
+        return real_read(path)
+
+    reader.read = read  # type: ignore[method-assign]
+    summary = tracker.refresh()
+    assert seen == [True]
+    assert (summary.counting, summary.last, summary.total) == (False, 4, 13)
+
+
+def test_interrupted_match_is_reported_until_the_next_one(tmp_path: Path, demos: Path) -> None:
+    write_replay(demos, "old.replay", mtime=NOW - 7200, live=True, key=b"\0" * 32)
+    reader = FakeReader({"next.replay": match("s2", 3)})
+    tracker = tracker_for(tmp_path, demos, reader)
+    assert not tracker.refresh().interrupted  # d'avant le lancement : pas d'alerte
+    write_replay(demos, "cut.replay", mtime=NOW - 3600, live=True, key=b"\0" * 32)
+    assert tracker.refresh().interrupted
+    write_replay(demos, "next.replay", mtime=NOW - 3600, live=False)
+    summary = tracker.refresh()
+    assert (summary.interrupted, summary.total) == (False, 3)
+
+
+def test_a_cut_match_older_than_the_last_counted_one_stays_quiet(
+    tmp_path: Path, demos: Path
+) -> None:
+    reader = FakeReader({"b.replay": match("s2", 7)})
+    tracker = tracker_for(tmp_path, demos, reader)
+    tracker.refresh()  # premier tour, dossier vide
+    # partie A coupée (jeu fermé), puis partie B jouée et quittée après relance du jeu
+    cut = write_replay(demos, "a.replay", mtime=NOW - 300, live=True, key=b"\0" * 32)
+    write_replay(demos, "b.replay", mtime=NOW - 60, live=False)
+    tracker.refresh()
+    assert tracker.refresh().last == 7
+    os.utime(cut, (NOW - 700, NOW - 700))  # A passe le délai des 10 minutes
+    summary = tracker.refresh()
+    assert INCOMPLETE in load_store(tmp_path / "chests.json").files.values()
+    assert (summary.last, summary.interrupted) == (7, False)
+
+
 def test_other_modes_and_errors(tmp_path: Path, demos: Path) -> None:
     write_replay(demos, "a.replay", mtime=NOW - 3600, live=False)
     write_replay(demos, "b.replay", mtime=NOW - 3500, live=False)
@@ -346,6 +400,15 @@ def test_chests_view() -> None:
     assert counted.games == ()
     assert counted.foldable and down.foldable
     assert not reading.foldable and not none.foldable
+    assert chests_view(ChestsState(summary(counting=True))).state == COUNTING
+    # partie quittée pendant qu'une autre commence : le comptage d'abord
+    both = chests_view(ChestsState(summary(counting=True, recording=True)))
+    assert both.state == COUNTING
+    closed = chests_view(ChestsState(summary(recording=True)), game_open=False)
+    assert (closed.state, closed.dot) == (INTERRUPTED_SHORT, C.caution)
+    assert closed.notice == ("caution", INTERRUPTED)
+    cut = chests_view(ChestsState(summary(interrupted=True)))
+    assert (cut.state, cut.notice) == (INTERRUPTED_SHORT, ("caution", INTERRUPTED))
     big = chests_view(ChestsState(summary(total=1234)))
     assert big.value == f"1{nbsp}234"
 

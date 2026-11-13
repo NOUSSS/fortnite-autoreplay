@@ -240,7 +240,10 @@ READER_DOWN = "Le lecteur de replays ne démarre pas, vos coffres ne sont pas co
 READ_FAILED = "Le replay de votre dernière partie n\u2019a pas pu être lu."
 READING_REPLAYS = "Lecture des replays…"
 NO_MATCH_YET = "Aucune partie comptée pour l\u2019instant"
-RECORDING = f"Partie en cours{NBSP}: comptée à sa fin"
+RECORDING = f"Partie en cours{NBSP}: comptée à la sortie"  # replay fermé en quittant
+COUNTING = "Comptage de votre dernière partie…"
+INTERRUPTED_SHORT = f"Partie interrompue{NBSP}: jeu fermé"
+INTERRUPTED = f"Le jeu s\u2019est fermé pendant la partie{NBSP}: ses coffres ne sont pas comptés."
 REPLAYS_OFF_SHORT = "Rediffusions désactivées dans Fortnite"
 READER_DOWN_SHORT = "Lecteur de replays indisponible"
 READ_FAILED_SHORT = "Dernier replay illisible"
@@ -299,8 +302,13 @@ class ChestsView:
         return bool(self.note or self.notice or self.games)
 
 
-def chests_view(state: ChestsState) -> ChestsView:
-    """Ce que montre la ligne « Coffres », indépendante de la relance (pause comprise)."""
+def chests_view(state: ChestsState, *, game_open: bool = True) -> ChestsView:
+    """Ce que montre la ligne « Coffres », indépendante de la relance (pause comprise).
+
+    L'état dit d'abord ce qui est en train de se passer : partie quittée en
+    cours de comptage, partie en cours, partie interrompue (jeu fermé : son
+    replay reste « en direct »), replay illisible ; sinon la dernière partie.
+    """
     if state.unavailable:
         return ChestsView(C.caution, READER_DOWN_SHORT, notice=("caution", READER_DOWN))
     summary = state.summary
@@ -308,18 +316,26 @@ def chests_view(state: ChestsState) -> ChestsView:
         return ChestsView(C.neutral, READING_REPLAYS)
     if not summary.replays:
         return ChestsView(C.caution, REPLAYS_OFF_SHORT, notice=("caution", REPLAYS_OFF))
+    interrupted = summary.interrupted or (summary.recording and not game_open)
     dot, notice = C.success, None
-    if summary.failed:
+    if interrupted:
+        dot, notice = C.caution, ("caution", INTERRUPTED)
+    elif summary.failed:
         dot, notice = C.caution, ("caution", READ_FAILED)
-    if summary.since is None or summary.last is None:
-        shown = RECORDING if summary.recording else NO_MATCH_YET
-        return ChestsView(dot, shown, value="0", notice=notice)
-    if summary.recording:
+    if summary.counting:
+        shown = COUNTING
+    elif summary.recording and game_open:
         shown = RECORDING
+    elif interrupted:
+        shown = INTERRUPTED_SHORT
     elif summary.failed:
         shown = READ_FAILED_SHORT
-    else:
+    elif summary.last is not None:
         shown = f"{plural(summary.last, 'coffre')} à la dernière partie"
+    else:
+        shown = NO_MATCH_YET
+    if summary.since is None or summary.last is None:
+        return ChestsView(dot, shown, value="0", notice=notice)
     note = f"{plural(summary.matches, 'partie')} depuis le {day_month(summary.since)}"
     games = tuple((match_time(when), plural(count, "coffre")) for when, count in summary.recent)
     return ChestsView(
@@ -1071,6 +1087,7 @@ class Panel:
         self.hotkeys = hotkeys
         self.win32 = win32 or Win32()
         self._game = game or _no_game  # fenêtre du jeu, 0 si absente
+        self._game_known = game is not None  # sans suivi de fenêtre, le jeu est supposé ouvert
         # fenêtre active avant le panneau, à qui rendre le premier plan s'il le prend
         _, self._other = focus_step(self.win32.foreground(), False, 0)
         self._holding = False  # premier plan gardé faute de pouvoir le rendre (déjà signalé)
@@ -1529,7 +1546,11 @@ class Panel:
         self._text(self.state, look.title)
         self.primary.set_text(primary_label(status.phase, self._started))
         chests_state = self.controller.chests()
-        chests = chests_view(chests_state) if chests_state is not None else None
+        chests = None
+        if chests_state is not None:
+            # un replay « en direct » sans fenêtre du jeu : partie interrompue, pas en cours
+            game_open = not self._game_known or bool(self._game())
+            chests = chests_view(chests_state, game_open=game_open)
         if chests is not None:
             self._color(self.chests_dot, chests.dot)
             self._text(self.chests_state, chests.state)

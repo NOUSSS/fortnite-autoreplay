@@ -105,9 +105,19 @@ butin non.
 Il les lit dans les replays de Fortnite, qu'il faut donc activer dans le jeu :
 **Paramètres, Jeu, Rediffusions, Enregistrer les rediffusions : Activé**. Le
 jeu écrit un replay par partie dans `%LOCALAPPDATA%\FortniteGame\Saved\Demos`
-et n'écrit sa clé de déchiffrement qu'à la fin : une partie se compte quelques
-secondes après sa fin, pas pendant. Seul le joueur qui enregistre est compté,
-et seulement en Battle Royale.
+et ne le termine qu'au moment où vous quittez la partie (retour au salon ou
+« Rejouer ») : mort ou devant le classement, elle n'est pas encore comptée. La
+ligne « Coffres » dit où en est le compteur :
+
+- « Partie en cours : comptée à la sortie » tant que vous êtes dans la partie ;
+- « Comptage de votre dernière partie… » juste après votre sortie, le temps
+  que le jeu finisse le replay et qu'il soit lu (une vingtaine de secondes au
+  plus) ;
+- « 9 coffres à la dernière partie » une fois comptée ;
+- « Partie interrompue : jeu fermé » si Fortnite se ferme en pleine partie :
+  son replay reste inachevé et ses coffres ne sont pas comptés.
+
+Seul le joueur qui enregistre est compté, et seulement en Battle Royale.
 
 La lecture des replays est celle de
 [ChestCounter](https://github.com/LED-N/Fortnite-ChestCounter) (licence MIT),

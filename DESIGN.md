@@ -152,7 +152,7 @@ Une palette neutre presque monochrome, un seul accent bleu clair, et quatre coul
 
 ### Tertiary
 - **Vert succès** (success) : pastille de la relance Active et des coffres comptés normalement, et rien d'autre.
-- **Jaune attention** (caution) : pastille des états En attente du jeu et Clic annulé, des coffres quand les rediffusions sont désactivées, le lecteur indisponible ou le dernier replay illisible ; icône du bandeau d'attention.
+- **Jaune attention** (caution) : pastille des états En attente du jeu et Clic annulé, des coffres quand les rediffusions sont désactivées, le lecteur indisponible, le dernier replay illisible ou la partie interrompue (jeu fermé) ; icône du bandeau d'attention.
 - **Rose critique** (critical) : pastille des états Bloqué et Capture impossible, icône du bandeau critique.
 - **Gris neutre** (neutral) : pastille des états En pause et Arrêté, et des coffres pendant la première lecture des replays. Même valeur que le texte tertiaire, rôle distinct.
 - **Ocre sombre** (caution-bg) et **Brique sombre** (critical-bg) : fonds teintés des bandeaux d'attention et critique, seuls fonds colorés du panneau.
@@ -182,7 +182,7 @@ Une palette neutre presque monochrome, un seul accent bleu clair, et quatre coul
 ### Hierarchy
 - **Title** (semi-gras, 14 px) : nom d'une fonction (Relance auto, Coffres), total des coffres, libellé du segment choisi.
 - **Body** (normal, 14 px) : intertitres de section (en texte secondaire), libellés de boutons et de segments, journal, légende dépliée des coffres, message des bandeaux.
-- **Caption** (normal, 12 px) : état sous le nom d'une fonction (Actif, En pause… ; coffres de la dernière partie, partie en cours…), aide sous le sélecteur, rappel des raccourcis.
+- **Caption** (normal, 12 px) : état sous le nom d'une fonction (Actif, En pause… ; partie en cours, comptage, coffres de la dernière partie…), aide sous le sélecteur, rappel des raccourcis.
 - **Icon** (12 px) : chevron de repli et icône de gravité des bandeaux. La pastille d'état est le disque plein de la même police, à 8 px, pour un bord lissé.
 
 ### Named Rules
@@ -232,7 +232,7 @@ Contrôles natifs de Windows 11, sobres et plats.
 - **Style :** pleine largeur utile, coins de 4 px, 12 px de marge intérieure, icône de gravité de 12 px puis 8 px avant le message, message en Body blanc, retour à la ligne.
 - **Gravités :** critique (fond brique, icône rose), attention (fond ocre, icône jaune), information (fond couche, icône accent).
 - **Action :** un bouton standard facultatif sous le message, aligné sur lui, 8 px plus bas (Mettre à jour, Réessayer). Jamais l'accent : il reste au bouton principal de la relance.
-- **Présence :** il n'existe que s'il a quelque chose à dire, dans le détail de la fonction qu'il concerne. Celui du moteur ouvre le détail de la relance, 16 px au-dessus du sélecteur. Sous les coffres, il suit la légende, 8 px plus bas : attention quand les rediffusions sont désactivées, que le lecteur de replays ne démarre pas ou que le dernier replay n'a pas pu être lu. Celui de la mise à jour (information, ou attention après un échec) concerne l'application : il se pose au-dessus de Quitter.
+- **Présence :** il n'existe que s'il a quelque chose à dire, dans le détail de la fonction qu'il concerne. Celui du moteur ouvre le détail de la relance, 16 px au-dessus du sélecteur. Sous les coffres, il suit la légende, 8 px plus bas : attention quand les rediffusions sont désactivées, que le lecteur de replays ne démarre pas, que le dernier replay n'a pas pu être lu ou que le jeu s'est fermé en pleine partie. Celui de la mise à jour (information, ou attention après un échec) concerne l'application : il se pose au-dessus de Quitter.
 
 ### Ligne de fonction (signature)
 Pastille de 8 px à la couleur de l'état de la fonction, nom en Title, état dessous en Caption secondaire, et à droite ce que la fonction offre (le bouton principal pour la relance, le total pour les coffres) puis son chevron. Chaque ligne, sauf ses boutons, sert de poignée pour déplacer la fenêtre.

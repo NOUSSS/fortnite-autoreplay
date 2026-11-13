@@ -93,6 +93,12 @@ CHESTS = {
     "first-game": ChestsState(
         Summary(9, 1, 9, _GAMES[0][0], False, replays=True, failed=False, recent=_GAMES[:1])
     ),
+    "counting": ChestsState(
+        Summary(137, 18, 9, _SINCE, False, replays=True, failed=False, recent=_GAMES, counting=True)
+    ),
+    "interrupted": ChestsState(
+        Summary(137, 18, 9, _SINCE, False, True, failed=False, recent=_GAMES, interrupted=True)
+    ),
     "down": ChestsState(None, "lecteur de replays introuvable"),
 }
 
@@ -111,7 +117,16 @@ SCENES = [
     Scene("expanded-first-chests", "paused", False, started=False),
     *(
         Scene(f"expanded-chests-{state}", "paused", False, started=False, chests=state)
-        for state in ("reading", "none", "first-game", "recording", "failed", "down")
+        for state in (
+            "reading",
+            "none",
+            "first-game",
+            "recording",
+            "counting",
+            "interrupted",
+            "failed",
+            "down",
+        )
     ),
     Scene("expanded-active", "active", False, recent=5),
     Scene("expanded-two-clicks", "active", False, recent=2),
@@ -163,6 +178,8 @@ SCENES = [
     Scene("only-chests-open", "active", True, recent=3, chests_collapsed=False),
     Scene("only-bot-open", "active", False, recent=3, chests_collapsed=True),
     Scene("only-chests-open-failed", "paused", True, chests="failed", chests_collapsed=False),
+    Scene("collapsed-chests-counting", "active", True, chests="counting"),
+    Scene("collapsed-chests-recording", "active", True, chests="recording"),
     Scene("collapsed-chests-reading", "paused", True, chests="reading", chests_collapsed=False),
     Scene("expanded-no-chests", "active", False, recent=2, chests="disabled"),
 ]

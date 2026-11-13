@@ -273,12 +273,22 @@ class Summary:
     failed: bool  # le dernier replay lu n'a pas pu l'être
     # dernières parties, la plus récente d'abord : (début UTC, coffres)
     recent: tuple[tuple[datetime, int], ...] = ()
+    counting: bool = False  # une partie quittée, son replay pas encore lu
+    interrupted: bool = False  # la dernière partie s'est arrêtée jeu fermé : non comptée
 
 
 RECENT_MATCHES = 5
 
 
-def summarize(store: Store, *, recording: bool, replays: bool, failed: bool) -> Summary:
+def summarize(
+    store: Store,
+    *,
+    recording: bool,
+    replays: bool,
+    failed: bool,
+    counting: bool = False,
+    interrupted: bool = False,
+) -> Summary:
     ordered = sorted(store.matches.values(), key=_order)
     recent = tuple((_order(m), m.chests) for m in reversed(ordered[-RECENT_MATCHES:]))
     return Summary(
@@ -290,6 +300,8 @@ def summarize(store: Store, *, recording: bool, replays: bool, failed: bool) -> 
         replays=replays or bool(ordered),
         failed=failed,
         recent=recent,
+        counting=counting,
+        interrupted=interrupted,
     )
 
 
@@ -322,6 +334,10 @@ class ChestTracker:
         self._store: Store | None = None
         self._sizes: dict[str, int] = {}  # taille de chaque replay au tour précédent
         self._failed = False
+        self._interrupted = False
+        # date du replay le plus récent déjà traité : lui seul dit si la dernière partie
+        # a échoué ou s'est interrompue (un replay coupé n'est traité qu'au bout de 10 min)
+        self._newest = float("-inf")
 
     def summary(self) -> Summary | None:
         """``None`` tant que le premier tour n'est pas fini."""
@@ -368,7 +384,8 @@ class ChestTracker:
             paths = sorted(demos.glob("*.replay"), key=lambda p: p.name)
         except OSError:
             paths = []
-        recording = False
+        recording = waiting = False
+        ready: list[tuple[Path, str, Header | None, float]] = []
         changed = not self.store_path.exists()
         for path in paths:
             try:
@@ -379,23 +396,52 @@ class ChestTracker:
             if key in store.files:
                 continue
             header = read_header(path)
-            if not self._ready(path, stat, header):
-                recording = recording or (header is not None and header.live)
-                continue
-            store.files[key] = self._count(path, header, store)
+            if self._ready(path, stat, header):
+                ready.append((path, key, header, stat.st_mtime))
+            elif header is not None:
+                # en direct : partie en cours ; sinon partie quittée, replay en train de se finir
+                recording = recording or header.live
+                waiting = waiting or not header.live
+        first = self.summary() is None  # premier tour : « Lecture des replays… » jusqu'au bout
+        if ready and not first:
+            self._publish(store, recording=recording, replays=True, counting=True)
+        for path, key, header, mtime in ready:
+            newest = mtime >= self._newest
+            self._newest = max(self._newest, mtime)
+            store.files[key] = self._count(path, header, store, live=not first, newest=newest)
             changed = True
         self._sizes = {k: v for k, v in self._sizes.items() if (demos / k).exists()}
         if changed:
             save_store(store, self.store_path)
-        result = summarize(store, recording=recording, replays=bool(paths), failed=self._failed)
+        return self._publish(store, recording=recording, replays=bool(paths), counting=waiting)
+
+    def _publish(self, store: Store, *, recording: bool, replays: bool, counting: bool) -> Summary:
+        result = summarize(
+            store,
+            recording=recording,
+            replays=replays,
+            failed=self._failed,
+            counting=counting,
+            interrupted=self._interrupted,
+        )
         with self._lock:
             self._summary = result
         return result
 
-    def _count(self, path: Path, header: Header | None, store: Store) -> str:
-        """Lit un replay prêt ; rend l'état gardé pour ce fichier."""
+    def _count(
+        self, path: Path, header: Header | None, store: Store, *, live: bool, newest: bool
+    ) -> str:
+        """Lit un replay prêt ; rend l'état gardé pour ce fichier.
+
+        ``live`` : partie jouée panneau ouvert. Une partie interrompue ne se
+        signale qu'alors ; celles d'avant le lancement ne sont plus d'actualité.
+        ``newest`` : replay le plus récent traité jusqu'ici ; un plus ancien,
+        traité en retard, ne change pas l'état de la dernière partie.
+        """
         if header is not None and header.live and header.key_missing:
             log.info("coffres : %s incomplet (jeu fermé pendant la partie)", path.name)
+            if newest:
+                self._interrupted, self._failed = live, False
             return INCOMPLETE
         try:
             result = self.reader.read(path)
@@ -403,13 +449,16 @@ class ChestTracker:
             raise
         except ReaderError as exc:
             log.warning("coffres : %s non lu (%s)", path.name, exc)
-            self._failed = True
+            if newest:
+                self._failed, self._interrupted = True, False
             return ERROR
         if not result.get("ok"):
             log.warning("coffres : %s illisible (%s)", path.name, result.get("error"))
-            self._failed = True
+            if newest:
+                self._failed, self._interrupted = True, False
             return ERROR
-        self._failed = False
+        if newest:
+            self._failed = self._interrupted = False
         if not result.get("battle_royale", True):
             log.info("coffres : %s n'est pas une partie de Battle Royale", path.name)
             return OTHER_MODE
