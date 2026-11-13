@@ -43,7 +43,6 @@
 - [x] Panneau de contrôle au-dessus du jeu : une ligne par fonction (relance, coffres), Activer / Désactiver, réponse au dialogue, derniers clics
 - [x] Pastille au repos, carte au survol, opacité au repos réglable ; déplaçable, réglages gardés dans `config/local.json`
 - [x] Panneau sans prise de focus et invisible aux captures ; clic annulé si une fenêtre couvre le bouton
-- [x] Deux notes sur `F8` (activation, désactivation)
 
 ## Fait (distribution)
 

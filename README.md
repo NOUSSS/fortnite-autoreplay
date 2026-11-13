@@ -45,8 +45,7 @@ python -m fortnite_auto_replay chests   # coffres ouverts comptés (voir plus ba
 
 Raccourcis en jeu : `F8` = activer / désactiver la relance, `F9` = quitter. Ils ne
 comptent que quand Fortnite est au premier plan : ailleurs, `F8` et `F9` restent
-à l'application active. La relance démarre désactivée par sécurité. `F8` joue deux notes : montantes quand
-elle s'active, descendantes quand elle se désactive (`engine.sound_on_toggle`).
+à l'application active. La relance démarre désactivée par sécurité.
 
 ## Panneau de contrôle
 
@@ -73,8 +72,8 @@ Une petite fenêtre s'ouvre au-dessus du jeu et lance le moteur :
 Le panneau se déplace en le tirant par l'une de ses lignes ou par sa pastille ;
 sa position, ses réglages et la réponse au dialogue sont gardés dans
 `config/local.json` (`panel.rest` : `pill` ou `panel`, `panel.rest_opacity`). Il ne
-garde jamais le focus : s'il le prend (un instant à son ouverture), il le rend
-aussitôt à la fenêtre d'avant, ou au jeu si elle n'existe plus. Pendant une
+prend jamais le focus ; s'il l'obtenait malgré tout, il le rendrait aussitôt à la
+fenêtre d'avant, ou au jeu si elle n'existe plus. Pendant une
 partie (jeu au premier plan, curseur masqué ou retenu dans sa fenêtre), la
 souris le traverse : un clic ou un geste de visée passé dessus va au jeu et ne
 peut ni l'activer ni le déplacer, et la carte ne s'ouvre pas. Un seul panneau tourne à la fois : en lancer
@@ -155,7 +154,9 @@ window.py ──► capture.py ──► vision.py ──► engine.py ──►
 - `actions.py` : clics au premier plan (`pydirectinput` → SendInput via ctypes →
   pyautogui), clics postés à la fenêtre du jeu au second plan.
 - `diagnostics.py` : traces des arrêts inattendus (`logs/crash.log`).
-- `panel.py` : panneau de contrôle (tkinter) ; le moteur tourne dans un thread.
+- `panel.py` : panneau de contrôle (Qt, PySide6) ; le moteur tourne dans un thread.
+  `panel_style.py` (couleurs, grille, polices, icônes) et `panel_widgets.py`
+  (texte, boutons, sélecteur, curseur, bandeau) le dessinent.
 - `chests.py` : coffres ouverts, comptés dans les replays du jeu par
   `replay-reader.exe` (C#, `replay-reader/`).
 

@@ -7,7 +7,7 @@ related_targets: []
 
 ## Scope
 
-Panneau de contrôle du bot (`fnreplay panel`), mode Operate. Une fenêtre tkinter
+Panneau de contrôle du bot (`fnreplay panel`), mode Operate. Une fenêtre Qt (PySide6)
 sans bordure, toujours au-dessus de Fortnite, qui ne prend jamais le focus et
 reste invisible pour la capture d'écran du bot.
 
@@ -28,8 +28,8 @@ tableau de bord et le chiffre décoratif.
 OWN-WORLD: Encre #11201E, couche #1A2C29, filet #2A403C, texte #F4F0E6,
 secondaire #B8C3BB, or #F0B93A sur encre #1E1604 ; succès #7BD88F, attention
 #FF9A4D, critique #FF7B7B, neutre #7D8D86. Figtree et Bricolage Grotesque
-(livrées, OFL), icônes Segoe Fluent Icons. Fenêtre et bandeaux à 8 px,
-contrôles en pilule de 32 px. Grille de 4 px.
+(livrées, OFL), icônes dessinées. Carte et popover à 12 px, bandeaux à 8 px,
+pastille et contrôles en pilule de 32 px. Grille de 4 px.
 
 STORY: Le joueur lit la pastille du coin de l'œil, la survole pour la carte,
 clique Activer ou Désactiver (ou F8 ; les coffres restent comptés), ouvre les

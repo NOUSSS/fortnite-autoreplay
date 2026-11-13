@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING, Literal, Protocol
 
 import numpy as np
 
-from . import history, sounds, vision
+from . import history, vision
 from .capture import CaptureError, Frame
 from .config import STILL_HERE_ANSWERS, Config, StateConfig
 from .templates import Prepared, Template, TemplateLibrary
@@ -177,10 +177,6 @@ def _no_alert() -> None:
     pass
 
 
-def _no_sound(_cue: sounds.Cue) -> None:
-    pass
-
-
 def _better(best: Detection | None, other: Detection | None) -> Detection | None:
     if other is None:
         return best
@@ -200,7 +196,6 @@ class Engine:
         dry_run: bool = False,
         window: FocusSource | None = None,
         alert: Callable[[], None] | None = None,
-        sound: Callable[[sounds.Cue], None] | None = None,
     ) -> None:
         self.cfg = cfg
         self.capture = capture
@@ -219,9 +214,6 @@ class Engine:
         if alert is None:
             alert = _beep if cfg.engine.beep_on_stuck else _no_alert
         self._alert = alert
-        if sound is None:
-            sound = sounds.cue if cfg.engine.sound_on_toggle else _no_sound
-        self._sound = sound
 
         self.stats = Stats()
         self._candidate: str | None = None
@@ -275,13 +267,11 @@ class Engine:
         log.info("bot actif")
 
     def toggle(self) -> None:
-        """Pause ou reprise (F8, bouton du panneau), annoncée par deux notes."""
+        """Pause ou reprise (F8, bouton du panneau)."""
         if self.paused:
             self.resume()
-            self._sound("resume")
         else:
             self.pause()
-            self._sound("pause")
 
     def stop(self) -> None:
         self._stop.set()

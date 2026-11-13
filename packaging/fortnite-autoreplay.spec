@@ -49,10 +49,36 @@ a = Analysis(
     pathex=[str(SRC)],
     # polices du panneau (OFL), chargées pour lui seul au démarrage
     datas=[(str(SRC / "fortnite_auto_replay" / "fonts"), "fortnite_auto_replay/fonts")],
-    # repli de dernier recours des clics, absent des dépendances
-    excludes=["pyautogui", "pytest", "ruff"],
+    # repli de dernier recours des clics, absent des dépendances ; Tk remplacé par Qt
+    excludes=["pyautogui", "pytest", "ruff", "tkinter", "_tkinter", "PySide6.QtNetwork"],
     noarchive=False,
 )
+
+# Qt sans ce que le panneau n'utilise pas : rendu OpenGL logiciel, réseau, SVG,
+# formats d'image, traductions (le panneau est dessiné à la main, en français).
+QT_UNUSED = (
+    "opengl32sw.dll",
+    "Qt6Network",
+    "QtNetwork",
+    "Qt6Svg",
+    "translations/",
+    "plugins/generic/",
+    "plugins/iconengines/",
+    "plugins/imageformats/",
+    "plugins/networkinformation/",
+    "plugins/tls/",
+    "plugins/platforms/qdirect2d",
+    "plugins/platforms/qminimal",
+)
+
+
+def used(entry):
+    dest = entry[0].replace("\\", "/")
+    return not (dest.startswith("PySide6/") and any(part in dest for part in QT_UNUSED))
+
+
+a.binaries = [entry for entry in a.binaries if used(entry)]
+a.datas = [entry for entry in a.datas if used(entry)]
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,

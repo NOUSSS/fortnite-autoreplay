@@ -19,29 +19,49 @@ Une petite fenêtre sans bordure, toujours au-dessus du jeu :
 - une ligne par fonction, chacune avec son état : la relance (bouton Activer
   ou Désactiver) et les coffres, comptés même relance désactivée.
 
-Le moteur tourne dans un thread à part ; seul le thread principal touche à Tk.
+Le moteur tourne dans un thread à part ; seul le thread principal touche à Qt.
 Toute fermeture est journalisée avec sa cause ; un moteur qui ne répond plus
 voit la pile de ses threads écrite dans ``logs/crash.log``.
 """
 
 from __future__ import annotations
 
-import contextlib
 import ctypes
 import dataclasses
 import logging
 import os
+import sys
 import threading
 import time
-import tkinter as tk
-import tkinter.font as tkfont
 from collections.abc import Callable, Sequence
 from ctypes import wintypes
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from types import TracebackType
 from typing import Protocol
+
+from PySide6.QtCore import (
+    QAbstractAnimation,
+    QEasingCurve,
+    QEvent,
+    QObject,
+    QPoint,
+    QPointF,
+    QRectF,
+    Qt,
+    QTimer,
+    QVariantAnimation,
+)
+from PySide6.QtGui import (
+    QCloseEvent,
+    QFont,
+    QFontMetricsF,
+    QMouseEvent,
+    QPainter,
+    QPaintEvent,
+    QPixmap,
+)
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout, QWidget
 
 from . import diagnostics
 from .actions import Actions
@@ -49,6 +69,62 @@ from .capture import CaptureError, Frame, ScreenCapture
 from .chests import ChestTracker, Reader, Summary
 from .config import Config, PanelConfig, update_local_config
 from .engine import Engine, Phase, Status
+from .panel_style import (
+    ACTION_MIN_W,
+    BUTTON_PAD,
+    CARD_RADIUS,
+    CLOCK_W,
+    CLOSE_MS,
+    CONTROL_H,
+    DATE_W,
+    DOT,
+    FADE_MS,
+    FEATURE_H,
+    FOOTER_TOP,
+    GAP,
+    HEADING_GAP,
+    ICON,
+    JOURNAL_GAP,
+    LINE,
+    LINE_SMALL,
+    NOTICE_ICON,
+    NOTICE_PAD_Y,
+    NOTICE_RADIUS,
+    OPEN_MS,
+    OPEN_SCALE,
+    PAD,
+    PILL_H,
+    POPOVER_GAP,
+    POPOVER_W,
+    RECENT_ROWS,
+    ROW_H,
+    SECTION_GAP,
+    SEGMENT_INSET,
+    SETTING_GAP,
+    SLIDER_H,
+    SUBTLE_PAD,
+    THUMB,
+    TRACK_H,
+    WIDTH,
+    C,
+    draw_chest,
+    draw_sliders,
+    fill_round,
+    make_fonts,
+    tabular,
+)
+from .panel_widgets import (
+    Button,
+    Dot,
+    Icon,
+    IconPainter,
+    Notice,
+    Rule,
+    Segmented,
+    Slider,
+    Text,
+    Wrapped,
+)
 from .templates import TemplateLibrary
 from .updater import Updates, UpdateState
 from .window import GameWindow
@@ -65,74 +141,11 @@ _LOCK_POLL_S = 0.25  # entre deux essais du verrou des panneaux
 Area = tuple[int, int, int, int]  # left, top, right, bottom en pixels écran
 
 
-# --- jetons -----------------------------------------------------------------
-@dataclass(frozen=True, slots=True)
-class Palette:
-    """Encre vert sombre, or pour ce qui agit ou est choisi, quatre couleurs d'état."""
-
-    bg: str = "#11201E"
-    layer: str = "#1A2C29"
-    layer_hover: str = "#22372F"
-    layer_pressed: str = "#162622"
-    stroke: str = "#2A403C"
-    text: str = "#F4F0E6"
-    text_2: str = "#B8C3BB"
-    text_3: str = "#7D8D86"
-    accent: str = "#F0B93A"
-    accent_hover: str = "#F5C65A"
-    accent_pressed: str = "#E0A82C"
-    on_accent: str = "#1E1604"
-    success: str = "#7BD88F"
-    caution: str = "#FF9A4D"
-    critical: str = "#FF7B7B"
-    neutral: str = "#7D8D86"
-    caution_bg: str = "#3A2A17"
-    critical_bg: str = "#351C1C"
-
-
-C = Palette()
-
-# grille de 4 px, en pixels à 96 ppp (multipliés par l'échelle d'affichage)
-WIDTH = 320  # carte dépliée
-FEATURE_H = 52  # ligne d'une fonction : nom et état sur deux lignes
-PILL_H = 32  # pastille du repos
-PAD = 12  # marge intérieure de la carte, du popover et des bandeaux (côtés)
-GAP = 8  # entre éléments voisins d'une ligne
-HEADING_GAP = 4  # sous un intertitre
-DETAIL_GAP = 4  # entre la ligne d'une fonction et son détail
-SECTION_GAP = 12  # entre bandeau et liste d'une fonction
-SETTING_GAP = 16  # entre réglages du popover
-NOTICE_PAD_Y = 10
-ROW_H = 24
-CONTROL_H = 32  # boutons et sélecteurs, en pilule
-ACTION_MIN_W = 104  # « Activer » et « Désactiver » à la même largeur
-BUTTON_PAD = 14
-SEGMENT_INSET = 3
-SLIDER_H = 20
-TRACK_H = 6
-THUMB = 18
-NOTICE_RADIUS = 8
-POPOVER_W = 272
-POPOVER_GAP = 8
-DOT = 8
-RECENT_ROWS = 3
-
 # opacité au repos (pastille ou carte sans la souris), en pour cent
 OPACITY_MIN, OPACITY_MAX, OPACITY_STEP = 20, 100, 5
 _HOVER_MS = 50  # suivi du curseur : ouverture au survol
 LEAVE_S = 0.4  # la carte se referme après ce délai hors du panneau
 PREVIEW_S = 0.7  # aperçu de l'opacité après le dernier mouvement du curseur
-
-# glyphes de Segoe Fluent Icons
-ICON_INFO = ""
-ICON_WARNING = ""
-ICON_ERROR = ""
-ICON_DOT = ""  # disque plein, lissé (un ovale du canevas ne l'est pas)
-ICON_SETTINGS = ""  # curseurs de réglage
-ICON_CHEST = ""  # boîte
-
-FONTS = Path(__file__).with_name("fonts")  # Figtree et Bricolage Grotesque (OFL)
-_FR_PRIVATE = 0x10
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,9 +395,9 @@ def default_home(area: Area, scale: float) -> tuple[int, int]:
 def focus_step(foreground: int, ours: bool, other: int) -> tuple[int, int]:
     """Garde du premier plan : (fenêtre à qui le rendre, 0 sinon ; dernière fenêtre hors panneau).
 
-    Tk prend le premier plan en créant sa première fenêtre, avant que
-    ``WS_EX_NOACTIVATE`` puisse être posé : le panneau le rend aussitôt à la
-    fenêtre d'avant (le jeu, en général).
+    Une fenêtre peut prendre le premier plan malgré ``WS_EX_NOACTIVATE`` (création,
+    clic d'un pilote) : le panneau le rend aussitôt à la fenêtre d'avant (le jeu,
+    en général).
     """
     if not foreground:
         return 0, other
@@ -556,11 +569,8 @@ TITLE = "Fortnite AutoReplay"
 _PANEL_TITLES = frozenset({TITLE, "Fortnite Auto Replay"})
 # hors de _PANEL_TITLES : un nouveau panneau ne doit pas la prendre pour un autre panneau
 SETTINGS_TITLE = f"{TITLE} - réglages"
-_TK_CLASS = "TkTopLevel"
+_TK_CLASS = "TkTopLevel"  # panneaux des versions Tk (0.5 et avant)
 _WDA_EXCLUDEFROMCAPTURE = 0x11
-_DWMWA_WINDOW_CORNER_PREFERENCE = 33
-_DWMWA_BORDER_COLOR = 34
-_DWMWCP_ROUND = 2
 _MONITOR_DEFAULTTONEAREST = 2
 _GA_ROOT = 2
 
@@ -583,12 +593,12 @@ class _MonitorInfo(ctypes.Structure):
     )
 
 
-def _colorref(color: str) -> int:
-    red, green, blue = (int(color[i : i + 2], 16) for i in (1, 3, 5))
-    return red | green << 8 | blue << 16
-
-
 _ENUM_PROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+
+def _panel_class(name: str) -> bool:
+    """Classe d'une fenêtre de panneau : Qt (« Qt6120QWindowTool… ») ou Tk (anciennes versions)."""
+    return name == _TK_CLASS or (name.startswith("Qt") and "QWindow" in name)
 
 
 class Win32:
@@ -659,19 +669,6 @@ class Win32:
         self.kernel32 = kernel32
         self._lock: int | None = None  # verrou des panneaux, tenu jusqu'à la fermeture
         self._locked = False
-        self.dwm: ctypes.WinDLL | None
-        try:
-            dwm = ctypes.WinDLL("dwmapi")
-            dwm.DwmSetWindowAttribute.argtypes = [
-                hwnd,
-                wintypes.DWORD,
-                ctypes.c_void_p,
-                wintypes.DWORD,
-            ]
-            dwm.DwmSetWindowAttribute.restype = ctypes.c_long
-            self.dwm = dwm
-        except OSError:
-            self.dwm = None
 
     def scale(self) -> float:
         try:
@@ -692,7 +689,7 @@ class Win32:
         return int(pid.value)
 
     def ours(self, hwnd: int) -> bool:
-        """La fenêtre appartient-elle à ce processus (panneau, racine Tk cachée) ?"""
+        """La fenêtre appartient-elle à ce processus (panneau, réglages) ?"""
         return self.pid(hwnd) == os.getpid()
 
     def give_back(self, hwnd: int) -> bool:
@@ -726,15 +723,6 @@ class Win32:
             return 0, 0, 0, 0
         return rect.left, rect.top, rect.right, rect.bottom
 
-    def set_alpha(self, hwnd: int, alpha: int) -> None:
-        """Opacité de la fenêtre (0 à 255), en couches dès le premier appel."""
-        user32 = self.user32
-        extended = self.ex_style(hwnd)
-        if not extended & _WS_EX_LAYERED:
-            user32.SetWindowLongPtrW(hwnd, _GWL_EXSTYLE, extended | _WS_EX_LAYERED)
-        user32.SetLayeredWindowAttributes(hwnd, 0, max(0, min(255, alpha)), _LWA_ALPHA)
-        user32.RedrawWindow(hwnd, None, None, _RDW_INVALIDATE_ALL)
-
     def set_mouse_through(self, hwnd: int, through: bool) -> None:
         """La souris traverse-t-elle la fenêtre (``WS_EX_LAYERED | WS_EX_TRANSPARENT``) ?"""
         user32 = self.user32
@@ -757,7 +745,7 @@ class Win32:
         name = ctypes.create_unicode_buffer(64)
 
         def visit(hwnd: int, _param: int) -> bool:
-            if self.user32.GetClassNameW(hwnd, name, 64) and name.value == _TK_CLASS:
+            if self.user32.GetClassNameW(hwnd, name, 64) and _panel_class(name.value):
                 self.user32.GetWindowTextW(hwnd, name, 64)
                 pid = self.pid(hwnd)
                 if name.value in _PANEL_TITLES and pid != own:
@@ -812,20 +800,13 @@ class Win32:
         return int(self.user32.GetWindowLongPtrW(hwnd, _GWL_EXSTYLE))
 
     def style(self, hwnd: int, *, exclude_from_capture: bool) -> None:
-        """Jamais activée, hors barre des tâches, invisible aux captures, coins arrondis."""
+        """Jamais activée, hors barre des tâches, invisible aux captures."""
         extended = self.ex_style(hwnd) | _WS_EX_NOACTIVATE | _WS_EX_TOOLWINDOW
         self.user32.SetWindowLongPtrW(hwnd, _GWL_EXSTYLE, extended)
         if exclude_from_capture and not self.user32.SetWindowDisplayAffinity(
             hwnd, _WDA_EXCLUDEFROMCAPTURE
         ):
             log.warning("le panneau reste visible des captures (Windows 10 2004 ou plus requis)")
-        if self.dwm is not None:
-            corner = ctypes.c_int(_DWMWCP_ROUND)
-            self.dwm.DwmSetWindowAttribute(
-                hwnd, _DWMWA_WINDOW_CORNER_PREFERENCE, ctypes.byref(corner), 4
-            )
-            border = wintypes.DWORD(_colorref(C.stroke))
-            self.dwm.DwmSetWindowAttribute(hwnd, _DWMWA_BORDER_COLOR, ctypes.byref(border), 4)
 
     def work_area(self, x: int, y: int) -> Area:
         """Zone de travail (sans barre des tâches) de l'écran le plus proche du point."""
@@ -838,420 +819,123 @@ class Win32:
         return work.left, work.top, work.right, work.bottom
 
 
-# --- composants -----------------------------------------------------------------
-def _round_rect(
-    canvas: tk.Canvas, box: tuple[float, float, float, float], radius: float, **kw: object
-) -> int:
-    x1, y1, x2, y2 = box
-    r = min(radius, (x2 - x1) / 2, (y2 - y1) / 2)
-    points = (
-        x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
-        x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1,
-    )  # fmt: skip
-    return canvas.create_polygon(points, smooth=True, **kw)
+# --- fenêtres -------------------------------------------------------------------------
+class Surface(QWidget):
+    """Fond du panneau : encre, coins arrondis, filet d'un pixel à l'intérieur."""
+
+    def __init__(self, radius: float, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._radius = radius
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+    def paintEvent(self, _event: QPaintEvent) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        fill_round(painter, QRectF(self.rect()), self._radius, C.bg, C.stroke)
 
 
-def mix(color: str, under: str, amount: float) -> str:
-    """``color`` posée à ``amount`` d'opacité sur ``under`` (bouton désactivé)."""
-    top = [int(color[i : i + 2], 16) for i in (1, 3, 5)]
-    low = [int(under[i : i + 2], 16) for i in (1, 3, 5)]
-    return "#" + "".join(
-        f"{round(t * amount + b * (1 - amount)):02X}" for t, b in zip(top, low, strict=True)
-    )
+class Ghost(QWidget):
+    """Image de la carte (ou des réglages) qui s'ouvre ou se ferme : fondu et échelle.
 
-
-@dataclass(frozen=True, slots=True)
-class _Fill:
-    rest: str
-    hover: str
-    pressed: str
-    text: str
-    stroke: str = ""
-    hover_text: str = ""
-
-
-_KINDS = {
-    "accent": _Fill(C.accent, C.accent_hover, C.accent_pressed, C.on_accent),
-    "standard": _Fill(C.layer, C.layer_hover, C.layer_pressed, C.text, C.stroke),
-    "subtle": _Fill(C.bg, C.layer, C.layer_pressed, C.text_2, hover_text=C.text),
-}
-_DISABLED = 0.4  # opacité d'un bouton désactivé
-
-
-class Button(tk.Canvas):
-    """Bouton en pilule : le survol et l'appui changent sa surface, sans halo.
-
-    Le clic part au relâchement, si le pointeur est resté dessus. ``selected``
-    garde l'aspect survolé (réglages ouverts) ; désactivé, il s'efface à 40 %.
+    Qt ne met pas à l'échelle des widgets vivants : l'animation joue sur une
+    capture, puis rend la place aux vrais widgets.
     """
 
-    def __init__(
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._pixmap = QPixmap()
+        self._origin = QPointF()
+        self._progress = 0.0
+        self._anim = QVariantAnimation(self)
+        self._anim.valueChanged.connect(self._step)
+        self._done: Callable[[], None] = _nothing
+        self._anim.finished.connect(self._finish)
+        self.hide()
+
+    @property
+    def running(self) -> bool:
+        return self._anim.state() == QAbstractAnimation.State.Running
+
+    def play(
         self,
-        parent: tk.Misc,
-        text: str,
-        command: Callable[[], None],
+        pixmap: QPixmap,
+        origin: QPointF,
         *,
-        kind: str,
-        font: tkfont.Font,
-        width: int,
-        height: int,
-        icon: tuple[str, tkfont.Font, int] | None = None,  # glyphe, police, écart au texte
-        bg: str = C.bg,  # fond derrière les coins arrondis (celui d'un bandeau, par exemple)
+        opening: bool,
+        ms: int,
+        done: Callable[[], None],
     ) -> None:
-        super().__init__(parent, width=width, height=height, bg=bg, highlightthickness=0, bd=0)
-        self._kind = kind
-        self._bg = bg
-        self._command = command
-        self._hover = self._pressed = self._selected = False
-        self._enabled = True
-        self._shape = _round_rect(self, (0, 0, width - 1, height - 1), height / 2, outline="")
-        self._font = font
-        self._icon = icon
-        self._glyph = self.create_text(0, height / 2, text=icon[0] if icon else "", anchor="w")
-        if icon is not None:
-            self.itemconfigure(self._glyph, font=icon[1])
-        self._text = self.create_text(0, height / 2, text=text, font=font, anchor="w")
-        self._center()
-        self._paint()
-        self.bind("<Enter>", lambda _e: self._set(hover=True))
-        self.bind("<Leave>", lambda _e: self._set(hover=False, pressed=False))
-        self.bind("<ButtonPress-1>", lambda _e: self._set(pressed=True))
-        self.bind("<ButtonRelease-1>", self._release)
+        self._anim.stop()
+        self._pixmap, self._origin, self._done = pixmap, origin, done
+        self.setGeometry(0, 0, pixmap.width(), pixmap.height())
+        start = self._progress if self.isVisible() else (0.0 if opening else 1.0)
+        self._anim.setStartValue(start)
+        self._anim.setEndValue(1.0 if opening else 0.0)
+        curve = QEasingCurve(QEasingCurve.Type.BezierSpline)
+        if opening:  # cubic-bezier(.23, 1, .32, 1) : rapide puis doux
+            curve.addCubicBezierSegment(QPointF(0.23, 1.0), QPointF(0.32, 1.0), QPointF(1, 1))
+        else:  # ease-out
+            curve.addCubicBezierSegment(QPointF(0.0, 0.0), QPointF(0.58, 1.0), QPointF(1, 1))
+        self._anim.setEasingCurve(curve)
+        self._anim.setDuration(ms)
+        self._progress = start
+        self.show()
+        self.raise_()
+        self._anim.start()
 
-    def _center(self) -> None:
-        """Icône puis libellé, centrés ensemble."""
-        width = int(self.cget("width"))
-        text_w = self._font.measure(self.itemcget(self._text, "text"))
-        icon_w = 0
-        if self._icon is not None:
-            icon_w = self._icon[1].measure(self._icon[0]) + self._icon[2]
-        left = (width - icon_w - text_w) / 2
-        self.coords(self._glyph, left, int(self.cget("height")) / 2)
-        self.coords(self._text, left + icon_w, int(self.cget("height")) / 2)
+    def stop(self) -> None:
+        if self.running:
+            self._anim.stop()
+        self.hide()
 
-    def _set(self, *, hover: bool | None = None, pressed: bool | None = None) -> None:
-        if hover is not None:
-            self._hover = hover
-        if pressed is not None:
-            self._pressed = pressed
-        self._paint()
+    def _step(self, value: float) -> None:
+        self._progress = float(value)
+        self.update()
 
-    def _paint(self) -> None:
-        fill = _KINDS[self._kind]
-        live = self._enabled
-        if live and self._pressed:
-            color, ink = fill.pressed, fill.hover_text or fill.text
-        elif live and (self._hover or self._selected):
-            color, ink = fill.hover, fill.hover_text or fill.text
-        else:
-            color, ink = fill.rest, fill.text
-        stroke = fill.stroke or color
-        if not live:
-            color, ink, stroke = (mix(c, self._bg, _DISABLED) for c in (color, ink, stroke))
-        self.itemconfigure(self._shape, fill=color, outline=stroke)
-        self.itemconfigure(self._text, fill=ink)
-        self.itemconfigure(self._glyph, fill=ink)
+    def _finish(self) -> None:
+        self.hide()
+        done, self._done = self._done, _nothing
+        done()
 
-    def _release(self, event: tk.Event) -> None:
-        inside = 0 <= event.x < self.winfo_width() and 0 <= event.y < self.winfo_height()
-        self._set(pressed=False)
-        if inside and self._enabled:
-            self._command()
-
-    def set_text(self, text: str) -> None:
-        if self.itemcget(self._text, "text") != text:
-            self.itemconfigure(self._text, text=text)
-            self._center()
-
-    def set_kind(self, kind: str) -> None:
-        if kind != self._kind:
-            self._kind = kind
-            self._paint()
-
-    def set_enabled(self, enabled: bool) -> None:
-        if enabled != self._enabled:
-            self._enabled = enabled
-            self.configure(cursor="" if enabled else "no")
-            self._paint()
-
-    def set_selected(self, selected: bool) -> None:
-        if selected != self._selected:
-            self._selected = selected
-            self._paint()
+    def paintEvent(self, _event: QPaintEvent) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setOpacity(self._progress)
+        scale = OPEN_SCALE + (1 - OPEN_SCALE) * self._progress
+        painter.translate(self._origin)
+        painter.scale(scale, scale)
+        painter.translate(-self._origin)
+        painter.drawPixmap(0, 0, self._pixmap)
 
 
-class Segmented(tk.Canvas):
-    """Choix exclusif en pilule ; le segment choisi prend l'or."""
+class PanelWindow(QWidget):
+    """Fenêtre sans bordure ni fond, au-dessus du jeu, jamais activée par un clic."""
 
-    def __init__(
-        self,
-        parent: tk.Misc,
-        options: Sequence[tuple[str, str]],
-        command: Callable[[str], None],
-        *,
-        width: int,
-        height: int,
-        inset: int,
-        font: tkfont.Font,
-        strong: tkfont.Font,
-    ) -> None:
-        super().__init__(parent, width=width, height=height, bg=C.bg, highlightthickness=0, bd=0)
-        self._choices = list(options)
-        self._command = command
-        self._fonts = (font, strong)
-        self._size = (width, height, inset)
-        self._selected = ""
-        self._disabled: frozenset[str] = frozenset()
-        self._hover = self._pressed = ""
-        self.bind("<Motion>", lambda e: self._set_hover(self._at(e.x)))
-        self.bind("<Leave>", lambda _e: self._set_hover(""))
-        self.bind("<ButtonPress-1>", self._press)
-        self.bind("<ButtonRelease-1>", self._click)
-        self._draw()
-
-    def _at(self, x: float) -> str:
-        step = self._size[0] / len(self._choices)
-        index = min(len(self._choices) - 1, max(0, int(x // step)))
-        return self._choices[index][0]
-
-    def _set_hover(self, value: str) -> None:
-        if value != self._hover:
-            self._hover = value
-            if not value:
-                self._pressed = ""
-            self._draw()
-
-    def _press(self, event: tk.Event) -> None:
-        value = self._at(event.x)
-        if value not in self._disabled and value != self._selected:
-            self._pressed = value
-            self._draw()
-
-    def _click(self, event: tk.Event) -> None:
-        if self._pressed:
-            self._pressed = ""
-            self._draw()
-        if not (0 <= event.x < self._size[0] and 0 <= event.y < self._size[1]):
-            return
-        value = self._at(event.x)
-        if value not in self._disabled and value != self._selected:
-            self._command(value)
-
-    def set(self, selected: str, disabled: frozenset[str] = frozenset()) -> None:
-        if (selected, disabled) != (self._selected, self._disabled):
-            self._selected, self._disabled = selected, disabled
-            self._draw()
-
-    def _draw(self) -> None:
-        self.delete("all")
-        width, height, inset = self._size
-        font, strong = self._fonts
-        _round_rect(self, (0, 0, width - 1, height - 1), height / 2, fill=C.layer, outline=C.stroke)
-        step = width / len(self._choices)
-        inner_r = height / 2 - inset
-        for index, (value, label) in enumerate(self._choices):
-            left, right = index * step, (index + 1) * step
-            inner = (left + inset, inset, right - inset - 1, height - inset - 1)
-            color, face = C.text_2, font
-            if value == self._selected:
-                _round_rect(self, inner, inner_r, fill=C.accent, outline=C.accent)
-                color, face = C.on_accent, strong
-            elif value in self._disabled:
-                color = C.text_3
-            elif value == self._pressed:
-                _round_rect(self, inner, inner_r, fill=C.layer_pressed, outline=C.layer_pressed)
-                color = C.text
-            elif value == self._hover:
-                _round_rect(self, inner, inner_r, fill=C.layer_hover, outline=C.layer_hover)
-                color = C.text
-            self.create_text((left + right) / 2, height / 2, text=label, font=face, fill=color)
-
-
-class Slider(tk.Canvas):
-    """Curseur horizontal : piste en pilule, part remplie en or, poignée claire.
-
-    ``command(valeur, fini)`` suit chaque mouvement ; ``fini`` au relâchement.
-    """
-
-    def __init__(
-        self,
-        parent: tk.Misc,
-        command: Callable[[int, bool], None],
-        *,
-        width: int,
-        height: int,
-        track: int,
-        thumb_font: tkfont.Font,
-        thumb: int,
-        snap: Callable[[float], int],
-        bounds: tuple[int, int],
-    ) -> None:
-        super().__init__(parent, width=width, height=height, bg=C.bg, highlightthickness=0, bd=0)
-        self._command = command
-        self._size = (width, height, track, thumb)
-        self._thumb_font = thumb_font
-        self._snap = snap
-        self._bounds = bounds
-        self._value = bounds[1]
-        self.bind("<ButtonPress-1>", lambda e: self._move(e.x, final=False))
-        self.bind("<B1-Motion>", lambda e: self._move(e.x, final=False))
-        self.bind("<ButtonRelease-1>", lambda e: self._move(e.x, final=True))
-        self._draw()
-
-    def _span(self) -> tuple[float, float]:
-        width, _, _, thumb = self._size
-        return thumb / 2, width - thumb / 2
-
-    def _move(self, x: float, *, final: bool) -> None:
-        start, end = self._span()
-        low, high = self._bounds
-        ratio = min(1.0, max(0.0, (x - start) / (end - start)))
-        value = self._snap(low + ratio * (high - low))
-        if value != self._value:
-            self._value = value
-            self._draw()
-        self._command(value, final)
-
-    def set(self, value: int) -> None:
-        if value != self._value:
-            self._value = value
-            self._draw()
-
-    def _draw(self) -> None:
-        self.delete("all")
-        width, height, track, _ = self._size
-        start, end = self._span()
-        low, high = self._bounds
-        x = start + (self._value - low) / (high - low) * (end - start)
-        top, bottom = (height - track) / 2, (height + track) / 2 - 1
-        _round_rect(self, (0, top, width - 1, bottom), track / 2, fill=C.layer_hover, outline="")
-        _round_rect(self, (0, top, x, bottom), track / 2, fill=C.accent, outline="")
-        self.create_text(x, height / 2, text=ICON_DOT, font=self._thumb_font, fill=C.text)
-
-
-ButtonFactory = Callable[[tk.Misc, str, Callable[[], None], str], Button]
-
-
-class Notice(tk.Canvas):
-    """Bandeau : icône de gravité et message sur fond teinté, coins de 8 px.
-
-    Un bouton d'action facultatif se place sous le message, aligné sur lui.
-    """
-
-    _STYLES = {  # noqa: RUF012 - table de constantes
-        "critical": (C.critical_bg, C.critical, ICON_ERROR),
-        "caution": (C.caution_bg, C.caution, ICON_WARNING),
-        "info": (C.layer, C.text_2, ICON_INFO),
-    }
-
-    def __init__(
-        self,
-        parent: tk.Misc,
-        *,
-        width: int,
-        pad: tuple[int, int],  # côtés, haut et bas
-        gap: int,
-        radius: int,
-        font: tkfont.Font,
-        icon_font: tkfont.Font,
-        make_button: ButtonFactory | None = None,
-    ) -> None:
-        super().__init__(parent, width=width, height=1, bg=C.bg, highlightthickness=0, bd=0)
-        self._width, self._pad, self._gap, self._radius = width, pad, gap, radius
-        self._font, self._icon_font = font, icon_font
-        self._shown: tuple[str, str, str] | None = None
-        self._make_button = make_button
-        self._button: Button | None = None
-        self._button_key: tuple[str, str] = ("", "")  # libellé, fond
-        self._command: Callable[[], None] = _nothing
-
-    def show(
-        self, severity: str, message: str, action: tuple[str, Callable[[], None]] | None = None
-    ) -> bool:
-        """Dessine le bandeau ; vrai si sa hauteur a changé."""
-        label = action[0] if action is not None else ""
-        if action is not None:
-            self._command = action[1]
-        if self._shown == (severity, message, label):
-            return False
-        self._shown = (severity, message, label)
-        background, tint, glyph = self._STYLES[severity]
-        self.delete("all")
-        pad_x, pad_y = self._pad
-        text_x = pad_x + self._icon_font.measure(glyph) + self._gap
-        text = self.create_text(
-            text_x,
-            pad_y,
-            text=message,
-            font=self._font,
-            fill=C.text,
-            anchor="nw",
-            width=self._width - text_x - pad_x,
+    def __init__(self, title: str, *, topmost: bool, on_close: Callable[[], None]) -> None:
+        flags = (
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowDoesNotAcceptFocus
+            | Qt.WindowType.NoDropShadowWindowHint
         )
-        bottom = self.bbox(text)[3]
-        bottom = self._place_button(label, background, text_x, bottom)
-        line = self._font.metrics("linespace")
-        self.create_text(
-            pad_x, pad_y + line / 2, text=glyph, font=self._icon_font, fill=tint, anchor="w"
-        )
-        height = bottom + pad_y
-        shape = _round_rect(
-            self, (0, 0, self._width - 1, height - 1), self._radius, fill=background, outline=""
-        )
-        self.tag_lower(shape)
-        changed = int(self.cget("height")) != height
-        self.configure(height=height)
-        return changed
+        if topmost:
+            flags |= Qt.WindowType.WindowStaysOnTopHint
+        super().__init__(None, flags)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setWindowTitle(title)
+        self._on_close = on_close
 
-    def _place_button(self, label: str, background: str, left: int, bottom: int) -> int:
-        """Bouton d'action sous le message ; rend le nouveau bas du contenu."""
-        if not label or self._make_button is None:
-            if self._button is not None:
-                self._button.destroy()
-                self._button, self._button_key = None, ("", "")
-            return bottom
-        if self._button is None or self._button_key != (label, background):
-            if self._button is not None:
-                self._button.destroy()
-            self._button = self._make_button(self, label, self._run_command, background)
-            self._button_key = (label, background)
-        top = bottom + self._gap
-        self.create_window(left, top, window=self._button, anchor="nw")
-        return top + int(self._button.cget("height"))
-
-    def _run_command(self) -> None:
-        self._command()  # le dernier rappel donné à show, pas celui de la création
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """WM_CLOSE (Alt+F4, fermeture de session, autre panneau) : arrêt propre, journalisé."""
+        event.ignore()
+        self._on_close()
 
 
-_fonts_loaded = False
-
-
-def load_private_fonts(folder: Path = FONTS) -> int:
-    """Charge les polices livrées pour ce seul processus (``FR_PRIVATE``), une fois.
-
-    Rien n'est installé dans Windows ; sans elles, le panneau retombe sur Segoe UI.
-    """
-    global _fonts_loaded  # noqa: PLW0603 - chargement unique pour le processus
-    if _fonts_loaded:
-        return 0
-    _fonts_loaded = True
-    try:
-        gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
-    except OSError:
-        return 0
-    gdi32.AddFontResourceExW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_void_p]
-    gdi32.AddFontResourceExW.restype = ctypes.c_int
-    loaded = 0
-    for path in sorted(folder.glob("*.ttf")):
-        if gdi32.AddFontResourceExW(str(path), _FR_PRIVATE, None):
-            loaded += 1
-        else:
-            log.warning("police non chargée : %s", path.name)
-    return loaded
-
-
-# --- panneau --------------------------------------------------------------------
-Journal = list[tuple[tk.Frame, tk.Label, tk.Label]]
+Journal = list[tuple[QWidget, Text, Text]]
 
 
 class Panel:
@@ -1265,7 +949,6 @@ class Panel:
 
     def __init__(
         self,
-        root: tk.Tk,
         controller: Controller,
         cfg: PanelConfig,
         *,
@@ -1276,8 +959,8 @@ class Panel:
         game: Callable[[], int] | None = None,
         updates: Updates | None = None,
         follow_cursor: bool = True,  # faux pour les captures : la scène dit ce qui est ouvert
+        show: bool = True,  # faux pour les captures : rien n'est affiché à l'écran
     ) -> None:
-        self.root = root
         self.controller = controller
         self.updates = updates
         self._installing = False  # mise à jour prête : le panneau se ferme pour l'installer
@@ -1294,328 +977,369 @@ class Panel:
         self.rest = cfg.rest  # "pill" ou "panel" : ce qui reste affiché sans la souris
         self.rest_opacity = snap_opacity(cfg.rest_opacity)
         self.follow_cursor = follow_cursor
+        self.animate = show  # pas d'animation pour les captures : l'état final directement
         self.expanded = False  # curseur sur le panneau (ou sorti depuis moins de LEAVE_S)
         self._left_at: float | None = None
         self.settings_open = False
         self._preview_until = 0.0  # opacité au repos montrée pendant son réglage
-        self._alpha = -1
-        self.width = self.px(WIDTH)
-        self._drag: tuple[int, int] | None = None
-        self._shape: tuple[object, ...] = ()  # disposition affichée (ce qui change la hauteur)
-        self._settings_shape: tuple[object, ...] = ()
+        self._opacity_target = -1.0
+        self._drag: QPoint | None = None
+        self._card_view = False  # carte affichée (sinon la pastille)
         start = tuple(cfg.position) if cfg.position else home
         self._pos = (int(start[0]), int(start[1]))  # coin haut gauche voulu
         self._at = self._pos  # coin réellement affiché (gardé entier sur l'écran)
+        self.fonts = make_fonts(self.scale)
 
-        root.report_callback_exception = self._report_error  # type: ignore[method-assign]
-        root.protocol("WM_DELETE_WINDOW", self._closed_by_system)
-        root.withdraw()
-        root.overrideredirect(True)
-        root.configure(bg=C.bg)
-        root.attributes("-topmost", cfg.topmost)
-        root.title(TITLE)
-        self._fonts()
+        self.window = PanelWindow(TITLE, topmost=cfg.topmost, on_close=self._closed_by_system)
+        self.settings = PanelWindow(
+            SETTINGS_TITLE, topmost=cfg.topmost, on_close=self._closed_by_system
+        )
+        self._fade = QVariantAnimation(self.window)
+        self._fade.setDuration(FADE_MS)
+        self._fade.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._fade.valueChanged.connect(lambda v: self.window.setWindowOpacity(float(v)))
+        self._dragger = _Dragger(self)
         self._build()
-        self._build_settings(cfg.topmost)
+        self._build_settings()
         self._render(controller.status())
-        root.update_idletasks()
-        self.hwnd = self.win32.top_level(root.winfo_id())
-        self.win32.style(self.hwnd, exclude_from_capture=cfg.exclude_from_capture)
-        self.settings_hwnd = self.win32.top_level(self.settings.winfo_id())
-        self.win32.style(self.settings_hwnd, exclude_from_capture=cfg.exclude_from_capture)
+        self.hwnd = int(self.window.winId())
+        self.settings_hwnd = int(self.settings.winId())
+        if show:
+            self.win32.style(self.hwnd, exclude_from_capture=cfg.exclude_from_capture)
+            self.win32.style(self.settings_hwnd, exclude_from_capture=cfg.exclude_from_capture)
         self._apply_alpha(time.monotonic())
-        root.deiconify()
-        self._guard_focus()
-        root.after(_POLL_MS, self._poll)
-        if follow_cursor:
-            root.after(_HOVER_MS, self._follow)
+        self._timers: list[QTimer] = []
+        if show:
+            self.window.show()
+            self._guard_focus()
+            self._every(_POLL_MS, self._poll)
+            if follow_cursor:
+                self._every(_HOVER_MS, self._follow)
 
     def px(self, value: float) -> int:
         return round(value * self.scale)
 
+    def _every(self, ms: int, callback: Callable[[], None]) -> None:
+        timer = QTimer(self.window)
+        timer.setInterval(ms)
+        timer.timeout.connect(callback)
+        timer.start()
+        self._timers.append(timer)
+
     # --- construction -----------------------------------------------------
-    def _fonts(self) -> None:
-        load_private_fonts()
-        families = set(tkfont.families(self.root))
-
-        def pick(*names: str) -> str:
-            return next((n for n in names if n in families), "Segoe UI")
-
-        def font(family: str, size: int, weight: str = "normal") -> tkfont.Font:
-            return tkfont.Font(self.root, family=family, size=-self.px(size), weight=weight)
-
-        text = pick("Figtree", "Segoe UI Variable Text", "Segoe UI")
-        strong = pick("Figtree SemiBold", "Segoe UI Variable Text Semibold", "Segoe UI Semibold")
-        self.f_body = font(text, 14)
-        self.f_strong = font(strong, 14)
-        self.f_caption = font(text, 12)
-        self.f_heading = font(strong, 12)
-        title = pick("Bricolage Grotesque 14pt")
-        self.f_title = font(title, 14, "bold") if title != "Segoe UI" else self.f_strong
-        icons = pick("Segoe Fluent Icons", "Segoe MDL2 Assets")
-        self.f_icon = font(icons, 12)
-        self.f_icon_body = font(icons, 14)
-        self.f_dot = font(icons, DOT)
-        self.f_thumb = font(icons, THUMB)
-
-    def _label(self, parent: tk.Misc, font: tkfont.Font, color: str, **kw: object) -> tk.Label:
-        return tk.Label(parent, font=font, fg=color, bg=C.bg, bd=0, padx=0, pady=0, **kw)
+    def _text(self, font: QFont, color: str, text: str = "", **kw: object) -> Text:
+        line = self.px(LINE_SMALL) if font.pixelSize() <= self.px(12) else self.px(LINE)
+        return Text(font, color, line, text, **kw)  # type: ignore[arg-type]
 
     def _button(
         self,
-        parent: tk.Misc,
         text: str,
         command: Callable[[], None],
         kind: str,
-        width: int,
         *,
-        icon: str = "",
         strong: bool = False,
+        min_width: int = 0,
+        icon: IconPainter | None = None,
     ) -> Button:
+        px = self.px
+        if icon is not None:
+            pad = (px(SUBTLE_PAD[0]), px(SUBTLE_PAD[1]))
+        else:
+            pad = (px(BUTTON_PAD), px(BUTTON_PAD))
         return Button(
-            parent,
             text,
             command,
             kind=kind,
-            font=self.f_strong if strong else self.f_body,
-            width=width,
-            height=self.px(CONTROL_H),
-            icon=(icon, self.f_icon_body, self.px(GAP)) if icon else None,
+            font=self.fonts.strong if strong else self.fonts.body,
+            height=px(CONTROL_H),
+            pad=pad,
+            min_width=min_width,
+            icon=(icon, px(ICON), px(GAP)) if icon is not None else None,
         )
+
+    def _box(
+        self, parent: QWidget, margins: tuple[int, int, int, int], spacing: int = 0
+    ) -> QVBoxLayout:
+        layout = QVBoxLayout(parent)
+        layout.setContentsMargins(*(self.px(m) for m in margins))
+        layout.setSpacing(self.px(spacing))
+        return layout
 
     def _build(self) -> None:
-        root, px = self.root, self.px
-        inner = self.width - 2 * px(PAD)
+        px, fonts = self.px, self.fonts
 
         # au repos : pastille de l'état de la relance et total des coffres
-        self.pill = tk.Frame(root, bg=C.bg, height=px(PILL_H))
-        self.pill.pack_propagate(False)
-        self.pill_inner = tk.Frame(self.pill, bg=C.bg)
-        self.pill_inner.place(x=px(PAD), rely=0.5, anchor="w")
-        self.pill_dot = self._label(self.pill_inner, self.f_dot, C.neutral, text=ICON_DOT)
-        self.pill_dot.pack(side="left", padx=(0, px(GAP)))
-        self.pill_text = self._label(self.pill_inner, self.f_body, C.text)
-        self.pill_text.pack(side="left")
-        self.pill_sep = tk.Frame(self.pill_inner, bg=C.stroke, width=1, height=px(12))
-        self.pill_icon = self._label(self.pill_inner, self.f_icon, C.text_2, text=ICON_CHEST)
-        self.pill_total = self._label(self.pill_inner, self.f_strong, C.text)
-        self._draggable(self.pill, self.pill_inner, self.pill_dot, self.pill_text)
-        self._draggable(self.pill_icon, self.pill_total)
+        self.pill = Surface(px(PILL_H) / 2, self.window)
+        self.pill.setFixedHeight(px(PILL_H))
+        row = QHBoxLayout(self.pill)
+        row.setContentsMargins(px(PAD), 0, px(PAD), 0)
+        row.setSpacing(px(GAP))
+        self.pill_dot = Dot(px(DOT), C.neutral)
+        self.pill_text = self._text(fonts.body, C.text)
+        row.addWidget(self.pill_dot, 0, Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(self.pill_text, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.pill_chests = QWidget()
+        self.pill_chests.setFixedHeight(px(PILL_H))  # icône et total centrés sur la pastille
+        group = QHBoxLayout(self.pill_chests)
+        group.setContentsMargins(0, 0, 0, 0)
+        group.setSpacing(0)
+        self.pill_sep = Rule(vertical=px(12))
+        self.pill_icon = Icon(draw_chest, px(ICON), C.text_2)
+        self.pill_total = self._text(fonts.figures, C.text)
+        group.addWidget(self.pill_sep, 0, Qt.AlignmentFlag.AlignVCenter)
+        group.addSpacing(px(GAP))
+        group.addWidget(self.pill_icon, 0, Qt.AlignmentFlag.AlignVCenter)
+        group.addSpacing(px(HEADING_GAP))  # total collé à l'icône (4 px)
+        group.addWidget(self.pill_total, 0, Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(self.pill_chests, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._draggable(self.pill)
 
         # au survol : la carte entière
-        self.card = tk.Frame(root, bg=C.bg)
-        self._action_w = max(
-            px(ACTION_MIN_W),
-            *(self.f_strong.measure(t) + 2 * px(BUTTON_PAD) for t in (ACTIVATE, DEACTIVATE)),
-        )
-        self.header, self.dot, self.title, self.state = self._feature_row(self.card, "Relance auto")
-        self.action = self._button(
-            self.header, DEACTIVATE, self._toggle, "standard", self._action_w, strong=True
-        )
-        self.action.grid(row=1, column=2, rowspan=2, padx=(px(GAP), px(PAD)))
+        self.card = Surface(px(CARD_RADIUS), self.window)
+        column = self._box(self.card, (0, 0, 0, 0))
+        inner = px(WIDTH) - 2 * px(PAD)
 
-        self.bot_body = tk.Frame(self.card, bg=C.bg, padx=px(PAD))
-        self.notice = self._notice(self.bot_body, inner)
-        self.s_recent = self._section(self.bot_body, "Derniers clics")
-        # chiffres proportionnels : la colonne de l'heure a la largeur de la plus large
-        clock_w = max(self.f_body.measure(f"{d}{d}:{d}{d}") for d in range(10))
-        self.recent = self._journal(self.s_recent, clock_w)
-        self.empty = tk.Frame(self.s_recent, bg=C.bg, height=px(ROW_H))
-        self.empty.pack_propagate(False)
-        empty = self._label(self.empty, self.f_body, C.text_3, text=NO_CLICK)
-        empty.pack(side="left")
+        action_w = max(
+            px(ACTION_MIN_W),
+            *(
+                round(QFontMetricsF(fonts.strong).horizontalAdvance(t)) + 2 * px(BUTTON_PAD)
+                for t in (ACTIVATE, DEACTIVATE)
+            ),
+        )
+        self.action = self._button(
+            DEACTIVATE, self._toggle, "standard", strong=True, min_width=action_w
+        )
+        self.header, self.dot, self.title, self.state = self._feature_row(
+            "Relance auto", self.action
+        )
+        column.addWidget(self.header)
+
+        self.bot_body = QWidget()
+        body = self._box(self.bot_body, (PAD, 0, PAD, PAD), SECTION_GAP)
+        self.notice = self._notice(inner)
+        body.addWidget(self.notice)
+        self.s_recent, recent = self._section("Derniers clics")
+        self.recent = self._journal(recent, px(CLOCK_W))
+        self.empty = self._text(fonts.body, C.text_3, NO_CLICK)
+        self.empty.setFixedHeight(px(ROW_H))
+        recent.addWidget(self.empty)
+        body.addWidget(self.s_recent)
+        column.addWidget(self.bot_body)
 
         # coffres : comptés à chaque fin de partie, que la relance soit active ou non
-        self.chests_rule = tk.Frame(self.card, bg=C.stroke, height=1)
-        self.chests_block = tk.Frame(self.card, bg=C.bg)
-        self.chests_row, self.chests_dot, _, self.chests_state = self._feature_row(
-            self.chests_block, "Coffres"
-        )
+        self.chests_rule = self._rule()
+        column.addWidget(self.chests_rule)
+        self.chests_block = QWidget()
+        block = self._box(self.chests_block, (0, 0, 0, 0))
         # le total sur la ligne du nom, aligné sur le bord droit du bouton de la relance
-        self.chests_value = self._label(self.chests_row, self.f_title, C.text, anchor="e")
-        self.chests_value.grid(row=1, column=2, sticky="e", padx=(px(GAP), px(PAD)))
-        self._draggable(self.chests_value)
-        self.chests_body = tk.Frame(self.chests_block, bg=C.bg, padx=px(PAD))
-        self.chests_notice = self._notice(self.chests_body, inner)
-        self.s_games = self._section(self.chests_body, "Dernières parties")
-        date_w = max(
-            self.f_body.measure(f"{d}{d}{NBSP}{month} {d}{d}:{d}{d}")
-            for d in range(10)
-            for month in SHORT_MONTHS
+        self.chests_value = self._text(fonts.title, C.text, align=Qt.AlignmentFlag.AlignRight)
+        self.chests_row, self.chests_dot, _, self.chests_state = self._feature_row(
+            "Coffres", self.chests_value, top=True
         )
-        self.games = self._journal(self.s_games, date_w)
+        block.addWidget(self.chests_row)
+        self.chests_body = QWidget()
+        chests = self._box(self.chests_body, (PAD, 0, PAD, PAD), SECTION_GAP)
+        self.chests_notice = self._notice(inner)
+        chests.addWidget(self.chests_notice)
+        self.s_games, games = self._section("Dernières parties")
+        self.games = self._journal(games, px(DATE_W))
+        chests.addWidget(self.s_games)
+        block.addWidget(self.chests_body)
+        column.addWidget(self.chests_block)
 
-        self.footer_rule = tk.Frame(self.card, bg=C.stroke, height=1)
-        self.update_box = tk.Frame(self.card, bg=C.bg, padx=px(PAD))
-        self.update_notice = self._notice(self.update_box, inner, make_button=self._notice_button)
-        self.update_notice.pack(fill="x")
-        self.footer = tk.Frame(self.card, bg=C.bg, padx=px(PAD))
-        settings_w = (
-            self.f_icon_body.measure(ICON_SETTINGS)
-            + px(GAP)
-            + self.f_body.measure("Réglages")
-            + 2 * px(PAD)
-        )
+        self.footer_rule = self._rule()
+        column.addWidget(self.footer_rule)
+        self.update_box = QWidget()
+        update = self._box(self.update_box, (PAD, PAD, PAD, 0))
+        self.update_notice = self._notice(inner, make_button=self._notice_button)
+        update.addWidget(self.update_notice)
+        column.addWidget(self.update_box)
+        self.footer = QWidget()
+        foot = QHBoxLayout(self.footer)
+        foot.setContentsMargins(px(PAD), px(FOOTER_TOP), px(PAD), px(PAD))
+        foot.setSpacing(0)
         self.settings_button = self._button(
-            self.footer, "Réglages", self._toggle_settings, "subtle", settings_w, icon=ICON_SETTINGS
+            "Réglages", self._toggle_settings, "subtle", icon=self._sliders_icon
         )
-        self.settings_button.pack(side="left")
-        quit_w = self.f_body.measure("Quitter") + 2 * px(BUTTON_PAD)
-        self.quit_button = self._button(self.footer, "Quitter", self._quit, "standard", quit_w)
-        self.quit_button.pack(side="right")
+        self.quit_button = self._button("Quitter", self._quit, "standard")
+        foot.addWidget(self.settings_button)
+        foot.addStretch(1)
+        foot.addWidget(self.quit_button)
+        column.addWidget(self.footer)
+        self.card.hide()
+        self.ghost = Ghost(self.window)
 
-    def _build_settings(self, topmost: bool) -> None:
-        """Popover des réglages, fenêtre à part posée contre la carte ; caché au départ."""
+    @staticmethod
+    def _sliders_icon(painter: QPainter, x: float, y: float, size: float, color: str) -> None:
+        draw_sliders(painter, x, y, size, color, C.bg)
+
+    def _rule(self) -> QWidget:
+        holder = QWidget()
+        layout = QHBoxLayout(holder)
+        layout.setContentsMargins(self.px(PAD), 0, self.px(PAD), 0)
+        layout.addWidget(Rule())
+        holder.setFixedHeight(1)
+        return holder
+
+    def _feature_row(
+        self, name: str, side: QWidget, *, top: bool = False
+    ) -> tuple[QWidget, Dot, Text, Text]:
+        """Ligne d'une fonction : pastille et nom, son état dessous ; à droite, ``side``."""
+        px, fonts = self.px, self.fonts
+        row = QWidget()
+        row.setFixedHeight(px(FEATURE_H))
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(px(PAD), 0, px(PAD), 0)
+        layout.setSpacing(px(GAP))
+        names = QWidget()
+        lines = QVBoxLayout(names)
+        lines.setContentsMargins(0, 0, 0, 0)
+        lines.setSpacing(0)
+        title_line = QHBoxLayout()
+        title_line.setSpacing(px(GAP))
+        dot = Dot(px(DOT), C.neutral)
+        title = self._text(fonts.title, C.text, name)
+        title_line.addWidget(dot, 0, Qt.AlignmentFlag.AlignVCenter)
+        title_line.addWidget(title, 0, Qt.AlignmentFlag.AlignVCenter)
+        title_line.addStretch(1)
+        lines.addLayout(title_line)
+        state = self._text(fonts.caption, C.text_2, elide=True)
+        state_line = QHBoxLayout()
+        state_line.setContentsMargins(px(DOT) + px(GAP), 0, 0, 0)
+        state_line.addWidget(state)
+        lines.addLayout(state_line)
+        layout.addWidget(names, 1, Qt.AlignmentFlag.AlignVCenter)
+        if top:  # total : en haut, sur la ligne du nom (8 px du bord)
+            column = QVBoxLayout()
+            column.setContentsMargins(0, px(GAP), 0, 0)
+            column.addWidget(side)
+            column.addStretch(1)
+            layout.addLayout(column)
+        else:
+            layout.addWidget(side, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._draggable(row, names, dot, title, state)
+        if top:
+            self._draggable(side)
+        return row, dot, title, state
+
+    def _section(self, title: str) -> tuple[QWidget, QVBoxLayout]:
+        """Liste ou réglage : intertitre en légende semi-grasse, tertiaire."""
+        frame = QWidget()
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        heading = self._text(self.fonts.heading, C.text_3, title)
+        layout.addWidget(heading)
+        layout.addSpacing(self.px(HEADING_GAP))
+        return frame, layout
+
+    def _journal(self, layout: QVBoxLayout, when_w: int) -> Journal:
+        """Rangées de 24 px : moment en texte tertiaire, 12 px, libellé ; cachées tant que vides."""
         px = self.px
+        rows: Journal = []
+        for _ in range(RECENT_ROWS):
+            row = QWidget()
+            row.setFixedHeight(px(ROW_H))
+            line = QHBoxLayout(row)
+            line.setContentsMargins(0, 0, 0, 0)
+            line.setSpacing(px(JOURNAL_GAP))
+            when = self._text(tabular(self.fonts.body), C.text_3)
+            when.setFixedWidth(when_w)
+            what = self._text(self.fonts.body, C.text, elide=True)
+            line.addWidget(when, 0, Qt.AlignmentFlag.AlignVCenter)
+            line.addWidget(what, 1, Qt.AlignmentFlag.AlignVCenter)
+            layout.addWidget(row)
+            row.hide()
+            rows.append((row, when, what))
+        return rows
+
+    def _notice(
+        self, width: int, make_button: Callable[[str, Callable[[], None]], Button] | None = None
+    ) -> Notice:
+        px = self.px
+        notice = Notice(
+            width=width,
+            pad=(px(PAD), px(NOTICE_PAD_Y)),
+            gap=px(GAP),
+            radius=px(NOTICE_RADIUS),
+            icon=px(NOTICE_ICON),
+            font=self.fonts.body,
+            badge=self.fonts.badge,
+            line=px(LINE),
+            make_button=make_button,
+        )
+        notice.hide()
+        return notice
+
+    def _notice_button(self, text: str, command: Callable[[], None]) -> Button:
+        return self._button(text, command, "standard")
+
+    def _draggable(self, *widgets: QWidget) -> None:
+        for widget in widgets:
+            widget.installEventFilter(self._dragger)
+
+    def _build_settings(self) -> None:
+        """Popover des réglages, fenêtre à part posée contre la carte ; caché au départ."""
+        px, fonts = self.px, self.fonts
         inner = px(POPOVER_W) - 2 * px(PAD)
-        self.settings = tk.Toplevel(self.root, bg=C.bg)
-        self.settings.withdraw()
-        self.settings.overrideredirect(True)
-        self.settings.attributes("-topmost", topmost)
-        self.settings.title(SETTINGS_TITLE)
-        self.settings.protocol("WM_DELETE_WINDOW", self._closed_by_system)
-        box = tk.Frame(self.settings, bg=C.bg, padx=px(PAD), pady=px(PAD))
-        box.pack(fill="both")
+        self.popover = Surface(px(CARD_RADIUS), self.settings)
+        box = self._box(self.popover, (PAD, PAD, PAD, PAD), SETTING_GAP)
 
-        self.s_rest = self._section(box, "Au repos")
-        self.rest_choice = self._segmented(self.s_rest, REST_MODES, self._choose_rest, inner)
-        self.s_rest.pack(fill="x")
+        self.s_rest, rest = self._section("Au repos")
+        self.rest_choice = self._segmented(REST_MODES, self._choose_rest, inner)
+        rest.addWidget(self.rest_choice)
+        box.addWidget(self.s_rest)
 
-        self.s_opacity = tk.Frame(box, bg=C.bg)
-        heading = tk.Frame(self.s_opacity, bg=C.bg)
-        heading.pack(fill="x", pady=(0, px(HEADING_GAP)))
-        self._label(heading, self.f_heading, C.text_3, text="Opacité au repos").pack(side="left")
-        self.opacity_value = self._label(heading, self.f_heading, C.text_3)
-        self.opacity_value.pack(side="right")
+        self.s_opacity = QWidget()
+        opacity = QVBoxLayout(self.s_opacity)
+        opacity.setContentsMargins(0, 0, 0, 0)
+        opacity.setSpacing(px(HEADING_GAP))
+        heading = QHBoxLayout()
+        heading.addWidget(self._text(fonts.heading, C.text_3, "Opacité au repos"))
+        heading.addStretch(1)
+        self.opacity_value = self._text(tabular(fonts.heading), C.text_3)
+        heading.addWidget(self.opacity_value)
+        opacity.addLayout(heading)
         self.opacity = Slider(
-            self.s_opacity,
             self._choose_opacity,
             width=inner,
             height=px(SLIDER_H),
             track=px(TRACK_H),
-            thumb_font=self.f_thumb,
             thumb=px(THUMB),
             snap=snap_opacity,
             bounds=(OPACITY_MIN, OPACITY_MAX),
         )
-        self.opacity.pack(anchor="w")
-        self.s_opacity.pack(fill="x", pady=(px(SETTING_GAP), 0))
+        opacity.addWidget(self.opacity)
+        box.addWidget(self.s_opacity)
 
-        self.s_dialog = self._section(box, "Vous êtes toujours là\u00a0?")
-        self.segmented = self._segmented(self.s_dialog, ANSWERS, self._choose, inner)
-        self.dialog_hint = self._label(
-            self.s_dialog, self.f_caption, C.text_3, anchor="w", justify="left", wraplength=inner
-        )
-        self.s_dialog.pack(fill="x", pady=(px(SETTING_GAP), 0))
+        self.s_dialog, dialog = self._section(f"Vous êtes toujours là{NBSP}?")
+        self.segmented = self._segmented(ANSWERS, self._choose, inner)
+        dialog.addWidget(self.segmented)
+        self.dialog_gap = QWidget()
+        self.dialog_gap.setFixedHeight(px(GAP))
+        dialog.addWidget(self.dialog_gap)
+        self.dialog_hint = Wrapped(fonts.caption, C.text_3, px(LINE_SMALL), inner)
+        dialog.addWidget(self.dialog_hint)
+        box.addWidget(self.s_dialog)
 
         toggle, stop = self.hotkeys
-        self.hint = self._label(
-            box,
-            self.f_caption,
-            C.text_3,
-            text=shortcuts_hint(toggle, stop),
-            anchor="w",
-            justify="left",
-            wraplength=inner,
-        )
-        self.hint.pack(fill="x", pady=(px(SETTING_GAP), 0))
+        self.hint = Wrapped(fonts.caption, C.text_3, px(LINE_SMALL), inner)
+        self.hint.set_text(shortcuts_hint(toggle, stop))
+        box.addWidget(self.hint)
+        self.pop_ghost = Ghost(self.settings)
 
     def _segmented(
-        self,
-        parent: tk.Misc,
-        options: Sequence[tuple[str, str]],
-        command: Callable[[str], None],
-        width: int,
+        self, options: Sequence[tuple[str, str]], command: Callable[[str], None], width: int
     ) -> Segmented:
-        segmented = Segmented(
-            parent,
+        return Segmented(
             options,
             command,
             width=width,
             height=self.px(CONTROL_H),
             inset=self.px(SEGMENT_INSET),
-            font=self.f_body,
-            strong=self.f_strong,
+            font=self.fonts.body,
+            strong=self.fonts.strong,
         )
-        segmented.pack(anchor="w")
-        return segmented
-
-    def _notice(
-        self, parent: tk.Misc, width: int, make_button: ButtonFactory | None = None
-    ) -> Notice:
-        return Notice(
-            parent,
-            width=width,
-            pad=(self.px(PAD), self.px(NOTICE_PAD_Y)),
-            gap=self.px(GAP),
-            radius=self.px(NOTICE_RADIUS),
-            font=self.f_body,
-            icon_font=self.f_icon,
-            make_button=make_button,
-        )
-
-    def _feature_row(
-        self, parent: tk.Misc, name: str
-    ) -> tuple[tk.Frame, tk.Label, tk.Label, tk.Label]:
-        """Ligne d'une fonction : pastille et nom, son état dessous ; colonne 2 libre."""
-        px = self.px
-        row = tk.Frame(parent, bg=C.bg, height=px(FEATURE_H), width=self.width)
-        row.grid_propagate(False)
-        row.rowconfigure((0, 3), weight=1)  # le bloc de texte reste centré en hauteur
-        row.columnconfigure(1, weight=1)
-        dot = self._label(row, self.f_dot, C.neutral, text=ICON_DOT)
-        dot.grid(row=1, column=0, padx=(px(PAD), px(GAP)))
-        title = self._label(row, self.f_title, C.text, text=name, anchor="w")
-        title.grid(row=1, column=1, sticky="w")
-        state = self._label(row, self.f_caption, C.text_2, anchor="w")
-        state.grid(row=2, column=1, sticky="w")
-        row.pack(fill="x")
-        self._draggable(row, dot, title, state)
-        return row, dot, title, state
-
-    def _draggable(self, *widgets: tk.Misc) -> None:
-        for widget in widgets:
-            widget.bind("<ButtonPress-1>", self._drag_start)
-            widget.bind("<B1-Motion>", self._drag_move)
-            widget.bind("<ButtonRelease-1>", self._drag_end)
-
-    def _journal(self, parent: tk.Misc, when_w: int) -> Journal:
-        """Rangées de 24 px : moment en texte tertiaire, 12 px, libellé ; cachées tant que vides."""
-        px = self.px
-        rows: Journal = []
-        for _ in range(RECENT_ROWS):
-            row = tk.Frame(parent, bg=C.bg, height=px(ROW_H))
-            row.grid_propagate(False)
-            row.rowconfigure(0, weight=1)
-            row.columnconfigure(0, minsize=when_w)
-            when = self._label(row, self.f_body, C.text_3, anchor="w")
-            when.grid(row=0, column=0, sticky="w")
-            what = self._label(row, self.f_body, C.text, anchor="w")
-            what.grid(row=0, column=1, sticky="w", padx=(px(PAD), 0))
-            rows.append((row, when, what))
-        return rows
-
-    def _notice_button(
-        self, parent: tk.Misc, text: str, command: Callable[[], None], bg: str
-    ) -> Button:
-        width = self.f_body.measure(text) + 2 * self.px(BUTTON_PAD)
-        return Button(
-            parent,
-            text,
-            command,
-            kind="standard",
-            font=self.f_body,
-            width=width,
-            height=self.px(CONTROL_H),
-            bg=bg,
-        )
-
-    def _section(self, parent: tk.Misc, title: str) -> tk.Frame:
-        """Liste ou réglage : intertitre en légende semi-grasse, tertiaire."""
-        frame = tk.Frame(parent, bg=C.bg)
-        heading = self._label(frame, self.f_heading, C.text_3, text=title, anchor="w")
-        heading.pack(fill="x", pady=(0, self.px(HEADING_GAP)))
-        return frame
 
     # --- disposition --------------------------------------------------------
     @property
@@ -1628,94 +1352,111 @@ class Panel:
         update: tuple[str, str, str] | None,
         chests: ChestsView | None,
     ) -> None:
-        """Pastille, ou carte : relance, coffres, mise à jour, pied (Réglages, Quitter)."""
-        px = self.px
-        for widget in (
-            self.pill,
-            self.card,
-            self.bot_body,
-            self.notice,
-            self.s_recent,
-            self.chests_rule,
-            self.chests_block,
-            self.chests_body,
-            self.chests_notice,
-            self.s_games,
-            self.update_box,
-        ):
-            widget.pack_forget()
-        for widget in (self.pill_sep, self.pill_icon, self.pill_total):
-            widget.pack_forget()
-        if not self.card_shown:
-            if chests is not None and chests.value:
-                self.pill_sep.pack(side="left", padx=px(GAP))
-                self.pill_icon.pack(side="left", padx=(0, px(HEADING_GAP)))
-                self.pill_total.pack(side="left")
-            self.pill_inner.update_idletasks()
-            width = self.pill_inner.winfo_reqwidth() + 2 * px(PAD)
-            self.pill.configure(width=width)
-            self.pill.pack()
-            self._place()
-            return
+        """Carte : relance, coffres, mise à jour, pied (Réglages, Quitter)."""
         if notice is not None:
-            self.notice.show(*notice)
-            self.notice.pack(fill="x", pady=(0, px(SECTION_GAP)))
-        self.s_recent.pack(fill="x")
-        self.bot_body.pack(fill="x", pady=(px(DETAIL_GAP), px(PAD)))
-        if chests is not None:  # absente si le compteur est désactivé
-            self.chests_rule.pack(fill="x", padx=px(PAD))
-            self.chests_block.pack(fill="x")
-            self._layout_chests(chests)
-        self.footer_rule.pack_forget()
-        self.footer.pack_forget()
-        self.footer_rule.pack(fill="x", padx=px(PAD))
+            self.notice.show_message(*notice)
+        self.notice.setVisible(notice is not None)
+        self.chests_rule.setVisible(chests is not None)  # absente si le compteur est désactivé
+        self.chests_block.setVisible(chests is not None)
+        if chests is not None:
+            if chests.notice is not None:
+                self.chests_notice.show_message(*chests.notice)
+            self.chests_notice.setVisible(chests.notice is not None)
+            self.s_games.setVisible(bool(chests.games))
+            self.chests_body.setVisible(chests.notice is not None or bool(chests.games))
         if update is not None:
             self._show_update(update)
-            self.update_box.pack(fill="x", pady=(px(PAD), 0))
-        self.footer.pack(fill="x", pady=(px(GAP), px(PAD)))
-        self.card.pack()
-        self._place()
+        self.update_box.setVisible(update is not None)
+        self.pill_chests.setVisible(chests is not None and bool(chests.value))
+        self._fit()
 
-    def _layout_chests(self, chests: ChestsView) -> None:
-        """Sous la ligne des coffres : bandeau, puis dernières parties."""
-        px = self.px
-        if chests.notice is not None:
-            self.chests_notice.show(*chests.notice)
-            self.chests_notice.pack(fill="x")
-        if chests.games:
-            top = px(SECTION_GAP) if chests.notice else 0
-            self.s_games.pack(fill="x", pady=(top, 0))
-        if chests.notice is not None or chests.games:
-            self.chests_body.pack(fill="x", pady=(px(DETAIL_GAP), px(PAD)))
+    @staticmethod
+    def _size(widget: QWidget, width: int = 0) -> None:
+        """Taille au contenu (les widgets cachés ne comptent pas) ; largeur fixe si donnée."""
+        layout = widget.layout()
+        if layout is None:
+            return
+        # textes et lignes changés à l'instant : tailles recalculées de bas en haut,
+        # puis positions de haut en bas (Qt ne le ferait qu'au prochain tour de boucle)
+        children = widget.findChildren(QWidget)
+        nested = [c.layout() for c in children if c.layout() is not None]
+        for child in reversed(children):
+            child.updateGeometry()  # vide le cache de taille que garde la mise en page parente
+            if child.layout() is not None:
+                child.layout().invalidate()
+        layout.invalidate()
+        hint = layout.sizeHint()
+        widget.resize(width or hint.width(), hint.height())
+        layout.activate()
+        for child in nested:
+            child.activate()
 
-    def _place(self) -> None:
-        """Pose la fenêtre à sa place, taille au contenu, entière sur son écran.
+    def _fit(self) -> None:
+        """Taille de la fenêtre : celle de la vue affichée, sauf pendant une animation."""
+        self._size(self.pill)
+        self._size(self.card, self.px(WIDTH))
+        if self.ghost.running:
+            return
+        view = self.card if self._card_view else self.pill
+        self._place(view.width(), view.height())
+
+    def _place(self, width: int, height: int) -> None:
+        """Pose la fenêtre à sa place, entière sur son écran.
 
         Pastille et carte partagent le coin haut gauche : la carte s'ouvre sous le curseur.
         """
-        self.root.update_idletasks()
-        width, height = self.root.winfo_reqwidth(), self.root.winfo_reqheight()
         x, y = self._pos
         area = self.win32.work_area(x + width // 2, y + self.px(PILL_H) // 2)
         self._at = clamp(x, y, width, height, area)
-        self.root.geometry(f"{width}x{height}+{self._at[0]}+{self._at[1]}")
+        self.window.setGeometry(self._at[0], self._at[1], width, height)
         if self.settings_open:
             self._place_settings()
 
-    def _place_settings(self) -> None:
-        """Popover contre la carte, bas alignés : à droite, à gauche s'il n'y a pas la place."""
+    def _place_settings(self) -> bool:
+        """Popover contre la carte, bas alignés : à droite, à gauche s'il n'y a pas la place.
+
+        Vrai s'il est à droite.
+        """
         px = self.px
-        self.settings.update_idletasks()
-        width, height = self.settings.winfo_reqwidth(), self.settings.winfo_reqheight()
-        self.root.update_idletasks()
-        card_w, card_h = self.root.winfo_reqwidth(), self.root.winfo_reqheight()
+        self._size(self.popover, px(POPOVER_W))
+        width, height = self.popover.width(), self.popover.height()
+        card_w, card_h = self.card.width(), self.card.height()
         x, y = self._at
         area = self.win32.work_area(x + card_w // 2, y + card_h // 2)
         right = x + card_w + px(POPOVER_GAP)
         left = x - px(POPOVER_GAP) - width
-        spot_x = right if right + width <= area[2] or left < area[0] else left
-        spot = clamp(spot_x, y + card_h - height, width, height, area)
-        self.settings.geometry(f"{width}x{height}+{spot[0]}+{spot[1]}")
+        on_right = right + width <= area[2] or left < area[0]
+        spot = clamp(right if on_right else left, y + card_h - height, width, height, area)
+        self.settings.setGeometry(spot[0], spot[1], width, height)
+        return on_right
+
+    def _set_view(self, card: bool) -> None:
+        """Pastille ou carte, l'une s'effaçant dans l'autre (180 ms, 120 à la fermeture)."""
+        if card == self._card_view:
+            return
+        self._card_view = card
+        origin = QPointF(self.px(16), self.px(16))
+        if not self.animate or not self.window.isVisible():
+            self.ghost.stop()
+            self.card.setVisible(card)
+            self.pill.setVisible(not card)
+            self._fit()
+            return
+        self._size(self.card, self.px(WIDTH))
+        snapshot = self.card.grab()
+        self.card.hide()
+        if card:
+            self.pill.hide()
+            self._place(self.card.width(), self.card.height())
+            self.ghost.play(snapshot, origin, opening=True, ms=OPEN_MS, done=self._view_done)
+        else:
+            self.pill.show()
+            self.ghost.play(snapshot, origin, opening=False, ms=CLOSE_MS, done=self._view_done)
+
+    def _view_done(self) -> None:
+        self.card.setVisible(self._card_view)
+        self.pill.setVisible(not self._card_view)
+        self._fit()
 
     # --- actions ------------------------------------------------------------
     def _quit(self) -> None:
@@ -1726,12 +1467,6 @@ class Panel:
         """WM_CLOSE (Alt+F4, fermeture de session, autre logiciel) : arrêt propre, journalisé."""
         log.warning("fermeture demandée par Windows (WM_CLOSE)")
         self.controller.quit()
-
-    def _report_error(
-        self, kind: type[BaseException], value: BaseException, tb: TracebackType | None
-    ) -> None:
-        """Erreur dans un rappel Tk : sous pythonw, elle n'irait nulle part."""
-        log.error("erreur dans le panneau", exc_info=(kind, value, tb))
 
     def _toggle(self) -> None:
         """Activer ou désactiver la relance (comme F8) ; rien si le moteur s'est arrêté."""
@@ -1746,17 +1481,24 @@ class Panel:
             return
         self.settings_open = True
         self.settings_button.set_selected(True)
-        self._settings_shape = ()
         self._render(self.controller.status())
-        self._place_settings()
-        self.settings.deiconify()
+        on_right = self._place_settings()
+        if not self.animate:
+            return
+        self.popover.hide()
+        self.settings.show()
+        snapshot = self.popover.grab()
+        width, height = self.popover.width(), self.popover.height()
+        origin = QPointF(0 if on_right else width, height)  # depuis le coin contre la carte
+        self.pop_ghost.play(snapshot, origin, opening=True, ms=OPEN_MS, done=self.popover.show)
 
     def _close_settings(self) -> None:
         if not self.settings_open:
             return
         self.settings_open = False
         self.settings_button.set_selected(False)
-        self.settings.withdraw()
+        self.pop_ghost.stop()
+        self.settings.hide()
 
     def _choose(self, answer: str) -> None:
         try:
@@ -1770,14 +1512,13 @@ class Panel:
     def _choose_rest(self, rest: str) -> None:
         self.rest = rest
         self.rest_choice.set(rest)
-        self._shape = ()
         self._render(self.controller.status())
         self._save({"panel": {"rest": rest}})
 
     def _choose_opacity(self, value: int, final: bool) -> None:
         """Aperçu sur la carte pendant le réglage ; enregistré au relâchement."""
         self.rest_opacity = value
-        self._text(self.opacity_value, f"{value}{NBSP}%")
+        self.opacity_value.set_text(f"{value}{NBSP}%")
         now = time.monotonic()
         self._preview_until = now + PREVIEW_S
         self._apply_alpha(now)
@@ -1792,21 +1533,23 @@ class Panel:
         except (OSError, ValueError) as exc:
             log.warning("réglage du panneau non enregistré (%s)", exc)
 
-    def _drag_start(self, event: tk.Event) -> None:
-        self._drag = (event.x_root - self._at[0], event.y_root - self._at[1])
+    def drag_start(self, at: QPoint) -> None:
+        self._drag = at - QPoint(*self._at)
 
-    def _drag_move(self, event: tk.Event) -> None:
-        if self._drag is not None:
-            self._pos = self._at = (event.x_root - self._drag[0], event.y_root - self._drag[1])
-            self.root.geometry(f"+{self._at[0]}+{self._at[1]}")
-            if self.settings_open:
-                self._place_settings()
+    def drag_move(self, at: QPoint) -> None:
+        if self._drag is None:
+            return
+        spot = at - self._drag
+        self._pos = self._at = (spot.x(), spot.y())
+        self.window.move(spot)
+        if self.settings_open:
+            self._place_settings()
 
-    def _drag_end(self, _event: tk.Event) -> None:
+    def drag_end(self) -> None:
         if self._drag is None:
             return
         self._drag = None
-        self._place()
+        self._fit()
         self._pos = self._at
         self._save({"panel": {"position": list(self._pos)}})
 
@@ -1829,35 +1572,44 @@ class Panel:
             self._apply_alpha(now)
         except Exception:  # le suivi ne doit pas s'arrêter pour de bon
             log.exception("erreur pendant le suivi du curseur")
-        finally:
-            self.root.after(_HOVER_MS, self._follow)
 
     def _cursor_inside(self) -> bool:
-        """Curseur sur la carte ou ses réglages, et à l'utilisateur (pas tenu par le jeu)."""
+        """Curseur sur la vue affichée ou ses réglages, et à l'utilisateur (pas tenu par le jeu)."""
         if self._drag is not None:
             return True
         if self._through:
             return False
         x, y, _, _ = self.win32.cursor_state()
-        windows = [self.hwnd, self.settings_hwnd] if self.settings_open else [self.hwnd]
-        for hwnd in windows:
-            left, top, right, bottom = self.win32.window_rect(hwnd)
-            if left <= x < right and top <= y < bottom:
-                return True
+        left, top, right, bottom = self.win32.window_rect(self.hwnd)
+        if not self._card_view:  # la carte qui se referme ne retient pas le curseur
+            right = min(right, left + self.pill.width())
+            bottom = min(bottom, top + self.pill.height())
+        if left <= x < right and top <= y < bottom:
+            return True
+        if self.settings_open:
+            left, top, right, bottom = self.win32.window_rect(self.settings_hwnd)
+            return left <= x < right and top <= y < bottom
         return False
 
     def _apply_alpha(self, now: float) -> None:
-        """Opaque au survol ; sinon (ou pendant son réglage) l'opacité au repos."""
-        rest = round(self.rest_opacity * 255 / 100)
-        alpha = rest if now < self._preview_until or not self.expanded else 255
-        if alpha != self._alpha:
-            self.win32.set_alpha(self.hwnd, alpha)
-            self._alpha = alpha
+        """Opaque au survol ; sinon (ou pendant son réglage) l'opacité au repos, en fondu."""
+        rest = self.rest_opacity / 100
+        target = rest if now < self._preview_until or not self.expanded else 1.0
+        if target == self._opacity_target:
+            return
+        self._opacity_target = target
+        self._fade.stop()
+        if not self.animate:
+            self.window.setWindowOpacity(target)
+            return
+        self._fade.setStartValue(self.window.windowOpacity())
+        self._fade.setEndValue(target)
+        self._fade.start()
 
     # --- rendu --------------------------------------------------------------
     def _poll(self) -> None:
         if self.controller.closing:
-            self.root.quit()
+            QApplication.exit(0)  # quit() redemanderait la fermeture des fenêtres, refusée
             return
         try:
             self._guard_focus()
@@ -1869,8 +1621,6 @@ class Panel:
             self._watch_update(status)
         except Exception:  # un rendu raté ne doit pas figer le panneau pour de bon
             log.exception("erreur pendant la mise à jour du panneau")
-        finally:
-            self.root.after(_POLL_MS, self._poll)
 
     def _guard_focus(self) -> None:
         """Le panneau ne garde jamais le premier plan : rendu à la fenêtre d'avant, ou au jeu."""
@@ -1911,10 +1661,10 @@ class Panel:
 
     def _render(self, status: Status) -> None:
         look = LOOKS[status.phase]
-        for dot in (self.dot, self.pill_dot):
-            self._color(dot, look.dot)
-        self._text(self.state, look.title)
-        self._text(self.pill_text, look.short)
+        self.dot.set_color(look.dot)
+        self.pill_dot.set_color(look.dot)
+        self.state.set_text(look.title)
+        self.pill_text.set_text(look.short)
         label = action_label(status.phase)
         self.action.set_text(label)
         self.action.set_kind("accent" if label == ACTIVATE else "standard")
@@ -1925,64 +1675,43 @@ class Panel:
             # un replay « en direct » sans fenêtre du jeu : partie interrompue, pas en cours
             game_open = not self._game_known or bool(self._game())
             chests = chests_view(chests_state, game_open=game_open)
-            self._color(self.chests_dot, chests.dot)
-            self._text(self.chests_state, chests.state)
-            self._text(self.chests_value, chests.value)
-            self._text(self.pill_total, chests.value)
+            self.chests_dot.set_color(chests.dot)
+            self.chests_state.set_text(chests.state)
+            self.chests_value.set_text(chests.value)
+            self.pill_total.set_text(chests.value)
             self._fill_journal(self.games, chests.games[:RECENT_ROWS])
-
-        notice = explain(status)
         recent = tuple(
             (time.strftime("%H:%M", time.localtime(c.ts)), c.label)
             for c in status.recent[:RECENT_ROWS]
         )
-        self._fill_recent(recent)
+        self._fill_journal(self.recent, recent)
+        self.empty.setVisible(not recent)
         self._render_settings(status)
         update = None
         if self.updates is not None:
             update = update_notice(self.updates.state())
-        # ce qui change la taille ; le texte du bandeau de mise à jour suit le téléchargement
-        shape = (
-            self.card_shown,
-            notice if self.card_shown else None,
-            None if update is None else (update[0], update[2]),
-            len(recent),
-            None
-            if chests is None
-            else (bool(chests.value), chests.notice, min(len(chests.games), RECENT_ROWS)),
-            look.short if not self.card_shown else "",
-            chests.value if chests is not None and not self.card_shown else "",
-        )
-        if shape != self._shape:
-            self._shape = shape
-            self._layout(notice, update, chests)
-        elif update is not None and self.card_shown and self._show_update(update):
-            self._place()  # message passé à la ligne
+        self._layout(explain(status), update, chests)
+        self._set_view(self.card_shown)
 
     def _render_settings(self, status: Status) -> None:
         """Réglages : mode et opacité au repos, réponse au dialogue et ses boutons sans modèle."""
         self.rest_choice.set(self.rest)
         self.opacity.set(self.rest_opacity)
-        self._text(self.opacity_value, f"{self.rest_opacity}{NBSP}%")
+        self.opacity_value.set_text(f"{self.rest_opacity}{NBSP}%")
         answers = set(self.controller.still_here_answers())
         disabled = frozenset(a for a, _ in ANSWERS) - answers
         self.segmented.set(status.still_here, disabled)
         hint = missing_hint(disabled)
-        if self._settings_shape == (hint,):
-            return
-        self._settings_shape = (hint,)
-        self._text(self.dialog_hint, hint)
-        if hint:
-            self.dialog_hint.pack(fill="x", pady=(self.px(GAP), 0))
-        else:
-            self.dialog_hint.pack_forget()
+        self.dialog_hint.set_text(hint)
+        self.dialog_hint.setVisible(bool(hint))
+        self.dialog_gap.setVisible(bool(hint))
         if self.settings_open:
             self._place_settings()
 
     def _show_update(self, update: tuple[str, str, str]) -> bool:
         severity, message, label = update
         action = (label, self._update_action) if label else None
-        return self.update_notice.show(severity, message, action)
+        return self.update_notice.show_message(severity, message, action)
 
     def _update_action(self) -> None:
         """« Mettre à jour » ou « Réessayer » : téléchargement en arrière-plan, bot en marche."""
@@ -2002,34 +1731,56 @@ class Panel:
         self.controller.quit()
 
     @staticmethod
-    def _text(label: tk.Label, text: str) -> None:
-        if label.cget("text") != text:
-            label.configure(text=text)
-
-    @staticmethod
-    def _color(label: tk.Label, color: str) -> None:
-        if label.cget("fg") != color:
-            label.configure(fg=color)
-
-    def _fill_journal(self, journal: Journal, rows: tuple[tuple[str, str], ...]) -> None:
+    def _fill_journal(journal: Journal, rows: tuple[tuple[str, str], ...]) -> None:
         for index, (row, when, what) in enumerate(journal):
             if index < len(rows):
-                self._text(when, rows[index][0])
-                self._text(what, rows[index][1])
-                if not row.winfo_manager():
-                    row.pack(fill="x")
-            elif row.winfo_manager():
-                row.pack_forget()
+                when.set_text(rows[index][0])
+                what.set_text(rows[index][1])
+            row.setVisible(index < len(rows))
 
-    def _fill_recent(self, rows: tuple[tuple[str, str], ...]) -> None:
-        self._fill_journal(self.recent, rows)
-        if rows and self.empty.winfo_manager():
-            self.empty.pack_forget()
-        elif not rows and not self.empty.winfo_manager():
-            self.empty.pack(fill="x")
+
+class _Dragger(QObject):
+    """Déplace le panneau quand on le tire par sa pastille ou ses lignes."""
+
+    def __init__(self, panel: Panel) -> None:
+        super().__init__(panel.window)
+        self._panel = panel
+
+    def eventFilter(self, _watched: QObject, event: QEvent) -> bool:
+        kind = event.type()
+        if not isinstance(event, QMouseEvent):
+            return False
+        if kind == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            self._panel.drag_start(event.globalPosition().toPoint())
+            return True
+        if kind == QEvent.Type.MouseMove and event.buttons() & Qt.MouseButton.LeftButton:
+            self._panel.drag_move(event.globalPosition().toPoint())
+            return True
+        if kind == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+            self._panel.drag_end()
+            return True
+        return False
 
 
 # --- lancement ------------------------------------------------------------------
+def qt_app() -> QApplication:
+    """L'application Qt du processus, en pixels d'écran (mise à l'échelle de Qt coupée)."""
+    existing = QApplication.instance()
+    if isinstance(existing, QApplication):
+        return existing
+    os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "0")
+    app = QApplication(sys.argv[:1])
+    app.setQuitOnLastWindowClosed(False)
+    return app
+
+
+def _log_qt_error(
+    kind: type[BaseException], value: BaseException, tb: TracebackType | None
+) -> None:
+    """Erreur dans un rappel Qt : sous pythonw, elle n'irait nulle part."""
+    log.error("erreur dans le panneau", exc_info=(kind, value, tb))
+
+
 def run_panel(
     cfg: Config,
     library: TemplateLibrary,
@@ -2069,9 +1820,10 @@ def _open_panel(
     region = window.region() if window is not None else None
     home = default_home(region or win32.work_area(0, 0), win32.scale())
 
-    root = tk.Tk()
-    Panel(
-        root,
+    app = qt_app()
+    previous_hook = sys.excepthook
+    sys.excepthook = _log_qt_error
+    panel = Panel(
         controller,
         cfg.panel,
         hotkeys=(cfg.hotkeys.toggle, cfg.hotkeys.quit),
@@ -2090,7 +1842,7 @@ def _open_panel(
         listener.start()
     controller.start()
     try:
-        root.mainloop()
+        app.exec()
         log.info("panneau fermé")
     finally:
         controller.quit()
@@ -2102,8 +1854,9 @@ def _open_panel(
                 # il lirait encore ses modules dans _internal pendant qu'on le remplace
                 log.warning("mise à jour reportée : le moteur tourne encore")
                 updates.install_requested = False
-        with contextlib.suppress(tk.TclError):  # déjà détruite
-            root.destroy()
+        panel.settings.hide()
+        panel.window.hide()
+        sys.excepthook = previous_hook
     return 0
 
 

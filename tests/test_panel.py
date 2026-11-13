@@ -23,7 +23,6 @@ from fortnite_auto_replay.panel import (
     give_back_targets,
     hover_step,
     missing_hint,
-    mix,
     mouse_through,
     number,
     plural,
@@ -89,11 +88,6 @@ def test_shortcuts_hint() -> None:
 )
 def test_snap_opacity(value: float, expected: int) -> None:
     assert snap_opacity(value) == expected
-
-
-def test_mix_fades_a_color_over_the_background() -> None:
-    assert mix("#FFFFFF", "#000000", 0.4) == "#666666"
-    assert mix("#F0B93A", "#11201E", 1.0) == "#F0B93A"
 
 
 def test_card_opens_at_once_and_closes_after_the_delay() -> None:
@@ -452,3 +446,19 @@ def test_settings_window_is_not_taken_for_another_panel() -> None:
     from fortnite_auto_replay.panel import _PANEL_TITLES, SETTINGS_TITLE  # noqa: PLC0415
 
     assert SETTINGS_TITLE not in _PANEL_TITLES
+
+
+@pytest.mark.parametrize(
+    ("name", "panel"),
+    [
+        ("Qt6120QWindowToolSaveBits", True),
+        ("Qt6120QWindowIcon", True),
+        ("TkTopLevel", True),  # panneau d'une version Tk encore ouvert
+        ("Chrome_WidgetWin_1", False),
+        ("QTrayIconMessageWindowClass", False),
+    ],
+)
+def test_panel_window_classes(name: str, panel: bool) -> None:
+    from fortnite_auto_replay.panel import _panel_class  # noqa: PLC0415
+
+    assert _panel_class(name) is panel

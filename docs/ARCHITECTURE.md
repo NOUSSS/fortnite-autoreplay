@@ -43,8 +43,9 @@ premier plan et des messages de fenêtre au second plan.
 | `actions.py` | Clics souris, offsets, backends interchangeables, clic posté (`BackgroundClicker`) |
 | `hotkeys.py` | `F8`/`F9` via `GetAsyncKeyState`, seulement quand le jeu est au premier plan |
 | `diagnostics.py` | Exceptions non rattrapées au journal, piles des threads dans `logs/crash.log` |
-| `sounds.py` | Deux notes sur `F8` (reprise, pause) |
-| `panel.py` | Panneau de contrôle tkinter, moteur dans un thread, bandeau de mise à jour |
+| `panel.py` | Panneau de contrôle Qt (PySide6), moteur dans un thread, bandeau de mise à jour |
+| `panel_style.py` | Jetons du panneau : couleurs, grille, polices, icônes |
+| `panel_widgets.py` | Widgets dessinés du panneau : texte, boutons, sélecteur, curseur, bandeau |
 | `chests.py` | Coffres comptés dans les replays du jeu par `replay-reader.exe` (`logs/chests.json`) |
 | `updater.py` | Manifeste signé, téléchargement vérifié, installation tout ou rien, relance |
 | `cli.py` | `run`, `check`, `config`, `window`, `stats`, `panel`, `update` + surcharges en ligne de commande |
@@ -125,7 +126,7 @@ capture n'apporterait rien. Tout le gain vient du matching.
 - **Clic couvert** : juste avant de cliquer, `GameWindow.covering` regarde
   quelle fenêtre recevrait le clic (`WindowFromPoint`). Si ce n'est pas le jeu
   (panneau, notification), le clic est annulé et l'état passe à « Clic annulé ».
-- **Panneau** : tkinter dans le thread principal, moteur dans un thread ; le
+- **Panneau** : Qt (PySide6) dans le thread principal, moteur dans un thread ; le
   panneau lit `Engine.status()` (instantané figé, compteurs sous verrou) toutes
   les 250 ms. La capture s'ouvre dans le thread du moteur (mss n'est utilisable
   que dans le thread qui l'a créé). La fenêtre est `WS_EX_NOACTIVATE`, au-dessus
@@ -137,19 +138,29 @@ capture n'apporterait rien. Tout le gain vient du matching.
   (ou sur le popover des réglages), la carte s'ouvre ; dehors depuis 0,4 s, elle
   se referme (`hover_step`). Jamais quand la souris le traverse : en partie, le
   curseur caché passe dessous sans rien ouvrir. Sans la souris, la fenêtre prend
-  l'opacité au repos (`SetLayeredWindowAttributes`, `panel.rest_opacity`).
-  Le popover des réglages est un second `Toplevel`, stylé comme la fenêtre
-  principale (`WS_EX_NOACTIVATE`, exclu des captures) avant d'être montré.
+  l'opacité au repos en 150 ms (`setWindowOpacity`, `panel.rest_opacity`).
+  Le popover des réglages est une seconde fenêtre, aux mêmes drapeaux.
+- **Dessin** : fenêtres sans cadre à fond transparent (`WA_TranslucentBackground`,
+  donc `WS_EX_LAYERED` mis à jour par `UpdateLayeredWindow`), widgets peints à
+  la main avec anticrénelage. Pas d'ombre extérieure : ses pixels prendraient
+  les clics au-dessus du jeu. La mise à l'échelle automatique de Qt est coupée
+  (`QT_ENABLE_HIGHDPI_SCALING=0`) : fenêtres, curseur et positions enregistrées
+  parlent en pixels d'écran, et `px()` applique l'échelle de Windows.
+- **Animations** (reprises du prototype) : la carte qui s'ouvre ou se referme et
+  le popover qui apparaît sont joués par `Ghost`, une image de la vue d'arrivée
+  (`grab()`) qui passe de 0,96 à 1 en échelle et de 0 à 1 en opacité (180 ms à
+  l'ouverture, 120 ms à la fermeture) ; boutons : couleur en 150 ms, enfoncés à
+  0,97.
 - **Polices** : Figtree et Bricolage Grotesque (OFL), dans
   `src/fortnite_auto_replay/fonts` et dans `_internal` une fois empaqueté, sont
-  chargées par `AddFontResourceEx(FR_PRIVATE)` : visibles du seul processus,
+  chargées par `QFontDatabase.addApplicationFont` : visibles du seul processus,
   rien n'est installé. Une mise à jour remplace `_internal` entier, polices
   comprises.
-- **Premier plan rendu** : à la création de sa première fenêtre, Tk prend le
-  premier plan (constaté lancé depuis un terminal comme par WMI), avant qu'on
-  puisse poser `WS_EX_NOACTIVATE`. Le panneau note la fenêtre active avant de se
-  créer et lui rend le premier plan s'il l'a pris (`focus_step`), puis le
-  vérifie à chaque tour de 250 ms. Si cette fenêtre n'existe plus, il le rend au
+- **Premier plan rendu** : les fenêtres se montrent sans s'activer
+  (`WA_ShowWithoutActivating`, `WindowDoesNotAcceptFocus`, `WS_EX_NOACTIVATE`).
+  Par sécurité, le panneau note la fenêtre active avant de se créer et lui rend
+  le premier plan s'il l'a pris (`focus_step`), puis le vérifie à chaque tour
+  de 250 ms. Si cette fenêtre n'existe plus, il le rend au
   jeu (`give_back_targets`) ; s'il ne peut le rendre à personne, il le dit une
   fois par épisode, pas à chaque tour.
 - **Souris traversante** : pendant une partie (jeu au premier plan, curseur
@@ -158,7 +169,8 @@ capture n'apporterait rien. Tout le gain vient du matching.
   sur le panneau, l'état ne change pas, pour qu'il ne bascule pas sous la visée
   (`mouse_through`).
 - **Panneau unique** : au lancement, avant de lire l'historique,
-  `replace_other_panels` ferme les autres fenêtres Tk « Fortnite AutoReplay »
+  `replace_other_panels` ferme les autres fenêtres « Fortnite AutoReplay » (Qt, ou Tk
+  des versions 0.5 et avant)
   (ou « Fortnite Auto Replay », titre de la version 0.1.0 lancée depuis les sources)
   (`WM_CLOSE`, puis attente de la fin du processus) et prend un mutex nommé que
   chaque panneau tient jusqu'à l'arrêt de son moteur, session enregistrée. Deux
@@ -169,7 +181,7 @@ capture n'apporterait rien. Tout le gain vient du matching.
   exécutable en cours d'exécution et son dossier `_internal`. Le programme
   installé part dans `.update/old/`, la nouvelle version prend sa place, et
   tout est remis en place si un renommage échoue. L'installation n'a lieu
-  qu'une fois le moteur arrêté (session écrite) et la fenêtre Tk détruite,
+  qu'une fois le moteur arrêté (session écrite) et les fenêtres Qt fermées,
   juste avant `os._exit` : l'ancien processus lit encore des modules dans
   `_internal` tant qu'il tourne. La nouvelle version, relancée détachée (avec
   `--no-pause` si le bot tournait), efface `.update/` au démarrage.

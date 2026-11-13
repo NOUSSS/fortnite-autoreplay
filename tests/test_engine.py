@@ -129,7 +129,6 @@ def make_config(
         "start_paused": False,
         "max_ineffective_clicks": 0,
         "beep_on_stuck": False,
-        "sound_on_toggle": False,
         "doubt_margin": 0.0,
         "stats_file": "",
         "debug_dir": str(tmp_path / "captures"),
@@ -677,13 +676,9 @@ def test_covered_button_is_not_clicked(tmp_path: Path, cover: tuple[int, str], w
     assert who in seen[0]
 
 
-def test_toggle_announces_pause_and_resume(tmp_path: Path) -> None:
-    cues: list[str] = []
-    capture = FakeCapture([])
-    eng = Engine(
-        make_config(tmp_path), capture, FakeClicker(), make_library(tmp_path), sound=cues.append
-    )
+def test_toggle_pauses_and_resumes(tmp_path: Path) -> None:
+    eng = Engine(make_config(tmp_path), FakeCapture([]), FakeClicker(), make_library(tmp_path))
     eng.toggle()
+    assert eng.paused
     eng.toggle()
-    assert cues == ["pause", "resume"]
     assert not eng.paused

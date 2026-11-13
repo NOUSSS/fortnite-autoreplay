@@ -217,7 +217,6 @@ class EngineConfig:
     max_step_errors: int = 10  # erreurs inattendues de suite avant la pause ; 0 = jamais
     # réponse au dialogue « Vous êtes toujours là ? » : ready | not_yet | ignore
     still_here: str = "ready"
-    sound_on_toggle: bool = True  # deux notes, montantes à la reprise, descendantes à la pause
 
     def validate(self) -> None:
         if self.still_here not in STILL_HERE_ANSWERS:

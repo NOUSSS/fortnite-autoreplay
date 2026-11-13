@@ -1,15 +1,11 @@
 """Captures du panneau dans chaque état, pour la relecture du design.
 
-Le panneau tourne sur un moteur simulé (aucune capture, aucun clic), sur un
-écran secondaire s'il y en a un, visible des captures et sans rien
-enregistrer dans ``config/local.json``. Pour chaque scène : une image PNG et
-la position des blocs (JSON) pour mesurer les écarts.
-
-À lancer par WMI, console masquée (recette dans REVIEW.md), quand personne ne
-joue : la création de la fenêtre prend le premier plan un instant, et la garde
-du panneau le rend aussitôt.
-
-``foreground.json`` dit si la fenêtre au premier plan a changé pendant les captures.
+Le panneau tourne sur un moteur simulé (aucune capture, aucun clic) et rien
+n'est affiché : chaque vue (pastille, carte, réglages) est dessinée hors écran
+par Qt, fond transparent compris, sans rien enregistrer dans
+``config/local.json``. Pour chaque scène : une image PNG et la position des
+blocs (JSON) pour mesurer les écarts. Aucune fenêtre ne s'ouvre : on peut
+capturer pendant une partie.
 """
 
 from __future__ import annotations
@@ -17,21 +13,20 @@ from __future__ import annotations
 import argparse
 import json
 import time
-import tkinter as tk
 import traceback
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-import mss
-import mss.tools
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QPainter, QPixmap
+from PySide6.QtWidgets import QWidget
 
 from .. import config as config_mod
 from ..chests import Summary
 from ..engine import ClickRecord, Phase, Status
-from ..panel import ChestsState, Panel, Win32
+from ..panel import POPOVER_GAP, ChestsState, Panel, qt_app
 from ..updater import UpdateState
-from ..window import ensure_dpi_awareness
 
 NBSP = "\u00a0"
 
@@ -232,27 +227,23 @@ class DemoUpdates:
         pass
 
 
-def _box(widget: tk.Misc, origin: tuple[int, int]) -> list[int] | None:
-    if not widget.winfo_ismapped():
+def _box(widget: QWidget, view: QWidget, offset: QPoint) -> list[int] | None:
+    if not widget.isVisibleTo(view) and widget is not view:
         return None
-    return [
-        widget.winfo_rootx() - origin[0],
-        widget.winfo_rooty() - origin[1],
-        widget.winfo_width(),
-        widget.winfo_height(),
-    ]
+    at = widget.mapTo(view, QPoint(0, 0)) + offset if widget is not view else offset
+    return [at.x(), at.y(), widget.width(), widget.height()]
 
 
-def _geometry(panel: Panel) -> dict[str, object]:
-    origin = (panel.root.winfo_rootx(), panel.root.winfo_rooty())
-    named: dict[str, tk.Misc] = {
+def _geometry(panel: Panel, offset: QPoint) -> dict[str, object]:
+    view = panel.card if panel.card_shown else panel.pill
+    named: dict[str, QWidget] = {
         "pill": panel.pill,
-        "pill_inner": panel.pill_inner,
         "pill_dot": panel.pill_dot,
         "pill_text": panel.pill_text,
         "pill_sep": panel.pill_sep,
         "pill_icon": panel.pill_icon,
         "pill_total": panel.pill_total,
+        "card": panel.card,
         "header": panel.header,
         "dot": panel.dot,
         "title": panel.title,
@@ -276,41 +267,54 @@ def _geometry(panel: Panel) -> dict[str, object]:
         "footer": panel.footer,
         "settings_button": panel.settings_button,
         "quit": panel.quit_button,
-        "popover": panel.settings,
-        "s_rest": panel.s_rest,
-        "rest_choice": panel.rest_choice,
-        "s_opacity": panel.s_opacity,
-        "opacity": panel.opacity,
-        "s_dialog": panel.s_dialog,
-        "segmented": panel.segmented,
-        "dialog_hint": panel.dialog_hint,
-        "hint": panel.hint,
     }
-    boxes = {name: _box(widget, origin) for name, widget in named.items()}
-    sections = (panel.s_recent, panel.s_games, panel.s_rest, panel.s_dialog)
-    boxes["headings"] = [_box(section.winfo_children()[0], origin) for section in sections]
-    boxes["recent_rows"] = [_box(row, origin) for row, _, _ in panel.recent]
-    boxes["game_rows"] = [_box(row, origin) for row, _, _ in panel.games]
-    return {
-        "window": [panel.root.winfo_width(), panel.root.winfo_height()],
-        "position": list(panel._at),
-        "boxes": boxes,
-    }
+    boxes: dict[str, object] = {}
+    for name, widget in named.items():
+        inside = widget is view or view.isAncestorOf(widget)
+        boxes[name] = _box(widget, view, QPoint(0, 0)) if inside else None
+    boxes["recent_rows"] = [_box(row, view, QPoint(0, 0)) for row, _, _ in panel.recent]
+    boxes["game_rows"] = [_box(row, view, QPoint(0, 0)) for row, _, _ in panel.games]
+    if panel.settings_open:
+        pop = panel.popover
+        settings: dict[str, QWidget] = {
+            "popover": pop,
+            "s_rest": panel.s_rest,
+            "rest_choice": panel.rest_choice,
+            "s_opacity": panel.s_opacity,
+            "opacity": panel.opacity,
+            "s_dialog": panel.s_dialog,
+            "segmented": panel.segmented,
+            "dialog_hint": panel.dialog_hint,
+            "hint": panel.hint,
+        }
+        for name, widget in settings.items():
+            boxes[name] = _box(widget, pop, offset)
+    return {"view": [view.width(), view.height()], "boxes": boxes}
 
 
-def _target_monitor(index: int | None) -> dict[str, int]:
-    with mss.MSS() as screens:
-        monitors = screens.monitors[1:]
-    if index is not None:
-        return monitors[index]
-    secondary = [m for m in monitors if not m.get("is_primary")]
-    return (secondary or monitors)[0]
+def _shot(panel: Panel) -> tuple[QPixmap, QPoint]:
+    """La vue affichée ; avec les réglages, posés à droite de la carte, bas alignés."""
+    view = panel.card if panel.card_shown else panel.pill
+    image = view.grab()
+    if not panel.settings_open:
+        return image, QPoint()
+    pop = panel.popover.grab()
+    gap = panel.px(POPOVER_GAP)
+    width = image.width() + gap + pop.width()
+    height = max(image.height(), pop.height())
+    canvas = QPixmap(width, height)
+    canvas.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(canvas)
+    painter.drawPixmap(0, height - image.height(), image)
+    offset = QPoint(image.width() + gap, height - pop.height())
+    painter.drawPixmap(offset, pop)
+    painter.end()
+    return canvas, offset
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=Path(".impeccable/review"))
-    parser.add_argument("--monitor", type=int, help="index de l'écran (0 = premier)")
     parser.add_argument("--only", help="ne capturer que les scènes dont le nom contient ce texte")
     args = parser.parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
@@ -322,96 +326,44 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _shoot_all(args: argparse.Namespace) -> int:
-    ensure_dpi_awareness()
-    win32 = Win32()
-    before = win32.foreground()
+    qt_app()
     cfg = config_mod.load_config(None, use_local=False)
-    cfg.panel.exclude_from_capture = False  # les captures doivent le voir
-    cfg.panel.rest_opacity = 100  # captures opaques : l'opacité se voit au survol réel
-    monitor = _target_monitor(args.monitor)
-    home = (monitor["left"] + 48, monitor["top"] + 48)
-
     controller = DemoController(cfg)
-    root = tk.Tk()
     updates = DemoUpdates(controller)
     panel = Panel(
-        root,
         controller,
         cfg.panel,
-        home=home,
         persist=False,
-        win32=win32,
         updates=updates,  # type: ignore[arg-type]
         follow_cursor=False,
+        show=False,
     )
-    scenes = [s for s in SCENES if not args.only or args.only in s.name]
-    report: dict[str, object] = {
-        "before": before,
-        "panel": panel.hwnd,
-        "ex_style": hex(win32.ex_style(panel.hwnd)),
-        "noactivate": bool(win32.ex_style(panel.hwnd) & 0x08000000),
-        "settings": panel.settings_hwnd,
-        "settings_noactivate": bool(win32.ex_style(panel.settings_hwnd) & 0x08000000),
+    buttons = {
+        "action": panel.action,
+        "settings": panel.settings_button,
+        "quit": panel.quit_button,
     }
-
-    def shoot(index: int) -> None:
-        if index >= len(scenes):
-            report["after"] = win32.foreground()
-            report["foreground_changed"] = report["after"] != before
-            report["panel_was_foreground"] = report["after"] == panel.hwnd
-            (args.out / "foreground.json").write_text(json.dumps(report, indent=2))
-            root.quit()
-            return
-        scene = scenes[index]
+    for scene in (s for s in SCENES if not args.only or args.only in s.name):
         controller.scene = scene
         panel.rest = "pill"
         panel.expanded = scene.view != "pill"
         panel.rest_opacity = scene.opacity
         panel._close_settings()
-        panel._shape = ()
-        panel._settings_shape = ()
+        for button in buttons.values():
+            button.set_state(hover=False, pressed=False)
+        panel.segmented.set_hover("")
         panel._render(controller.status())
         if scene.view == "settings":
             panel._toggle_settings()
-        buttons = {
-            "action": panel.action,
-            "settings": panel.settings_button,
-            "quit": panel.quit_button,
-        }
-        for button in buttons.values():
-            button._set(hover=False, pressed=False)
-        panel.segmented._set_hover("")
         if scene.hover in buttons:
-            buttons[scene.hover]._set(hover=True)
+            buttons[scene.hover].set_state(hover=True)
         elif scene.hover:
-            panel.segmented._set_hover(scene.hover)
-        root.update()
-        root.after(350, lambda: capture(index))
-
-    def capture(index: int) -> None:
-        scene = scenes[index]
-        root.update()
-        x, y = root.winfo_rootx(), root.winfo_rooty()
-        right, bottom = x + root.winfo_width(), y + root.winfo_height()
-        if panel.settings_open:  # la carte et ses réglages sur la même image
-            pop = panel.settings
-            pop_x, pop_y = pop.winfo_rootx(), pop.winfo_rooty()
-            x, y = min(x, pop_x), min(y, pop_y)
-            right = max(right, pop_x + pop.winfo_width())
-            bottom = max(bottom, pop_y + pop.winfo_height())
-        region = {"left": x, "top": y, "width": right - x, "height": bottom - y}
-        with mss.MSS() as screens:
-            shot = screens.grab(region)
-        mss.tools.to_png(shot.rgb, shot.size, output=str(args.out / f"{scene.name}.png"))
+            panel.segmented.set_hover(scene.hover)
+        image, offset = _shot(panel)
+        image.save(str(args.out / f"{scene.name}.png"))
         (args.out / f"{scene.name}.json").write_text(
-            json.dumps(_geometry(panel), indent=2), encoding="utf-8"
+            json.dumps(_geometry(panel, offset), indent=2), encoding="utf-8"
         )
-        report[f"foreground_{scene.name}"] = win32.foreground()
-        shoot(index + 1)
-
-    root.after(400, lambda: shoot(0))
-    root.mainloop()
-    root.destroy()
     return 0
 
 

@@ -46,11 +46,12 @@ typography:
     fontSize: "12px"
     fontWeight: 400
     lineHeight: "16px"
-  icon:
-    fontFamily: "Segoe Fluent Icons, Segoe MDL2 Assets"
-    fontSize: "12px"
+  badge:
+    fontFamily: "Figtree Bold"
+    fontSize: "10px"
+    fontWeight: 700
 rounded:
-  window: "8px"
+  window: "12px"
   notice: "8px"
   control: "999px"
 spacing:
@@ -120,7 +121,7 @@ components:
 
 Le panneau ne doit pas gêner le jeu. Au repos, il se réduit à une pastille de 32 px de haut : la pastille d'état de la relance, son état en quelques mots (« Relance active »), puis le total des coffres derrière une icône de boîte. Quand le curseur passe dessus, la carte entière s'ouvre à la même place. Elle se referme 0,4 s après le départ du curseur. Sans la souris, la fenêtre prend l'opacité choisie (80 % par défaut, de 20 à 100 %) ; au survol, elle redevient opaque.
 
-La palette est une encre vert sombre, chaude, posée sur le jeu. L'or marque ce qui agit (Activer) ou ce qui est choisi (segment sélectionné, part remplie du curseur). Figtree porte le texte et Bricolage Grotesque, plus affirmée, les noms des fonctions et le total des coffres. Ces deux polices libres (OFL) sont livrées avec l'application et chargées pour elle seule au démarrage. Les icônes et les pastilles viennent de Segoe Fluent Icons, dont les glyphes sont lissés.
+La palette est une encre vert sombre, chaude, posée sur le jeu. L'or marque ce qui agit (Activer) ou ce qui est choisi (segment sélectionné, part remplie du curseur). Figtree porte le texte et Bricolage Grotesque, plus affirmée, les noms des fonctions et le total des coffres. Ces deux polices libres (OFL) sont livrées avec l'application et chargées pour elle seule au démarrage. Les icônes (boîte, curseurs) et les pastilles sont dessinées, lissées, sur une grille de 16 au trait de 1,2.
 
 Le rendu est mesuré à 96 ppp et chaque valeur de grille est multipliée par l'échelle d'affichage du système (`px()`), sur une grille de 4 px.
 
@@ -129,7 +130,7 @@ Le rendu est mesuré à 96 ppp et chaque valeur de grille est multipliée par l'
 - Une ligne de 52 px par fonction, chacune avec son état : désactiver la relance ne touche pas aux coffres.
 - Boutons et sélecteurs en pilule de 32 px ; le bouton de la relance dit ce qu'il fera (Activer ou Désactiver).
 - Deux tailles de texte (14 et 12 px) ; la hiérarchie passe par la police, la graisse et la couleur.
-- Aucune ombre dessinée : le survol et l'appui changent la surface.
+- Aucune ombre sous les fenêtres ni les boutons : le survol et l'appui changent la surface.
 
 ## Colors
 
@@ -149,7 +150,7 @@ Une encre vert sombre presque monochrome, un seul accent or, et quatre couleurs 
 - **Encre** (bg) : fond de la pastille, de la carte et du popover ; fond au repos des boutons discrets.
 - **Couche** (layer) : surface des boutons standard, piste des sélecteurs, fond du bandeau d'information, survol des boutons discrets.
 - **Couche survolée** (layer-hover) et **couche appuyée** (layer-pressed) : états des contrôles neutres ; la piste vide du curseur prend la couche survolée.
-- **Filet** (stroke) : contour des contrôles neutres, séparateurs d'un pixel entre les blocs de la carte (inscrits à 12 px des bords), séparateur de la pastille, bordure de la fenêtre posée par DWM.
+- **Filet** (stroke) : contour des contrôles neutres, séparateurs d'un pixel entre les blocs de la carte (inscrits à 12 px des bords), séparateur de la pastille, bordure intérieure des fenêtres.
 - **Texte** (text) : noms des fonctions, total des coffres, libellés du journal, des boutons et des segments survolés, poignée du curseur.
 - **Texte secondaire** (text-secondary) : état sous le nom d'une fonction, libellés des segments au repos, bouton Réglages au repos, icône de boîte.
 - **Texte tertiaire** (text-tertiary) : intertitres, heures du journal, état vide, aide sous le dialogue, rappel des raccourcis.
@@ -163,9 +164,9 @@ Une encre vert sombre presque monochrome, un seul accent or, et quatre couleurs 
 
 **Police de texte :** Figtree (repli Segoe UI Variable Text)
 **Police des titres :** Bricolage Grotesque, coupe 14 pt, graisse 700 (repli Figtree SemiBold)
-**Icônes :** Segoe Fluent Icons (repli Segoe MDL2 Assets)
+**Icônes :** dessinées (grille de 16, trait de 1,2)
 
-**Character :** Figtree, ronde et lisible à 12 px, pour tout ce qui se lit ; Bricolage Grotesque, plus dessinée, pour les deux noms de fonction et le total des coffres. Les fichiers (`src/fortnite_auto_replay/fonts`) sont chargés par `AddFontResourceEx` en privé : rien n'est installé dans Windows. Sans eux, le panneau retombe sur Segoe UI.
+**Character :** Figtree, ronde et lisible à 12 px, pour tout ce qui se lit ; Bricolage Grotesque, plus dessinée, pour les deux noms de fonction et le total des coffres. Les fichiers (`src/fortnite_auto_replay/fonts`) sont chargés par `QFontDatabase.addApplicationFont`, pour le seul processus : rien n'est installé dans Windows. Sans eux, le panneau retombe sur Segoe UI.
 
 ### Hierarchy
 - **Title** (Bricolage 700, 14 px) : nom d'une fonction (Relance auto, Coffres), total des coffres.
@@ -173,7 +174,7 @@ Une encre vert sombre presque monochrome, un seul accent or, et quatre couleurs 
 - **Body** (Figtree, 14 px) : état dans la pastille, journal, libellés des boutons et segments, message des bandeaux.
 - **Heading** (Figtree SemiBold, 12 px, texte tertiaire) : intertitres (Derniers clics, Dernières parties, Au repos, Opacité au repos et sa valeur, Vous êtes toujours là ?).
 - **Caption** (Figtree, 12 px) : état sous le nom d'une fonction, aide sous le dialogue, rappel des raccourcis.
-- **Icon** (12 à 14 px) : icône des bandeaux, boîte de la pastille, curseurs du bouton Réglages. La pastille d'état est le disque plein de la même police, à 8 px ; la poignée du curseur, le même disque à 18 px.
+- **Icon** (14 px) : boîte de la pastille, curseurs du bouton Réglages ; badge rond « i » ou « ! » des bandeaux (Badge). La pastille d'état est un disque plein de 8 px ; la poignée du curseur, un disque de 18 px.
 
 ### Named Rules
 **La règle des deux tailles.** 14 et 12 px, rien d'autre. Un nom de fonction se distingue par sa police, un intertitre par la graisse et la couleur, jamais par une taille de plus.
@@ -183,7 +184,7 @@ Une encre vert sombre presque monochrome, un seul accent or, et quatre couleurs 
 ## Layout
 
 ### Pastille (repos)
-32 px de haut, largeur au contenu. 12 px à gauche, 14 px à droite. Pastille d'état de 8 px, 8 px, état court (Relance active, Relance désactivée, Relance bloquée, En attente du jeu…), puis, si les coffres sont comptés : 8 px, filet vertical de 12 px, 8 px, icône de boîte, 4 px, total en Strong. La fenêtre garde son coin haut gauche quand elle s'ouvre en carte.
+32 px de haut, en pilule, largeur au contenu. 12 px de chaque côté. Pastille d'état de 8 px, 8 px, état court (Relance active, Relance désactivée, Relance bloquée, En attente du jeu…), puis, si les coffres sont comptés : 8 px, filet vertical de 12 px, 8 px, icône de boîte, 4 px, total en Strong. La fenêtre garde son coin haut gauche quand elle s'ouvre en carte.
 
 ### Carte (survol)
 320 px de large, hauteur au contenu, gardée entière dans la zone de travail de l'écran.
@@ -204,14 +205,17 @@ Une encre vert sombre presque monochrome, un seul accent or, et quatre couleurs 
 
 ## Elevation & Depth
 
-Le système est plat. Aucune ombre n'est dessinée : la profondeur vient de l'écart entre l'encre et la couche des contrôles, et de filets d'un pixel. Les fenêtres (pastille, carte, popover) reçoivent de Windows (DWM) leurs coins arrondis de 8 px et une bordure à la couleur du filet. L'opacité au repos est celle de toute la fenêtre (`SetLayeredWindowAttributes`).
+Le système est plat. Aucune ombre sous les fenêtres : ses pixels prendraient les clics au-dessus du jeu. La profondeur vient de l'écart entre l'encre et la couche des contrôles, et de filets d'un pixel ; seule la poignée du curseur porte une ombre douce. Les surfaces (pastille, carte, popover) sont dessinées avec leurs coins et un filet intérieur, sur une fenêtre transparente. L'opacité au repos est celle de toute la fenêtre, atteinte en 150 ms.
+
+### Mouvement
+Repris du prototype. La carte s'ouvre en 180 ms (rapide puis doux), de 96 à 100 % de sa taille et de transparente à opaque, depuis le coin de la pastille ; elle se referme en 120 ms. Le popover apparaît de même depuis son coin contre la carte. Les couleurs des contrôles changent en 150 ms ; un bouton enfoncé passe à 97 % en 100 ms, la poignée du curseur à 90 %.
 
 ### Named Rules
-**La règle de la surface qui change.** Le survol et l'appui changent la couleur de surface du contrôle (couche survolée, couche appuyée, paliers de l'or). Jamais de halo, d'ombre ni de déplacement.
+**La règle de la surface qui change.** Le survol et l'appui changent la couleur de surface du contrôle (couche survolée, couche appuyée, paliers de l'or). Jamais de halo, d'ombre ni de déplacement ; l'appui resserre à peine le contrôle.
 
 ## Shapes
 
-Deux familles : la fenêtre et les bandeaux à 8 px (arrondi standard de Windows 11 demandé à DWM, le même dessiné pour les bandeaux), les contrôles en pilule (rayon de la moitié de leur hauteur). Dans un sélecteur, le segment choisi est inscrit à 3 px de la piste, en pilule lui aussi. Les seules lignes sont les filets d'un pixel et le contour des contrôles neutres.
+Trois familles : la carte et le popover à 12 px, les bandeaux à 8 px, la pastille et les contrôles en pilule (rayon de la moitié de leur hauteur). Dans un sélecteur, le segment choisi est inscrit à 3 px de la piste, en pilule lui aussi. Les seules lignes sont les filets d'un pixel et le contour des contrôles neutres.
 
 ## Components
 
@@ -230,7 +234,7 @@ Piste couche avec contour filet, pilule de 32 px, segments de largeur égale. Se
 Piste de 6 px en pilule (couche survolée), part remplie en or jusqu'à la poignée, poignée de 18 px en texte. De 20 à 100 %, par pas de 5. Pendant le réglage, la carte prend l'opacité choisie pour la montrer, et la retrouve 0,7 s après le dernier mouvement ; la valeur est enregistrée au relâchement.
 
 ### Bandeau
-Pleine largeur utile, coins de 8 px, 12 px de marge sur les côtés et 10 px en haut et en bas, icône de gravité de 12 px puis 8 px avant le message en Body texte.
+Pleine largeur utile, coins de 8 px, 12 px de marge sur les côtés et 10 px en haut et en bas, badge de gravité de 14 px puis 8 px avant le message en Body texte.
 - **Gravités** : critique (fond brique, icône corail), attention (fond brun, icône orangée), information (fond couche, icône texte secondaire).
 - **Action** : un bouton standard facultatif sous le message, aligné sur lui, 8 px plus bas (Mettre à jour, Réessayer). Jamais l'or.
 - **Présence** : seulement s'il a quelque chose à dire. Celui du moteur sous la ligne de la relance ; celui des coffres sous la leur ; celui de la mise à jour au-dessus du pied.

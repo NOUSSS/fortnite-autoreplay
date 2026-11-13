@@ -6,7 +6,7 @@
 
 web
 
-Note : le seul écran est un panneau de bureau Windows (tkinter), pas une page
+Note : le seul écran est un panneau de bureau Windows (Qt, PySide6), pas une page
 web. La valeur `web` est celle par défaut de l'outil ; aucune convention iOS ni
 Android ne s'applique.
 
@@ -55,7 +55,7 @@ en attente du jeu ou bloquée.
   décoratifs (l'historique reste écrit dans `logs/sessions.jsonl`).
 - Réponse au dialogue « Vous êtes toujours là ? » : Prêt (par défaut), Pas
   encore, ou ne rien faire ; modifiable dans le panneau.
-- Python 3.10+, tkinter de la bibliothèque standard, Windows uniquement.
+- Python 3.10+, PySide6 pour le panneau, Windows uniquement.
 
 ## Brand Commitments
 

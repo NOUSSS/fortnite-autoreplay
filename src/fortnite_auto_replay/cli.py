@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import logging
 import sys
 import time
 from collections.abc import Callable
+from ctypes import wintypes
 from dataclasses import asdict
 from pathlib import Path
 
@@ -273,6 +275,10 @@ def cmd_config(args: argparse.Namespace) -> int:
     return 0
 
 
+_MB_ICONERROR = 0x10
+_MB_TOPMOST = 0x40000
+
+
 def _panel_error(message: str) -> int:
     """Erreur de démarrage du panneau : lancé sans console, il doit l'afficher."""
     log.error("panneau : %s", message)
@@ -285,20 +291,22 @@ def _panel_error(message: str) -> int:
 def _show_error(text: str) -> None:
     """Message d'erreur dans une boîte de dialogue : lancé sans console, rien ne s'afficherait."""
     try:
-        import tkinter  # noqa: PLC0415
-        from tkinter import messagebox  # noqa: PLC0415
-
-        root = tkinter.Tk()
-        root.withdraw()
-        messagebox.showerror("Fortnite AutoReplay", text, parent=root)
-        root.destroy()
+        user32 = ctypes.WinDLL("user32")
+        user32.MessageBoxW.argtypes = [
+            wintypes.HWND,
+            wintypes.LPCWSTR,
+            wintypes.LPCWSTR,
+            wintypes.UINT,
+        ]
+        user32.MessageBoxW.restype = ctypes.c_int
+        user32.MessageBoxW(None, text, "Fortnite AutoReplay", _MB_ICONERROR | _MB_TOPMOST)
     except Exception:  # pas d'affichage possible : le log suffit
         log.exception("message d'erreur non affiché")
 
 
 def cmd_panel(args: argparse.Namespace) -> int:
     """Panneau de contrôle au-dessus du jeu, moteur dans un thread."""
-    from . import panel  # noqa: PLC0415 - tkinter seulement pour cette commande
+    from . import panel  # noqa: PLC0415 - Qt seulement pour cette commande
 
     try:
         cfg = _build_config(args)

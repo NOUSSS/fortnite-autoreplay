@@ -42,8 +42,7 @@
     "doubt_max_snapshots": 20,
     "stats_file": "logs/sessions.jsonl",
     "max_step_errors": 10,
-    "still_here": "ready",
-    "sound_on_toggle": true
+    "still_here": "ready"
   },
   "window": {
     "enabled": true,
