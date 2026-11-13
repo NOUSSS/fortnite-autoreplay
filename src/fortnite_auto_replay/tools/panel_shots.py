@@ -69,17 +69,29 @@ _ORDER = (
 )
 
 _SINCE = datetime(2026, 11, 6, 10, 33, tzinfo=timezone.utc)
+_GAMES = (
+    (datetime(2026, 11, 13, 17, 12, tzinfo=timezone.utc), 9),
+    (datetime(2026, 11, 13, 16, 48, tzinfo=timezone.utc), 12),
+    (datetime(2026, 11, 13, 16, 21, tzinfo=timezone.utc), 1),
+    (datetime(2026, 11, 12, 21, 5, tzinfo=timezone.utc), 0),
+    (datetime(2026, 11, 9, 20, 40, tzinfo=timezone.utc), 7),
+)
 CHESTS = {
     "off": ChestsState(Summary(0, 0, None, None, recording=False, replays=False, failed=False)),
     "reading": ChestsState(None),
     "none": ChestsState(Summary(0, 0, None, None, recording=False, replays=True, failed=False)),
     "counted": ChestsState(
-        Summary(137, 18, 9, _SINCE, recording=False, replays=True, failed=False)
+        Summary(137, 18, 9, _SINCE, recording=False, replays=True, failed=False, recent=_GAMES)
     ),
     "recording": ChestsState(
-        Summary(137, 18, 9, _SINCE, recording=True, replays=True, failed=False)
+        Summary(137, 18, 9, _SINCE, recording=True, replays=True, failed=False, recent=_GAMES)
     ),
-    "failed": ChestsState(Summary(137, 18, 9, _SINCE, recording=False, replays=True, failed=True)),
+    "failed": ChestsState(
+        Summary(137, 18, 9, _SINCE, recording=False, replays=True, failed=True, recent=_GAMES)
+    ),
+    "first-game": ChestsState(
+        Summary(9, 1, 9, _GAMES[0][0], False, replays=True, failed=False, recent=_GAMES[:1])
+    ),
     "down": ChestsState(None, "lecteur de replays introuvable"),
 }
 
@@ -98,7 +110,7 @@ SCENES = [
     Scene("expanded-first-chests", "paused", False, started=False),
     *(
         Scene(f"expanded-chests-{state}", "paused", False, started=False, chests=state)
-        for state in ("reading", "none", "recording", "failed", "down")
+        for state in ("reading", "none", "first-game", "recording", "failed", "down")
     ),
     Scene("expanded-active", "active", False, recent=5),
     Scene("expanded-two-clicks", "active", False, recent=2),
@@ -245,6 +257,7 @@ def _geometry(panel: Panel) -> dict[str, object]:
         "chests_body": panel.chests_body,
         "chests_note": panel.chests_note,
         "chests_notice": panel.chests_notice,
+        "s_games": panel.s_games,
         "footer_rule": panel.footer_rule,
         "update_box": panel.update_box,
         "update_notice": panel.update_notice,
@@ -253,9 +266,10 @@ def _geometry(panel: Panel) -> dict[str, object]:
         "hint": panel.hint,
     }
     boxes = {name: _box(widget, origin) for name, widget in named.items()}
-    sections = (panel.s_dialog, panel.s_recent)
+    sections = (panel.s_dialog, panel.s_recent, panel.s_games)
     boxes["headings"] = [_box(section.winfo_children()[0], origin) for section in sections]
     boxes["recent_rows"] = [_box(row, origin) for row, _, _ in panel.recent]
+    boxes["game_rows"] = [_box(row, origin) for row, _, _ in panel.games]
     return {
         "window": [panel.root.winfo_width(), panel.root.winfo_height()],
         "position": list(panel._pos),

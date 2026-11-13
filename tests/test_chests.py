@@ -30,6 +30,7 @@ from fortnite_auto_replay.chests import (
     load_store,
     read_header,
     save_store,
+    summarize,
 )
 from fortnite_auto_replay.config import ChestsConfig
 from fortnite_auto_replay.panel import (
@@ -45,6 +46,7 @@ from fortnite_auto_replay.panel import (
     C,
     ChestsState,
     chests_view,
+    match_time,
 )
 
 NOW = 1_800_000_000.0  # horloge simulée (secondes)
@@ -298,6 +300,24 @@ def summary(**kw: Any) -> Summary:
     return Summary(**{**base, **kw})
 
 
+def test_summary_lists_the_last_five_matches_newest_first() -> None:
+    def at(hour: int) -> datetime:
+        return datetime(2026, 11, 10, hour, tzinfo=timezone.utc)
+
+    store = Store()
+    for hour in (9, 14, 11, 16, 10, 13, 12):  # dans le désordre
+        store.matches[f"s{hour}"] = MatchChests(f"s{hour}", at(hour), hour, 0, at(hour))
+    summary = summarize(store, recording=False, replays=True, failed=False)
+    assert summary.recent == tuple((at(h), h) for h in (16, 14, 13, 12, 11))
+    assert summarize(Store(), recording=False, replays=True, failed=False).recent == ()
+
+
+def test_match_time_is_local_with_a_short_month() -> None:
+    nbsp = chr(0xA0)
+    when = datetime(2026, 9, 3, 18, 7).astimezone()  # heure locale
+    assert match_time(when) == f"3{nbsp}sept. 18:07"
+
+
 def test_chests_view() -> None:
     nbsp = chr(0xA0)
     reading = chests_view(ChestsState(None))
@@ -321,6 +341,9 @@ def test_chests_view() -> None:
     one = chests_view(ChestsState(summary(total=1, matches=1, last=1)))
     assert one.state == f"1{nbsp}coffre à la dernière partie"
     assert one.note == f"1{nbsp}partie depuis le 6{nbsp}novembre"
+    games = summary(recent=((datetime(2026, 11, 13, 18, 12).astimezone(), 1),))
+    assert chests_view(ChestsState(games)).games == ((f"13{nbsp}nov. 18:12", f"1{nbsp}coffre"),)
+    assert counted.games == ()
     big = chests_view(ChestsState(summary(total=1234)))
     assert big.value == f"1{nbsp}234"
 

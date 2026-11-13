@@ -196,7 +196,7 @@ Fenêtre de 320 px de large, hauteur ajustée au contenu, gardée entière dans 
 
 - **Ligne d'une fonction** : 52 px de haut, marges latérales de 12 px (pad). Pastille, 8 px (gap), puis le nom (19 px) et l'état dessous (16 px), bloc centré en hauteur (8 px au-dessus). La pastille est centrée sur la ligne du nom. Relance : à droite le bouton principal, 8 px (gap), puis le chevron, à 12 px du bord, contrôles de 28 px centrés. Coffres : le total sur la ligne du nom, aligné à droite à 12 px du bord.
 - **Détail d'une fonction** (déplié) : marge intérieure de 12 px, largeur utile de 296 px, à 4 px sous la ligne (13 px sous l'état). 16 px (section) entre bandeau et sections et entre sections ; 8 px entre un intertitre et son contenu ou entre le sélecteur et son aide ; 12 px avant le filet suivant.
-- **Lignes du journal** : 24 px de haut, comme l'état vide. Colonne de l'heure à la largeur de « 00:00 » la plus large de la police, puis 12 px avant le libellé ; cinq lignes au plus.
+- **Lignes du journal** : 24 px de haut, comme l'état vide. Colonne du moment à la largeur de sa forme la plus large dans la police (« 00:00 » pour les derniers clics, « 00 sept. 00:00 » pour les dernières parties), puis 12 px avant le libellé ; cinq lignes au plus.
 - **Pied** : filet sous la dernière fonction ; le bandeau de mise à jour s'il y en a un, 12 px plus bas ; puis 12 px de marge autour de Quitter (à gauche) et du rappel des raccourcis (à droite).
 - **Replié** : les deux lignes et leur filet, la fenêtre fait 320 × 105 px (320 × 52 px sans compteur de coffres).
 
@@ -238,7 +238,7 @@ Contrôles natifs de Windows 11, sobres et plats.
 Pastille de 8 px à la couleur de l'état de la fonction, nom en Title, état dessous en Caption secondaire, et à droite ce que la fonction offre : le bouton principal et le chevron pour la relance, le total pour les coffres. Chaque ligne, sauf ses boutons, sert de poignée pour déplacer la fenêtre.
 
 ### Journal
-Rangées de 24 px sans fond ni séparateur : heure en texte tertiaire, libellé en texte. La hauteur constante tient la grille.
+Rangées de 24 px sans fond ni séparateur : moment en texte tertiaire, libellé en texte. Deux journaux : derniers clics sous la relance, dernières parties (début et coffres) sous les coffres, absent tant qu'aucune partie n'est comptée. La hauteur constante tient la grille.
 
 ## Do's and Don'ts
 

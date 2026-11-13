@@ -61,7 +61,7 @@ Une petite fenêtre s'ouvre au-dessus du jeu et lance le moteur :
   de coffres ne dépend pas de la relance : il compte aussi en pause ;
 - déplié : sous la relance, la réponse au dialogue « Vous êtes toujours là ? »
   et les cinq derniers clics ; sous les coffres, le nombre de parties
-  comptées ; puis Quitter. Un bandeau explique tout état anormal (bouton qui
+  comptées et les cinq dernières, avec leurs coffres ; puis Quitter. Un bandeau explique tout état anormal (bouton qui
   ne part pas, jeu réduit, clic en attente, capture en échec, clic annulé,
   rediffusions désactivées).
 
@@ -95,8 +95,8 @@ Valeurs : `ready`, `not_yet`, `ignore`.
 
 Le panneau compte les coffres que vous ouvrez, partie après partie, que la
 relance tourne ou soit en pause : sa ligne « Coffres » donne le total et les
-coffres de la dernière partie ; dépliée, le nombre de parties comptées et leur
-date de début. Les coffres cassés (support détruit, explosion)
+coffres de la dernière partie ; dépliée, le nombre de parties comptées, leur
+date de début et les cinq dernières parties (début et coffres). Les coffres cassés (support détruit, explosion)
 comptent aussi ; les caisses de munitions, de nourriture et les canons à
 butin non.
 

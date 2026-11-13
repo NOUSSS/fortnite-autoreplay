@@ -39,7 +39,8 @@ pastille 8 px, nom en 14 semi-gras, état en 12 secondaire dessous, bouton
 d'accent Pause/Lancer et chevron de repli à droite. Coffres : même forme, total
 en 14 semi-gras à droite sur la ligne du nom, dernière partie dessous. Déplié :
 sous la relance, bandeau d'alerte si bloqué, segment Prêt / Pas encore /
-Ignorer, derniers clics ; sous les coffres, parties comptées et bandeau ; puis
+Ignorer, derniers clics ; sous les coffres, parties comptées, bandeau et
+dernières parties ; puis
 Quitter.
 
 FORM: canon (standard de la catégorie), choisi par le joueur. seed:946c8c0fe0ffcd94

@@ -271,10 +271,16 @@ class Summary:
     recording: bool  # une partie en cours d'enregistrement
     replays: bool  # au moins un replay vu dans le dossier (enregistrement activé)
     failed: bool  # le dernier replay lu n'a pas pu l'être
+    # dernières parties, la plus récente d'abord : (début UTC, coffres)
+    recent: tuple[tuple[datetime, int], ...] = ()
+
+
+RECENT_MATCHES = 5
 
 
 def summarize(store: Store, *, recording: bool, replays: bool, failed: bool) -> Summary:
     ordered = sorted(store.matches.values(), key=_order)
+    recent = tuple((_order(m), m.chests) for m in reversed(ordered[-RECENT_MATCHES:]))
     return Summary(
         total=sum(m.chests for m in ordered),
         matches=len(ordered),
@@ -283,6 +289,7 @@ def summarize(store: Store, *, recording: bool, replays: bool, failed: bool) -> 
         recording=recording,
         replays=replays or bool(ordered),
         failed=failed,
+        recent=recent,
     )
 
 

@@ -252,6 +252,28 @@ def day_month(when: datetime) -> str:
     return f"{local.day}{NBSP}{MONTHS[local.month - 1]}"
 
 
+SHORT_MONTHS = (
+    "janv.",
+    "févr.",
+    "mars",
+    "avr.",
+    "mai",
+    "juin",
+    "juil.",
+    "août",
+    "sept.",
+    "oct.",
+    "nov.",
+    "déc.",
+)
+
+
+def match_time(when: datetime) -> str:
+    """« 13 nov. 18:12 », à l'heure locale : le début d'une partie du journal des coffres."""
+    local = when.astimezone()
+    return f"{local.day}{NBSP}{SHORT_MONTHS[local.month - 1]} {local:%H:%M}"
+
+
 @dataclass(frozen=True, slots=True)
 class ChestsState:
     """Ce que le panneau sait des coffres : résumé du compteur, lecteur indisponible."""
@@ -269,6 +291,7 @@ class ChestsView:
     value: str = ""  # total à droite, vide tant qu'il n'y en a pas
     note: str = ""  # légende dépliée
     notice: tuple[str, str] | None = None  # gravité, message (déplié)
+    games: tuple[tuple[str, str], ...] = ()  # dernières parties : (début, coffres)
 
 
 def chests_view(state: ChestsState) -> ChestsView:
@@ -293,7 +316,10 @@ def chests_view(state: ChestsState) -> ChestsView:
     else:
         shown = f"{plural(summary.last, 'coffre')} à la dernière partie"
     note = f"{plural(summary.matches, 'partie')} depuis le {day_month(summary.since)}"
-    return ChestsView(dot, shown, value=number(summary.total), note=note, notice=notice)
+    games = tuple((match_time(when), plural(count, "coffre")) for when, count in summary.recent)
+    return ChestsView(
+        dot, shown, value=number(summary.total), note=note, notice=notice, games=games
+    )
 
 
 # --- géométrie ----------------------------------------------------------------
@@ -1151,19 +1177,9 @@ class Panel:
         )
 
         self.s_recent = self._section(self.bot_body, "Derniers clics")
-        self.recent: list[tuple[tk.Frame, tk.Label, tk.Label]] = []
         # chiffres proportionnels : la colonne de l'heure a la largeur de la plus large
         clock_w = max(self.f_body.measure(f"{d}{d}:{d}{d}") for d in range(10))
-        for _ in range(RECENT_ROWS):
-            row = tk.Frame(self.s_recent, bg=C.bg, height=px(ROW_H))
-            row.grid_propagate(False)
-            row.rowconfigure(0, weight=1)
-            row.columnconfigure(0, minsize=clock_w)
-            when = self._label(row, self.f_body, C.text_3, anchor="w")
-            when.grid(row=0, column=0, sticky="w")
-            what = self._label(row, self.f_body, C.text, anchor="w")
-            what.grid(row=0, column=1, sticky="w", padx=(px(PAD), 0))
-            self.recent.append((row, when, what))
+        self.recent = self._journal(self.s_recent, clock_w)
         self.empty = tk.Frame(self.s_recent, bg=C.bg, height=px(ROW_H))
         self.empty.pack_propagate(False)
         empty = self._label(self.empty, self.f_body, C.text_3, text=NO_CLICK)
@@ -1192,6 +1208,13 @@ class Panel:
             font=self.f_body,
             icon_font=self.f_icon,
         )
+        self.s_games = self._section(self.chests_body, "Dernières parties")
+        date_w = max(
+            self.f_body.measure(f"{d}{d}{NBSP}{month} {d}{d}:{d}{d}")
+            for d in range(10)
+            for month in SHORT_MONTHS
+        )
+        self.games = self._journal(self.s_games, date_w)
 
         self.footer_rule = tk.Frame(root, bg=C.stroke, height=1)
         self.update_box = tk.Frame(root, bg=C.bg, padx=px(PAD))
@@ -1241,6 +1264,22 @@ class Panel:
             widget.bind("<B1-Motion>", self._drag_move)
             widget.bind("<ButtonRelease-1>", self._drag_end)
 
+    def _journal(self, parent: tk.Misc, when_w: int) -> list[tuple[tk.Frame, tk.Label, tk.Label]]:
+        """Rangées de 24 px : moment en texte tertiaire, 12 px, libellé ; cachées tant que vides."""
+        px = self.px
+        rows: list[tuple[tk.Frame, tk.Label, tk.Label]] = []
+        for _ in range(RECENT_ROWS):
+            row = tk.Frame(parent, bg=C.bg, height=px(ROW_H))
+            row.grid_propagate(False)
+            row.rowconfigure(0, weight=1)
+            row.columnconfigure(0, minsize=when_w)
+            when = self._label(row, self.f_body, C.text_3, anchor="w")
+            when.grid(row=0, column=0, sticky="w")
+            what = self._label(row, self.f_body, C.text, anchor="w")
+            what.grid(row=0, column=1, sticky="w", padx=(px(PAD), 0))
+            rows.append((row, when, what))
+        return rows
+
     def _notice_button(
         self, parent: tk.Misc, text: str, command: Callable[[], None], bg: str
     ) -> Button:
@@ -1284,6 +1323,7 @@ class Panel:
             self.chests_body,
             self.chests_note,
             self.chests_notice,
+            self.s_games,
             self.footer_rule,
             self.update_box,
             self.footer,
@@ -1301,13 +1341,17 @@ class Panel:
         if chests is not None:  # absente si le compteur est désactivé
             self.chests_rule.pack(fill="x")
             self.chests_block.pack(fill="x")
-            if not self.collapsed and (chests.note or chests.notice):
+            if not self.collapsed and (chests.note or chests.notice or chests.games):
+                top = 0
                 if chests.note:
                     self.chests_note.pack(fill="x")
+                    top = px(GAP)
                 if chests.notice is not None:
                     self.chests_notice.show(*chests.notice)
-                    top = px(GAP) if chests.note else 0
                     self.chests_notice.pack(fill="x", pady=(top, 0))
+                if chests.games:
+                    top = px(SECTION_GAP) if chests.note or chests.notice else 0
+                    self.s_games.pack(fill="x", pady=(top, 0))
                 self.chests_body.pack(fill="x", pady=(px(DETAIL_GAP), px(PAD)))
         if not self.collapsed:
             self.footer_rule.pack(fill="x")
@@ -1456,6 +1500,7 @@ class Panel:
             self._text(self.chests_state, chests.state)
             self._text(self.chests_value, chests.value)
             self._text(self.chests_note, chests.note)
+            self._fill_journal(self.games, chests.games)
 
         if self.collapsed:
             shape: tuple[object, ...] = (True, chests is not None)
@@ -1481,7 +1526,7 @@ class Panel:
             None if update is None else (update[0], update[2]),
             len(recent),
             hint,
-            None if chests is None else (bool(chests.note), chests.notice),
+            None if chests is None else (bool(chests.note), chests.notice, len(chests.games)),
         )
         if shape != self._shape:
             self._shape = shape
@@ -1526,8 +1571,10 @@ class Panel:
         if label.cget("fg") != color:
             label.configure(fg=color)
 
-    def _fill_recent(self, rows: tuple[tuple[str, str], ...]) -> None:
-        for index, (row, when, what) in enumerate(self.recent):
+    def _fill_journal(
+        self, journal: list[tuple[tk.Frame, tk.Label, tk.Label]], rows: tuple[tuple[str, str], ...]
+    ) -> None:
+        for index, (row, when, what) in enumerate(journal):
             if index < len(rows):
                 self._text(when, rows[index][0])
                 self._text(what, rows[index][1])
@@ -1535,6 +1582,9 @@ class Panel:
                     row.pack(fill="x")
             elif row.winfo_manager():
                 row.pack_forget()
+
+    def _fill_recent(self, rows: tuple[tuple[str, str], ...]) -> None:
+        self._fill_journal(self.recent, rows)
         if rows and self.empty.winfo_manager():
             self.empty.pack_forget()
         elif not rows and not self.empty.winfo_manager():
