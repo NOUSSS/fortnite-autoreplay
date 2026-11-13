@@ -61,8 +61,8 @@
     "topmost": true,
     "exclude_from_capture": true,
     "position": null,
-    "collapsed": false,
-    "chests_collapsed": false
+    "rest": "pill",
+    "rest_opacity": 80
   },
   "update": {
     "enabled": true,

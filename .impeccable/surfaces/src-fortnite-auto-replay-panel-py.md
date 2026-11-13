@@ -14,36 +14,34 @@ reste invisible pour la capture d'écran du bot.
 ## Audience and task
 
 Le joueur, Fortnite ouvert en permanence. Il veut savoir d'un coup d'œil si le
-bot travaille, le lancer ou le mettre en pause, choisir la réponse au dialogue
+bot travaille, activer ou désactiver la relance, choisir la réponse au dialogue
 « Vous êtes toujours là ? », garder une trace des derniers clics, et voir ses
-coffres comptés, qui ne dépendent pas de la pause. Le panneau ne doit pas
-prendre de place sur le jeu : repli et dépli soignés.
+coffres comptés, qui ne dépendent pas de la relance. Le panneau ne doit pas
+prendre de place sur le jeu : une pastille au repos, la carte au survol.
 
 ## Direction contract
 
-THESIS: Le standard de la catégorie, exécuté avec soin : un widget sombre façon
-Xbox Game Bar et réglages de Windows 11. Refuse la carte décorative et le
-tableau de bord : une ligne par fonction, deux lignes qui se suffisent repliées.
+THESIS: Discret. Au repos, une pastille qui dit l'état de la relance et le total
+des coffres ; au survol, la carte entière ; les réglages à côté. Refuse le
+tableau de bord et le chiffre décoratif.
 
-OWN-WORLD: Fond #202020, couche #2B2B2B, filet #3A3A3A, texte #FFFFFF, secondaire
-#C5C5C5, accent #60CDFF sur texte noir ; succès #6CCB5F, attention #FCE100,
-critique #FF99A4, neutre #9E9E9E. Segoe UI Variable, icônes Segoe Fluent
-Icons. Rayons 8 (fenêtre) et 4 (contrôles). Grille de 4 px.
+OWN-WORLD: Encre #11201E, couche #1A2C29, filet #2A403C, texte #F4F0E6,
+secondaire #B8C3BB, or #F0B93A sur encre #1E1604 ; succès #7BD88F, attention
+#FF9A4D, critique #FF7B7B, neutre #7D8D86. Figtree et Bricolage Grotesque
+(livrées, OFL), icônes Segoe Fluent Icons. Fenêtre et bandeaux à 8 px,
+contrôles en pilule de 32 px. Grille de 4 px.
 
-STORY: Le joueur voit l'état de la relance et le total de ses coffres, appuie
-sur Pause ou F8 (les coffres restent comptés), déplie pour régler la réponse au
-dialogue ou lire les clics, replie.
+STORY: Le joueur lit la pastille du coin de l'œil, la survole pour la carte,
+clique Activer ou Désactiver (ou F8 ; les coffres restent comptés), ouvre les
+Réglages pour l'opacité, le mode au repos ou la réponse au dialogue.
 
-FIRST VIEWPORT: Deux lignes de 52 px, séparées par un filet. Relance auto :
-pastille 8 px, nom en 14 semi-gras, état en 12 secondaire dessous, bouton
-d'accent Pause/Lancer et chevron de repli à droite. Coffres : même forme, total
-en 14 semi-gras sur la ligne du nom avant son propre chevron, dernière partie
-dessous. Chaque ligne se déplie à part :
-sous la relance, bandeau d'alerte si bloqué, segment Prêt / Pas encore /
-Ignorer, derniers clics ; sous les coffres, parties comptées, bandeau et
-dernières parties ; puis
-Quitter.
+FIRST VIEWPORT: Une pastille de 32 px : pastille d'état, « Relance active », filet,
+boîte et total. Au survol, la carte de 320 px : Relance auto (nom en Bricolage,
+état dessous, bouton Activer en or ou Désactiver), bandeau éventuel, trois
+derniers clics ; filet ; Coffres (total à droite), bandeau, trois dernières
+parties ; filet ; Réglages et Quitter. Réglages dans un popover à côté : au
+repos, opacité au repos, réponse au dialogue, raccourcis.
 
-FORM: canon (standard de la catégorie), choisi par le joueur. seed:946c8c0fe0ffcd94
+FORM: Discret, choisi par le joueur parmi trois prototypes (Natif, Instrument, Discret). seed:946c8c0fe0ffcd94
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance

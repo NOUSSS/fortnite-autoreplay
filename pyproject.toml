@@ -20,7 +20,7 @@ fnreplay = "fortnite_auto_replay.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-fortnite_auto_replay = ["../../config/default.json"]
+fortnite_auto_replay = ["../../config/default.json", "fonts/*.ttf", "fonts/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

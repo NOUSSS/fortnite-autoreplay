@@ -131,6 +131,20 @@ capture n'apporterait rien. Tout le gain vient du matching.
   que dans le thread qui l'a créé). La fenêtre est `WS_EX_NOACTIVATE`, au-dessus
   de tout et exclue des captures (`WDA_EXCLUDEFROMCAPTURE`) : le bot ne la voit
   pas, et un clic dessus ne retire pas le focus au jeu.
+- **Pastille et survol** : au repos, la fenêtre ne montre qu'une pastille
+  (`panel.rest` : `pill`) ou la carte entière (`panel`). Toutes les 50 ms, le
+  panneau lit la position du curseur (`GetCursorInfo`, `GetWindowRect`) : dessus
+  (ou sur le popover des réglages), la carte s'ouvre ; dehors depuis 0,4 s, elle
+  se referme (`hover_step`). Jamais quand la souris le traverse : en partie, le
+  curseur caché passe dessous sans rien ouvrir. Sans la souris, la fenêtre prend
+  l'opacité au repos (`SetLayeredWindowAttributes`, `panel.rest_opacity`).
+  Le popover des réglages est un second `Toplevel`, stylé comme la fenêtre
+  principale (`WS_EX_NOACTIVATE`, exclu des captures) avant d'être montré.
+- **Polices** : Figtree et Bricolage Grotesque (OFL), dans
+  `src/fortnite_auto_replay/fonts` et dans `_internal` une fois empaqueté, sont
+  chargées par `AddFontResourceEx(FR_PRIVATE)` : visibles du seul processus,
+  rien n'est installé. Une mise à jour remplace `_internal` entier, polices
+  comprises.
 - **Premier plan rendu** : à la création de sa première fenêtre, Tk prend le
   premier plan (constaté lancé depuis un terminal comme par WMI), avant qu'on
   puisse poser `WS_EX_NOACTIVATE`. Le panneau note la fenêtre active avant de se
@@ -140,7 +154,7 @@ capture n'apporterait rien. Tout le gain vient du matching.
   fois par épisode, pas à chaque tour.
 - **Souris traversante** : pendant une partie (jeu au premier plan, curseur
   masqué ou retenu par `ClipCursor`), le panneau ajoute `WS_EX_TRANSPARENT` (sur
-  une fenêtre `WS_EX_LAYERED` opaque) : les clics passent au jeu. Curseur posé
+  une fenêtre `WS_EX_LAYERED`) : les clics passent au jeu. Curseur posé
   sur le panneau, l'état ne change pas, pour qu'il ne bascule pas sous la visée
   (`mouse_through`).
 - **Panneau unique** : au lancement, avant de lire l'historique,

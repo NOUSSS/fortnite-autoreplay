@@ -43,10 +43,10 @@ python -m fortnite_auto_replay stats    # totaux des sessions passées
 python -m fortnite_auto_replay chests   # coffres ouverts comptés (voir plus bas)
 ```
 
-Raccourcis en jeu : `F8` = démarrer / mettre en pause, `F9` = quitter. Ils ne
+Raccourcis en jeu : `F8` = activer / désactiver la relance, `F9` = quitter. Ils ne
 comptent que quand Fortnite est au premier plan : ailleurs, `F8` et `F9` restent
-à l'application active. Le bot démarre en pause par sécurité. `F8` joue deux notes : montantes quand
-le bot repart, descendantes quand il se met en pause (`engine.sound_on_toggle`).
+à l'application active. La relance démarre désactivée par sécurité. `F8` joue deux notes : montantes quand
+elle s'active, descendantes quand elle se désactive (`engine.sound_on_toggle`).
 
 ## Panneau de contrôle
 
@@ -54,26 +54,30 @@ Double-cliquer sur **`Lancer le panneau.cmd`** (ou
 `python -m fortnite_auto_replay panel`, avec `--dry-run` pour une simulation).
 Une petite fenêtre s'ouvre au-dessus du jeu et lance le moteur :
 
-- une ligne par fonction, chacune avec sa pastille et son état. **Relance
-  auto** : Actif, En pause, En attente du jeu, Bloqué, Clic annulé…, avec le
-  bouton Lancer / Pause / Reprendre. **Coffres** : le total compté et la
-  dernière partie. Le compteur de coffres ne dépend pas de la relance : il
-  compte aussi en pause. Chaque ligne a son chevron, qui la déplie ou la
-  replie sans toucher à l'autre ;
-- déplié : sous la relance, la réponse au dialogue « Vous êtes toujours là ? »
-  et les cinq derniers clics ; sous les coffres, le nombre de parties
-  comptées et les cinq dernières, avec leurs coffres ; puis Quitter, dès
-  qu'une ligne est dépliée. Un bandeau explique tout état anormal (bouton qui
-  ne part pas, jeu réduit, clic en attente, capture en échec, clic annulé,
-  rediffusions désactivées).
+- au repos, une **pastille** : l'état de la relance (Relance active,
+  désactivée, bloquée, En attente du jeu…) et le total des coffres ;
+- le curseur posé dessus ouvre la **carte** entière, qui se referme quand il
+  s'en va. Une ligne par fonction, chacune avec sa pastille et son état.
+  **Relance auto** : Actif, Désactivé, En attente du jeu, Bloqué, Clic
+  annulé…, avec le bouton Activer ou Désactiver, et les trois derniers clics.
+  **Coffres** : le total compté, la dernière partie et les trois dernières
+  (début et coffres). Le compteur de coffres ne dépend pas de la relance : il
+  compte aussi relance désactivée. Un bandeau explique tout état anormal
+  (bouton qui ne part pas, jeu réduit, clic en attente, capture en échec, clic
+  annulé, rediffusions désactivées). En bas, Réglages et Quitter ;
+- les **réglages** s'ouvrent à côté de la carte : ce qui reste affiché au
+  repos (la pastille ou la carte entière), l'opacité au repos (de 20 à 100 %,
+  80 % par défaut ; au survol, le panneau redevient opaque), la réponse au
+  dialogue « Vous êtes toujours là ? » et le rappel des raccourcis.
 
-Le panneau se déplace en le tirant par l'une de ses lignes ; sa position, ce
-qui est replié et la réponse au dialogue sont gardés dans `config/local.json`. Il ne
+Le panneau se déplace en le tirant par l'une de ses lignes ou par sa pastille ;
+sa position, ses réglages et la réponse au dialogue sont gardés dans
+`config/local.json` (`panel.rest` : `pill` ou `panel`, `panel.rest_opacity`). Il ne
 garde jamais le focus : s'il le prend (un instant à son ouverture), il le rend
 aussitôt à la fenêtre d'avant, ou au jeu si elle n'existe plus. Pendant une
 partie (jeu au premier plan, curseur masqué ou retenu dans sa fenêtre), la
 souris le traverse : un clic ou un geste de visée passé dessus va au jeu et ne
-peut ni l'activer ni le déplacer. Un seul panneau tourne à la fois : en lancer
+peut ni l'activer ni le déplacer, et la carte ne s'ouvre pas. Un seul panneau tourne à la fois : en lancer
 un nouveau ferme l'ancien, même caché hors écran ; si l'ancien refuse (lancé en
 administrateur, par exemple), un message le dit. Il est invisible pour les
 captures d'écran (le bot ne le voit pas), et si un bouton à cliquer se trouve
@@ -96,9 +100,9 @@ Valeurs : `ready`, `not_yet`, `ignore`.
 ### Coffres ouverts
 
 Le panneau compte les coffres que vous ouvrez, partie après partie, que la
-relance tourne ou soit en pause : sa ligne « Coffres » donne le total et les
-coffres de la dernière partie ; dépliée, le nombre de parties comptées, leur
-date de début et les cinq dernières parties (début et coffres). Les coffres cassés (support détruit, explosion)
+relance soit active ou non : la pastille donne le total ; la carte, le total,
+les coffres de la dernière partie et les trois dernières parties (début et
+coffres). Les coffres cassés (support détruit, explosion)
 comptent aussi ; les caisses de munitions, de nourriture et les canons à
 butin non.
 

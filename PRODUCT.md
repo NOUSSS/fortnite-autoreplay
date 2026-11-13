@@ -22,8 +22,8 @@ Bot de rejeu automatique : il reconnaît à l'écran les boutons de fin de parti
 et de salon (Retourner au salon, Continuer, Passer, Prêt ou Jouer) et clique dessus, pour enchaîner
 les parties sans intervention. Il répond aussi au dialogue « Vous êtes toujours
 là ? » d'un groupe (Prêt ou Pas encore, au choix). Réussite : les parties
-s'enchaînent, et le joueur sait à tout moment si le bot est actif, en pause, en
-attente du jeu ou bloqué.
+s'enchaînent, et le joueur sait à tout moment si la relance est active, désactivée,
+en attente du jeu ou bloquée.
 
 ## Operating Context
 
@@ -31,7 +31,10 @@ attente du jeu ou bloqué.
   joueur). Il ne doit jamais prendre le focus. Le bot clique tant que le jeu
   est visible, au premier plan ou non : le joueur peut travailler sur un autre
   écran pendant ce temps.
-- Raccourcis en jeu : F8 lance ou met en pause, F9 quitte, seulement quand
+- Le panneau ne doit pas prendre de place sur le jeu : au repos, une pastille
+  (état de la relance, total des coffres), la carte entière au survol, et une
+  opacité réglable quand la souris est ailleurs.
+- Raccourcis en jeu : F8 active ou désactive la relance, F9 quitte, seulement quand
   Fortnite est au premier plan. Le joueur peut les utiliser sans regarder le
   panneau.
 - Le bot capture l'écran du jeu : le panneau doit rester invisible pour cette
@@ -39,15 +42,16 @@ attente du jeu ou bloqué.
 
 ## Capabilities and Constraints
 
-- États du bot : Actif, En pause, En attente du jeu (fenêtre absente ou
+- États de la relance : Actif, Désactivé, En attente du jeu (fenêtre absente ou
   réduite), Clic en attente (souris utilisée), Bloqué (clic sans effet ou
   erreurs répétées), arrêté.
 - Informations demandées : deux fonctions, chacune sur sa ligne avec sa
-  pastille et son état. La relance, avec le journal des cinq derniers clics
+  pastille et son état. La relance, avec le journal des trois derniers clics
   pour garder une trace. Les coffres ouverts, cassés compris, comptés dans
   les replays du jeu (rediffusions activées dans Fortnite) : ils se comptent
-  aussi quand la relance est en pause, le panneau ne doit pas laisser croire
-  le contraire. Ni compteurs de session ni totaux de toutes les sessions :
+  aussi quand la relance est désactivée, le panneau ne doit pas laisser croire
+  le contraire. Ni compteurs de session, ni nombre de parties depuis une date,
+  ni totaux de toutes les sessions :
   décoratifs (l'historique reste écrit dans `logs/sessions.jsonl`).
 - Réponse au dialogue « Vous êtes toujours là ? » : Prêt (par défaut), Pas
   encore, ou ne rien faire ; modifiable dans le panneau.

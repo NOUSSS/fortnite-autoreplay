@@ -272,12 +272,16 @@ class PanelConfig:
     # confond jamais avec le jeu, même posé par-dessus
     exclude_from_capture: bool = True
     position: list[int] | None = None  # [x, y] écran ; None = coin libre près du jeu
-    collapsed: bool = False  # relance réduite à sa ligne
-    chests_collapsed: bool = False  # coffres réduits à leur ligne
+    rest: str = "pill"  # sans la souris : "pill" (pastille) ou "panel" (carte entière)
+    rest_opacity: int = 80  # opacité sans la souris, en %, de 20 à 100 ; opaque au survol
 
     def validate(self) -> None:
         if self.position is not None and len(self.position) != 2:
             raise ConfigError("panel.position doit être [x, y] ou null")
+        if self.rest not in ("pill", "panel"):
+            raise ConfigError(f"panel.rest inconnu : {self.rest!r} (pill ou panel)")
+        if not 20 <= self.rest_opacity <= 100:
+            raise ConfigError("panel.rest_opacity doit être entre 20 et 100")
 
 
 @dataclass(slots=True)

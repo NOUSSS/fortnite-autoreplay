@@ -47,6 +47,8 @@ version_info = VSVersionInfo(
 a = Analysis(
     [str(ROOT / "packaging" / "entry.py")],
     pathex=[str(SRC)],
+    # polices du panneau (OFL), chargées pour lui seul au démarrage
+    datas=[(str(SRC / "fortnite_auto_replay" / "fonts"), "fortnite_auto_replay/fonts")],
     # repli de dernier recours des clics, absent des dépendances
     excludes=["pyautogui", "pytest", "ruff"],
     noarchive=False,

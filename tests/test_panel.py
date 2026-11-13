@@ -10,19 +10,26 @@ import pytest
 
 from fortnite_auto_replay.engine import Status
 from fortnite_auto_replay.panel import (
+    ACTIVATE,
+    DEACTIVATE,
+    LOOKS,
     NBSP,
     Panel,
+    action_label,
     clamp,
     default_home,
     explain,
     focus_step,
     give_back_targets,
+    hover_step,
     missing_hint,
+    mix,
     mouse_through,
     number,
     plural,
-    primary_label,
     replace_other_panels,
+    shortcuts_hint,
+    snap_opacity,
 )
 
 
@@ -49,25 +56,64 @@ def test_number_and_plural() -> None:
 
 
 @pytest.mark.parametrize(
-    ("phase", "started", "label"),
+    ("phase", "label"),
     [
-        ("paused", False, "Lancer"),
-        ("paused", True, "Reprendre"),
-        ("stuck", True, "Reprendre"),
-        ("errors", True, "Reprendre"),
-        ("active", True, "Pause"),
-        ("no_game", True, "Pause"),
-        ("covered", True, "Pause"),
-        ("stopped", True, "Quitter"),
+        ("paused", ACTIVATE),
+        ("stuck", ACTIVATE),
+        ("errors", ACTIVATE),
+        ("stopped", ACTIVATE),  # grisé : le moteur ne repartira pas
+        ("active", DEACTIVATE),
+        ("no_game", DEACTIVATE),  # active, en attente du jeu
+        ("covered", DEACTIVATE),
+        ("mouse", DEACTIVATE),
     ],
 )
-def test_primary_label_says_what_it_does(phase: str, started: bool, label: str) -> None:
-    assert primary_label(phase, started) == label  # type: ignore[arg-type]
+def test_action_label_says_what_it_does(phase: str, label: str) -> None:
+    assert action_label(phase) == label  # type: ignore[arg-type]
+
+
+def test_every_phase_has_a_short_state_for_the_pill() -> None:
+    assert LOOKS["paused"].title == "Désactivé"
+    assert all(look.short and len(look.short) <= 20 for look in LOOKS.values())
+
+
+def test_shortcuts_hint() -> None:
+    assert shortcuts_hint("F8", "F9") == (
+        f"En jeu, F8{NBSP}: activer ou désactiver, F9{NBSP}: quitter"
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(0, 20), (19, 20), (62, 60), (63, 65), (80, 80), (100, 100), (140, 100)],
+)
+def test_snap_opacity(value: float, expected: int) -> None:
+    assert snap_opacity(value) == expected
+
+
+def test_mix_fades_a_color_over_the_background() -> None:
+    assert mix("#FFFFFF", "#000000", 0.4) == "#666666"
+    assert mix("#F0B93A", "#11201E", 1.0) == "#F0B93A"
+
+
+def test_card_opens_at_once_and_closes_after_the_delay() -> None:
+    assert hover_step(True, False, None, 10.0) == (True, None)
+    left = hover_step(False, True, None, 10.0)
+    assert left == (True, 10.0)  # sortie : la carte reste un instant
+    assert hover_step(False, True, 10.0, 10.3) == (True, 10.0)
+    assert hover_step(True, True, 10.0, 10.3) == (True, None)  # revenu à temps
+    assert hover_step(False, True, 10.0, 10.4) == (False, None)
+    assert hover_step(False, False, None, 11.0) == (False, None)
 
 
 def test_explain_is_quiet_when_all_is_well() -> None:
     assert explain(status("active")) is None
     assert explain(status("paused")) is None
+
+
+def test_explain_says_a_stuck_bot_turned_itself_off() -> None:
+    found = explain(status("stuck", detail="«\u00a0Continuer\u00a0» toujours visible"))
+    assert found is not None and found[1].endswith("La relance s\u2019est désactivée.")
 
 
 @pytest.mark.parametrize(
@@ -400,3 +446,9 @@ def test_update_failure_hides_technical_detail() -> None:
     assert (severity, action) == ("caution", "Réessayer")
     assert "urlopen" not in message
     assert "téléchargement interrompu" in message
+
+
+def test_settings_window_is_not_taken_for_another_panel() -> None:
+    from fortnite_auto_replay.panel import _PANEL_TITLES, SETTINGS_TITLE  # noqa: PLC0415
+
+    assert SETTINGS_TITLE not in _PANEL_TITLES

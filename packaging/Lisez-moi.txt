@@ -18,8 +18,9 @@ Avant de jouer
 
 Utilisation
 
-- Un petit panneau s’ouvre au-dessus du jeu. Le bot démarre en pause : cliquez sur Lancer, ou appuyez sur F8 dans le jeu.
-- F8 lance le bot ou le met en pause, F9 le quitte. Ces touches ne comptent que quand Fortnite est au premier plan.
+- Une petite pastille s’ouvre au-dessus du jeu. Passez la souris dessus pour voir le panneau entier. La relance démarre désactivée : cliquez sur Activer, ou appuyez sur F8 dans le jeu.
+- F8 active ou désactive la relance, F9 quitte. Ces touches ne comptent que quand Fortnite est au premier plan.
+- Réglages, en bas du panneau : garder la pastille ou le panneau entier au repos, et son opacité quand la souris est ailleurs.
 - Lancez la première partie à la main, le bot enchaîne ensuite.
 - Le panneau se déplace en le tirant par l’une de ses lignes. S’il couvre un bouton à cliquer, le clic est annulé et le panneau vous demande de le déplacer.
 - Le jeu peut rester au second plan, sur un écran visible : le bot clique quand même.
@@ -27,7 +28,7 @@ Utilisation
 
 Coffres ouverts
 
-Le panneau compte les coffres que vous ouvrez ou cassez, partie après partie, même quand la relance est en pause. Il les lit dans les replays du jeu : activez « Enregistrer les rediffusions » dans Fortnite (Paramètres, Jeu, Rediffusions). Une partie est comptée quelques secondes après sa fin. Le lecteur de replays (dossier replay-reader) reprend le code de ChestCounter, sous licence MIT ; il ne touche ni au jeu ni à sa mémoire.
+Le panneau compte les coffres que vous ouvrez ou cassez, partie après partie, même quand la relance est désactivée. Il les lit dans les replays du jeu : activez « Enregistrer les rediffusions » dans Fortnite (Paramètres, Jeu, Rediffusions). Une partie est comptée quelques secondes après sa fin. Le lecteur de replays (dossier replay-reader) reprend le code de ChestCounter, sous licence MIT ; il ne touche ni au jeu ni à sa mémoire.
 
 En cas de problème
 

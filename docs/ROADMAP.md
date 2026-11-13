@@ -40,10 +40,10 @@
 ## Fait (panneau et dialogue)
 
 - [x] Réponse automatique au dialogue « Vous êtes toujours là ? » (Prêt par défaut, Pas encore, Ignorer)
-- [x] Panneau de contrôle au-dessus du jeu : une ligne par fonction (relance, coffres), Lancer / Pause, réponse au dialogue, derniers clics
-- [x] Panneau repliable sur ses deux lignes, déplaçable, réglages gardés dans `config/local.json`
+- [x] Panneau de contrôle au-dessus du jeu : une ligne par fonction (relance, coffres), Activer / Désactiver, réponse au dialogue, derniers clics
+- [x] Pastille au repos, carte au survol, opacité au repos réglable ; déplaçable, réglages gardés dans `config/local.json`
 - [x] Panneau sans prise de focus et invisible aux captures ; clic annulé si une fenêtre couvre le bouton
-- [x] Deux notes sur `F8` (reprise, pause)
+- [x] Deux notes sur `F8` (activation, désactivation)
 
 ## Fait (distribution)
 

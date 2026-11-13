@@ -40,17 +40,16 @@ NBSP = "\u00a0"
 class Scene:
     name: str
     phase: Phase
-    collapsed: bool
+    view: str  # "pill" (repos), "card" (survol) ou "settings" (carte et réglages)
     detail: str = ""
     recent: int = 0
     still_here: str = "ready"
     dry_run: bool = False
-    started: bool = True
-    hover: str = ""  # "primary", "chevron", "quit" ou une réponse du dialogue
+    hover: str = ""  # "action", "settings", "quit" ou une réponse du dialogue
     answers: tuple[str, ...] = ("ready", "not_yet", "ignore")
-    update: str = "idle"  # phase de la mise à jour (bandeau au-dessus de Quitter)
-    chests_collapsed: bool | None = None  # None : comme la relance
+    update: str = "idle"  # phase de la mise à jour (bandeau au-dessus du pied)
     chests: str = "counted"  # état de la ligne des coffres (voir CHESTS ; absent : compteur coupé)
+    opacity: int = 80
 
 
 _LABELS = {
@@ -100,23 +99,28 @@ CHESTS = {
         Summary(137, 18, 9, _SINCE, False, True, failed=False, recent=_GAMES, interrupted=True)
     ),
     "down": ChestsState(None, "lecteur de replays introuvable"),
+    "big": ChestsState(
+        Summary(12840, 412, 9, _SINCE, recording=False, replays=True, failed=False, recent=_GAMES)
+    ),
 }
 
+_STUCK = f"«{NBSP}Retour au salon{NBSP}» toujours visible après 3 clics"
+
 SCENES = [
-    Scene("collapsed-first", "paused", True, started=False),
-    Scene("collapsed-active", "active", True),
-    Scene("collapsed-paused", "paused", True),
-    Scene("collapsed-waiting", "no_game", True),
-    Scene(
-        "collapsed-stuck",
-        "stuck",
-        True,
-        detail=f"«{NBSP}Retour au salon{NBSP}» toujours visible après 3 clics",
-    ),
-    Scene("expanded-first", "paused", False, started=False, chests="off"),
-    Scene("expanded-first-chests", "paused", False, started=False),
+    Scene("pill-active", "active", "pill"),
+    Scene("pill-paused", "paused", "pill"),
+    Scene("pill-waiting", "no_game", "pill"),
+    Scene("pill-stuck", "stuck", "pill", detail=_STUCK),
+    Scene("pill-stopped", "stopped", "pill", detail="ScreenCapture indisponible"),
+    Scene("pill-big-total", "active", "pill", chests="big"),
+    Scene("pill-reading", "active", "pill", chests="reading"),
+    Scene("pill-no-chests", "active", "pill", chests="disabled"),
+    Scene("card-first", "paused", "card", chests="off"),
+    Scene("card-paused", "paused", "card"),
+    Scene("card-active", "active", "card", recent=5),
+    Scene("card-two-clicks", "active", "card", recent=2),
     *(
-        Scene(f"expanded-chests-{state}", "paused", False, started=False, chests=state)
+        Scene(f"card-chests-{state}", "paused", "card", chests=state)
         for state in (
             "reading",
             "none",
@@ -128,60 +132,43 @@ SCENES = [
             "down",
         )
     ),
-    Scene("expanded-active", "active", False, recent=5),
-    Scene("expanded-two-clicks", "active", False, recent=2),
+    Scene("card-stuck", "stuck", "card", detail=_STUCK, recent=5),
     Scene(
-        "expanded-stuck",
-        "stuck",
-        False,
-        detail=f"«{NBSP}Retour au salon{NBSP}» toujours visible après 3 clics",
-        recent=5,
-    ),
-    Scene(
-        "expanded-covered",
+        "card-covered",
         "covered",
-        False,
+        "card",
         detail=f"Le panneau couvre le bouton «{NBSP}Retour au salon{NBSP}»",
         recent=5,
     ),
-    Scene("expanded-background", "background", False, recent=5),
-    Scene("expanded-hidden", "hidden", False, recent=5),
+    Scene("card-background", "background", "card", recent=5),
     Scene(
-        "expanded-mouse",
+        "card-mouse",
         "mouse",
-        False,
+        "card",
         detail=f"Clic sur «{NBSP}Retour au salon{NBSP}» en attente",
         recent=5,
     ),
-    Scene("expanded-capture", "capture", False, detail="aucun écran à capturer", recent=0),
-    Scene("expanded-stopped", "stopped", False, detail="ScreenCapture indisponible"),
+    Scene("card-capture", "capture", "card", detail="aucun écran à capturer"),
+    Scene("card-stopped", "stopped", "card", detail="ScreenCapture indisponible"),
+    Scene("card-dry-run", "active", "card", dry_run=True, recent=3),
+    Scene("card-hover-action", "active", "card", hover="action"),
+    Scene("card-hover-activate", "paused", "card", hover="action"),
+    Scene("card-hover-quit", "paused", "card", hover="quit"),
+    Scene("card-hover-settings", "active", "card", hover="settings"),
+    Scene("card-update", "active", "card", recent=2, update="available"),
+    Scene("card-update-failed", "active", "card", update="failed"),
+    Scene("card-no-chests", "active", "card", recent=2, chests="disabled"),
+    Scene("settings", "active", "settings", recent=3),
+    Scene("settings-opacity-40", "active", "settings", opacity=40),
     Scene(
-        "expanded-dry-run",
+        "settings-not-yet",
         "active",
-        False,
-        dry_run=True,
-        recent=3,
-    ),
-    Scene(
-        "expanded-not-yet",
-        "active",
-        False,
+        "settings",
         still_here="not_yet",
         answers=("not_yet", "ignore"),
         hover="ignore",
     ),
-    Scene("expanded-hover-primary", "active", False, hover="primary"),
-    Scene("expanded-hover-quit", "paused", False, hover="quit"),
-    Scene("expanded-update", "active", False, recent=2, update="available"),
-    Scene("expanded-update-failed", "active", False, update="failed"),
-    Scene("collapsed-no-chests", "active", True, chests="disabled"),
-    Scene("only-chests-open", "active", True, recent=3, chests_collapsed=False),
-    Scene("only-bot-open", "active", False, recent=3, chests_collapsed=True),
-    Scene("only-chests-open-failed", "paused", True, chests="failed", chests_collapsed=False),
-    Scene("collapsed-chests-counting", "active", True, chests="counting"),
-    Scene("collapsed-chests-recording", "active", True, chests="recording"),
-    Scene("collapsed-chests-reading", "paused", True, chests="reading", chests_collapsed=False),
-    Scene("expanded-no-chests", "active", False, recent=2, chests="disabled"),
+    Scene("settings-short-card", "paused", "settings", chests="disabled"),
 ]
 
 
@@ -259,17 +246,20 @@ def _box(widget: tk.Misc, origin: tuple[int, int]) -> list[int] | None:
 def _geometry(panel: Panel) -> dict[str, object]:
     origin = (panel.root.winfo_rootx(), panel.root.winfo_rooty())
     named: dict[str, tk.Misc] = {
+        "pill": panel.pill,
+        "pill_inner": panel.pill_inner,
+        "pill_dot": panel.pill_dot,
+        "pill_text": panel.pill_text,
+        "pill_sep": panel.pill_sep,
+        "pill_icon": panel.pill_icon,
+        "pill_total": panel.pill_total,
         "header": panel.header,
         "dot": panel.dot,
         "title": panel.title,
         "state": panel.state,
-        "primary": panel.primary,
-        "chevron": panel.chevron,
-        "chests_chevron": panel.chests_chevron,
+        "action": panel.action,
         "bot_body": panel.bot_body,
         "notice": panel.notice,
-        "s_dialog": panel.s_dialog,
-        "segmented": panel.segmented,
         "s_recent": panel.s_recent,
         "empty": panel.empty,
         "chests_rule": panel.chests_rule,
@@ -278,24 +268,32 @@ def _geometry(panel: Panel) -> dict[str, object]:
         "chests_state": panel.chests_state,
         "chests_value": panel.chests_value,
         "chests_body": panel.chests_body,
-        "chests_note": panel.chests_note,
         "chests_notice": panel.chests_notice,
         "s_games": panel.s_games,
         "footer_rule": panel.footer_rule,
         "update_box": panel.update_box,
         "update_notice": panel.update_notice,
         "footer": panel.footer,
+        "settings_button": panel.settings_button,
         "quit": panel.quit_button,
+        "popover": panel.settings,
+        "s_rest": panel.s_rest,
+        "rest_choice": panel.rest_choice,
+        "s_opacity": panel.s_opacity,
+        "opacity": panel.opacity,
+        "s_dialog": panel.s_dialog,
+        "segmented": panel.segmented,
+        "dialog_hint": panel.dialog_hint,
         "hint": panel.hint,
     }
     boxes = {name: _box(widget, origin) for name, widget in named.items()}
-    sections = (panel.s_dialog, panel.s_recent, panel.s_games)
+    sections = (panel.s_recent, panel.s_games, panel.s_rest, panel.s_dialog)
     boxes["headings"] = [_box(section.winfo_children()[0], origin) for section in sections]
     boxes["recent_rows"] = [_box(row, origin) for row, _, _ in panel.recent]
     boxes["game_rows"] = [_box(row, origin) for row, _, _ in panel.games]
     return {
         "window": [panel.root.winfo_width(), panel.root.winfo_height()],
-        "position": list(panel._pos),
+        "position": list(panel._at),
         "boxes": boxes,
     }
 
@@ -329,7 +327,7 @@ def _shoot_all(args: argparse.Namespace) -> int:
     before = win32.foreground()
     cfg = config_mod.load_config(None, use_local=False)
     cfg.panel.exclude_from_capture = False  # les captures doivent le voir
-    cfg.panel.collapsed = True
+    cfg.panel.rest_opacity = 100  # captures opaques : l'opacité se voit au survol réel
     monitor = _target_monitor(args.monitor)
     home = (monitor["left"] + 48, monitor["top"] + 48)
 
@@ -344,6 +342,7 @@ def _shoot_all(args: argparse.Namespace) -> int:
         persist=False,
         win32=win32,
         updates=updates,  # type: ignore[arg-type]
+        follow_cursor=False,
     )
     scenes = [s for s in SCENES if not args.only or args.only in s.name]
     report: dict[str, object] = {
@@ -351,6 +350,8 @@ def _shoot_all(args: argparse.Namespace) -> int:
         "panel": panel.hwnd,
         "ex_style": hex(win32.ex_style(panel.hwnd)),
         "noactivate": bool(win32.ex_style(panel.hwnd) & 0x08000000),
+        "settings": panel.settings_hwnd,
+        "settings_noactivate": bool(win32.ex_style(panel.settings_hwnd) & 0x08000000),
     }
 
     def shoot(index: int) -> None:
@@ -363,19 +364,25 @@ def _shoot_all(args: argparse.Namespace) -> int:
             return
         scene = scenes[index]
         controller.scene = scene
-        panel._started = scene.started
-        panel.collapsed = scene.collapsed
-        folded = scene.chests_collapsed
-        panel.chests_collapsed = scene.collapsed if folded is None else folded
+        panel.rest = "pill"
+        panel.expanded = scene.view != "pill"
+        panel.rest_opacity = scene.opacity
+        panel._close_settings()
         panel._shape = ()
+        panel._settings_shape = ()
         panel._render(controller.status())
-        for button in (panel.primary, panel.chevron, panel.quit_button):
+        if scene.view == "settings":
+            panel._toggle_settings()
+        buttons = {
+            "action": panel.action,
+            "settings": panel.settings_button,
+            "quit": panel.quit_button,
+        }
+        for button in buttons.values():
             button._set(hover=False, pressed=False)
         panel.segmented._set_hover("")
-        if scene.hover == "primary":
-            panel.primary._set(hover=True)
-        elif scene.hover == "quit":
-            panel.quit_button._set(hover=True)
+        if scene.hover in buttons:
+            buttons[scene.hover]._set(hover=True)
         elif scene.hover:
             panel.segmented._set_hover(scene.hover)
         root.update()
@@ -385,7 +392,14 @@ def _shoot_all(args: argparse.Namespace) -> int:
         scene = scenes[index]
         root.update()
         x, y = root.winfo_rootx(), root.winfo_rooty()
-        region = {"left": x, "top": y, "width": root.winfo_width(), "height": root.winfo_height()}
+        right, bottom = x + root.winfo_width(), y + root.winfo_height()
+        if panel.settings_open:  # la carte et ses réglages sur la même image
+            pop = panel.settings
+            pop_x, pop_y = pop.winfo_rootx(), pop.winfo_rooty()
+            x, y = min(x, pop_x), min(y, pop_y)
+            right = max(right, pop_x + pop.winfo_width())
+            bottom = max(bottom, pop_y + pop.winfo_height())
+        region = {"left": x, "top": y, "width": right - x, "height": bottom - y}
         with mss.MSS() as screens:
             shot = screens.grab(region)
         mss.tools.to_png(shot.rgb, shot.size, output=str(args.out / f"{scene.name}.png"))
