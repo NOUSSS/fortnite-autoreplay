@@ -6,20 +6,21 @@ colors:
   layer: "#FFFFFF12"
   layer-hover: "#FFFFFF1C"
   layer-pressed: "#FFFFFF0D"
+  layer-selected: "#FFFFFF38"
   stroke: "#FFFFFF1F"
   text: "#F4F0E6"
   text-secondary: "#B8C3BB"
   text-tertiary: "#7D8D86"
-  accent: "#F0B93A"
-  accent-hover: "#F5C65A"
-  accent-pressed: "#E0A82C"
-  on-accent: "#1E1604"
+  accent: "#F4F0E6"
+  accent-hover: "#FFFFFF"
+  accent-pressed: "#D9D5CC"
+  on-accent: "#0B1715"
   success: "#7BD88F"
   caution: "#FF9A4D"
   critical: "#FF7B7B"
   neutral: "#7D8D86"
-  caution-bg: "#3A2A17"
-  critical-bg: "#351C1C"
+  caution-bg: "#FF9A4D2E"
+  critical-bg: "#FF7B7B2E"
 typography:
   title:
     fontFamily: "Bricolage Grotesque 14pt"
@@ -92,8 +93,8 @@ components:
     height: "32px"
     padding: "3px"
   segmented-selected:
-    backgroundColor: "{colors.accent}"
-    textColor: "{colors.on-accent}"
+    backgroundColor: "{colors.layer-selected}"
+    textColor: "{colors.text}"
     typography: "{typography.strong}"
   slider:
     trackHeight: "6px"
@@ -121,7 +122,7 @@ components:
 
 Le panneau ne doit pas gêner le jeu. Au repos, il se réduit à une pastille de 32 px de haut : la pastille d'état de la relance, son état en quelques mots (« Relance active »), puis le total des coffres derrière une icône de boîte. Quand le curseur passe dessus, la carte entière s'ouvre à la même place. Elle se referme 0,4 s après le départ du curseur. Sans la souris, la fenêtre prend l'opacité choisie (80 % par défaut, de 20 à 100 %) ; au survol, elle redevient opaque.
 
-La palette est une encre vert sombre, chaude, posée sur le jeu. L'or marque ce qui agit (Activer) ou ce qui est choisi (segment sélectionné, part remplie du curseur). Figtree porte le texte et Bricolage Grotesque, plus affirmée, les noms des fonctions et le total des coffres. Ces deux polices libres (OFL) sont livrées avec l'application et chargées pour elle seule au démarrage. Les icônes (boîte, curseurs) et les pastilles sont dessinées, lissées, sur une grille de 16 au trait de 1,2.
+La palette est une encre vert sombre posée en verre sur le jeu, monochrome : le blanc plein marque l'action principale (Activer) et la part remplie du curseur, un voile plus marqué le segment choisi. Figtree porte le texte et Bricolage Grotesque, plus affirmée, les noms des fonctions et le total des coffres. Ces deux polices libres (OFL) sont livrées avec l'application et chargées pour elle seule au démarrage. Les icônes (boîte, curseurs) et les pastilles sont dessinées, lissées, sur une grille de 16 au trait de 1,2.
 
 Le rendu est mesuré à 96 ppp et chaque valeur de grille est multipliée par l'échelle d'affichage du système (`px()`), sur une grille de 4 px.
 
@@ -135,17 +136,18 @@ Le rendu est mesuré à 96 ppp et chaque valeur de grille est multipliée par l'
 
 ## Colors
 
-Une encre vert sombre presque monochrome, un seul accent or, et quatre couleurs d'état réservées à l'état.
+Une encre vert sombre monochrome, du blanc pour ce qui agit ou est choisi, et quatre couleurs d'état réservées à l'état.
 
 ### Primary
-- **Or** (accent) : remplissage du bouton Activer, du segment choisi et de la part remplie du curseur d'opacité. Le texte posé dessus est toujours l'encre sombre (on-accent). Survol et appui changent l'or par paliers (accent-hover, accent-pressed).
+- **Blanc** (accent) : remplissage du bouton Activer et de la part remplie du curseur d'opacité. Le texte posé dessus est l'encre (on-accent). Survol et appui changent le blanc par paliers (accent-hover, accent-pressed).
+- **Voile choisi** (layer-selected) : blanc à 22 %, segment choisi, libellé en texte.
 
 ### Tertiary
 - **Vert succès** (success) : pastille de la relance Active et des coffres comptés normalement.
 - **Orangé attention** (caution) : pastille des états En attente du jeu, Clic annulé et Clic en attente, des coffres quand les rediffusions sont désactivées, le lecteur indisponible, le dernier replay illisible ou la partie interrompue ; icône du bandeau d'attention.
 - **Corail critique** (critical) : pastille des états Bloqué et Capture impossible, icône du bandeau critique.
 - **Gris neutre** (neutral) : pastille des états Désactivé et Arrêté, et des coffres pendant la première lecture des replays.
-- **Brun sombre** (caution-bg) et **brique sombre** (critical-bg) : fonds des bandeaux d'attention et critique, seuls fonds colorés du panneau.
+- **Teinte attention** (caution-bg) et **teinte critique** (critical-bg) : la couleur d'état à 18 % sur le verre, fonds des bandeaux d'attention et critique, seuls fonds colorés du panneau.
 
 ### Neutral
 - **Encre** (bg) : posée à 70 % sur le jeu flouté, fond de la pastille, de la carte et du popover (pleine si la capture échoue) ; fond au repos des boutons discrets.
@@ -160,7 +162,7 @@ Une encre vert sombre presque monochrome, un seul accent or, et quatre couleurs 
 ### Named Rules
 **La règle de la pastille.** Les couleurs d'état ne colorent qu'une pastille de 8 px ou l'icône d'un bandeau. Jamais un texte, un bouton ni un fond de section.
 
-**La règle de l'or qui agit.** L'or marque ce qui agit ou ce qui est choisi : le bouton Activer, le segment sélectionné, la valeur du curseur. Désactiver n'est pas en or : c'est un bouton standard.
+**La règle du blanc qui agit.** Le blanc plein marque l'action principale (Activer) et la valeur du curseur ; un choix fait se voit à un voile plus marqué. Désactiver n'est pas en blanc : c'est un bouton standard. Aucune couleur vive hors des pastilles d'état.
 
 ## Typography
 
@@ -216,7 +218,7 @@ Chaque surface montre le jeu qui est derrière elle : réduit au huitième, flou
 Repris du prototype. La carte s'ouvre en 180 ms (rapide puis doux), de 96 à 100 % de sa taille et de transparente à opaque, depuis le coin de la pastille ; elle se referme en 120 ms. Le popover apparaît de même depuis son coin contre la carte. Les couleurs des contrôles changent en 150 ms ; un bouton enfoncé passe à 97 % en 100 ms, la poignée du curseur à 90 %.
 
 ### Named Rules
-**La règle de la surface qui change.** Le survol et l'appui changent la couleur de surface du contrôle (couche survolée, couche appuyée, paliers de l'or). Jamais de halo, d'ombre ni de déplacement ; l'appui resserre à peine le contrôle.
+**La règle de la surface qui change.** Le survol et l'appui changent la couleur de surface du contrôle (couche survolée, couche appuyée, paliers du blanc). Jamais de halo, d'ombre ni de déplacement ; l'appui resserre à peine le contrôle.
 
 ## Shapes
 
@@ -226,22 +228,22 @@ Trois familles : la carte et le popover à 12 px, les bandeaux à 8 px, la pasti
 
 ### Boutons
 Pilules de 32 px.
-- **Activer** : or, texte encre en Strong. Proposé quand la relance est désactivée, bloquée ou arrêtée.
+- **Activer** : blanc, texte encre en Strong. Proposé quand la relance est désactivée, bloquée ou arrêtée.
 - **Désactiver** : couche, contour filet, texte en Strong. Même largeur qu'Activer : le bouton ne change jamais de taille.
 - **Standard** : couche, contour filet, texte en Body (Quitter, Mettre à jour, Réessayer).
 - **Discret** : encre, texte secondaire, icône à 8 px du libellé (Réglages). Survolé ou ouvert : couche et texte.
 - **États** : survol et appui changent la surface ; le clic part au relâchement, si le pointeur est resté sur le bouton. Désactivé (moteur arrêté) : tout le bouton à 40 % sur l'encre, curseur interdit.
 
 ### Sélecteur à segments
-Piste couche avec contour filet, pilule de 32 px, segments de largeur égale. Segment choisi en or avec libellé Strong encre ; survol et appui en couche survolée et appuyée, libellé en texte ; au repos, libellé en texte secondaire ; segment sans modèle en texte tertiaire, non cliquable, expliqué par l'aide dessous.
+Piste couche avec contour filet, pilule de 32 px, segments de largeur égale. Segment choisi en voile choisi avec libellé Strong en texte ; survol et appui en couche survolée et appuyée, libellé en texte ; au repos, libellé en texte secondaire ; segment sans modèle en texte tertiaire, non cliquable, expliqué par l'aide dessous.
 
 ### Curseur d'opacité
-Piste de 6 px en pilule (couche survolée), part remplie en or jusqu'à la poignée, poignée de 18 px en texte. De 20 à 100 %, par pas de 5. Pendant le réglage, la carte prend l'opacité choisie pour la montrer, et la retrouve 0,7 s après le dernier mouvement ; la valeur est enregistrée au relâchement.
+Piste de 6 px en pilule (couche survolée), part remplie en blanc jusqu'à la poignée, poignée de 18 px en texte. De 20 à 100 %, par pas de 5. Pendant le réglage, la carte prend l'opacité choisie pour la montrer, et la retrouve 0,7 s après le dernier mouvement ; la valeur est enregistrée au relâchement.
 
 ### Bandeau
 Pleine largeur utile, coins de 8 px, 12 px de marge sur les côtés et 10 px en haut et en bas, badge de gravité de 14 px puis 8 px avant le message en Body texte.
-- **Gravités** : critique (fond brique, icône corail), attention (fond brun, icône orangée), information (fond couche, icône texte secondaire).
-- **Action** : un bouton standard facultatif sous le message, aligné sur lui, 8 px plus bas (Mettre à jour, Réessayer). Jamais l'or.
+- **Gravités** : critique (teinte corail, icône corail), attention (teinte orangée, icône orangée), information (fond couche, icône texte secondaire).
+- **Action** : un bouton standard facultatif sous le message, aligné sur lui, 8 px plus bas (Mettre à jour, Réessayer). Jamais le blanc plein.
 - **Présence** : seulement s'il a quelque chose à dire. Celui du moteur sous la ligne de la relance ; celui des coffres sous la leur ; celui de la mise à jour au-dessus du pied.
 
 ### Ligne de fonction (signature)

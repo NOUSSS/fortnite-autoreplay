@@ -19,30 +19,33 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class Palette:
-    """Verre d'encre vert sombre, or pour ce qui agit ou est choisi, quatre couleurs d'état.
+    """Verre d'encre vert sombre, monochrome ; quatre couleurs d'état, pour l'état seul.
 
     Le fond est le jeu flouté sous l'encre (``GLASS_TINT``) ; les couches des
-    contrôles sont des voiles blancs (``#AARRGGBB``).
+    contrôles sont des voiles blancs (``#AARRGGBB``), le choix un voile plus
+    marqué, l'action principale (Activer) un blanc plein. Les bandeaux
+    d'alerte teintent le verre de leur couleur.
     """
 
     bg: str = "#0B1715"
     layer: str = "#12FFFFFF"
     layer_hover: str = "#1CFFFFFF"
     layer_pressed: str = "#0DFFFFFF"
+    layer_selected: str = "#38FFFFFF"
     stroke: str = "#1FFFFFFF"
     text: str = "#F4F0E6"
     text_2: str = "#B8C3BB"
     text_3: str = "#7D8D86"
-    accent: str = "#F0B93A"
-    accent_hover: str = "#F5C65A"
-    accent_pressed: str = "#E0A82C"
-    on_accent: str = "#1E1604"
+    accent: str = "#F4F0E6"
+    accent_hover: str = "#FFFFFF"
+    accent_pressed: str = "#D9D5CC"
+    on_accent: str = "#0B1715"
     success: str = "#7BD88F"
     caution: str = "#FF9A4D"
     critical: str = "#FF7B7B"
     neutral: str = "#7D8D86"
-    caution_bg: str = "#3A2A17"
-    critical_bg: str = "#351C1C"
+    caution_bg: str = "#2EFF9A4D"
+    critical_bg: str = "#2EFF7B7B"
 
 
 C = Palette()

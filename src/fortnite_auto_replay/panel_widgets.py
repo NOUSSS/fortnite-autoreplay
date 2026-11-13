@@ -417,7 +417,7 @@ class Button(QWidget):
 
 
 class Segmented(QWidget):
-    """Choix exclusif en pilule ; le segment choisi prend l'or."""
+    """Choix exclusif en pilule ; le segment choisi prend un voile plus marqué."""
 
     def __init__(
         self,
@@ -461,7 +461,7 @@ class Segmented(QWidget):
     def _refresh(self, *, now: bool = False) -> None:
         for value, tween in self._fills.items():
             if value == self._selected:
-                target = qcolor(C.accent)
+                target = qcolor(C.layer_selected)
             elif value in self._disabled:
                 target = qcolor(C.layer_hover, 0.0)
             elif value == self._pressed:
@@ -524,7 +524,7 @@ class Segmented(QWidget):
                 fill_round(painter, cell, cell.height() / 2, color)
             if value == self._selected:
                 painter.setFont(strong)
-                painter.setPen(QColor(C.on_accent))
+                painter.setPen(QColor(C.text))
             else:
                 painter.setFont(font)
                 live = value not in self._disabled
@@ -534,7 +534,7 @@ class Segmented(QWidget):
 
 
 class Slider(QWidget):
-    """Curseur horizontal : piste en pilule, part remplie en or, poignée claire.
+    """Curseur horizontal : piste en pilule, part remplie en blanc, poignée claire.
 
     ``command(valeur, fini)`` suit chaque mouvement ; ``fini`` au relâchement.
     """
