@@ -9,7 +9,7 @@ import pytest
 from test_chests import write_replay
 
 from fortnite_auto_replay.antiafk import AntiAfk, Win32UserInput, key_code, live_replay
-from fortnite_auto_replay.config import AntiAfkConfig, Config, ConfigError
+from fortnite_auto_replay.config import AntiAfkConfig, Config, ConfigError, load_config
 
 HWND = 42
 REGION = (100, 50, 1100, 650)  # zone client du jeu, centre (600, 350)
@@ -302,6 +302,8 @@ def test_dry_run_sends_nothing(tmp_path: Path) -> None:
 def test_config_validation() -> None:
     Config().validate()
     assert AntiAfkConfig().enabled is False  # à activer soi-même
+    assert "camera" not in AntiAfkConfig().gestures  # souris simulée : à ajouter soi-même
+    assert "camera" not in load_config(use_local=False).anti_afk.gestures
     for bad in (
         {"keys": []},
         {"keys": ["ESC"]},

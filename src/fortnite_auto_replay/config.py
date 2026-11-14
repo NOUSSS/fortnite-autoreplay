@@ -332,8 +332,9 @@ class AntiAfkConfig:
     """Gestes au hasard en partie, pour ne pas être exclu pour inactivité (voir ``antiafk``)."""
 
     enabled: bool = False
-    # tirés au hasard : touche, clic gauche ou droit, rotation de la caméra (premier plan)
-    gestures: list[str] = field(default_factory=lambda: list(ANTI_AFK_GESTURES))
+    # tirés au hasard : touche, clic gauche ou droit ; « camera » (premier plan seulement)
+    # passe par une souris simulée, que l'anti-triche peut repérer : à ajouter soi-même
+    gestures: list[str] = field(default_factory=lambda: ["keys", "clicks"])
     keys: list[str] = field(default_factory=lambda: ["W", "A", "S", "D", "SPACE"])
     interval_s: list[float] = field(default_factory=lambda: [25.0, 50.0])  # entre deux appuis
     hold_s: list[float] = field(default_factory=lambda: [0.1, 0.3])  # durée d'un appui

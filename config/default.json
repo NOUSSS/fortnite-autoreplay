@@ -76,7 +76,7 @@
   },
   "anti_afk": {
     "enabled": false,
-    "gestures": ["keys", "clicks", "camera"],
+    "gestures": ["keys", "clicks"],
     "keys": ["W", "A", "S", "D", "SPACE"],
     "interval_s": [25.0, 50.0],
     "hold_s": [0.1, 0.3],

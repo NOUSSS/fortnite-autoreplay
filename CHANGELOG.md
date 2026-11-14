@@ -5,6 +5,10 @@ Une section par version, la plus récente en haut, au format
 toutes, et le manifeste de mise à jour reprend celles de la dernière version
 (`packaging/release.py`).
 
+## 0.7.1 (2026-11-14)
+
+- L’anti-AFK ne tourne plus la caméra : il se contente de touches et de clics, envoyés au jeu seul.
+
 ## 0.7.0 (2026-11-14)
 
 - Anti-AFK, à activer dans les réglages du panneau : en partie, un geste au hasard toutes les 25 à 50 secondes (touche, clic, coup d’œil autour de vous) pour que le jeu ne vous exclue pas pour inactivité. Tant que vous jouez, il ne fait rien. Jeu en arrière-plan, il a besoin des rediffusions activées (Paramètres, Jeu, Rediffusions) pour savoir qu’une partie est en cours.

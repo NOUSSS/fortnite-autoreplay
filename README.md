@@ -137,26 +137,27 @@ le total.
 
 Activé dans les réglages du panneau (désactivé par défaut), il fait en
 partie un geste au hasard toutes les 25 à 50 secondes, pour que le jeu ne vous
-exclue pas pour inactivité : une touche, un clic gauche (tir, coup de pioche)
-ou droit (visée) au centre du jeu, ou une rotation de la caméra.
+exclue pas pour inactivité : une touche, ou un clic gauche (tir, coup de
+pioche) ou droit (visée) au centre du jeu.
 
 - Jeu au premier plan : seulement si clavier et souris n'ont pas servi depuis
-  30 secondes ; tant que vous jouez, rien. Carte ou inventaire ouverts, ni clic
-  ni caméra, seulement des touches.
+  30 secondes ; tant que vous jouez, rien. Carte ou inventaire ouverts, pas de
+  clic, seulement des touches.
 - Jeu au second plan : seulement si les rediffusions sont activées (voir
   « Coffres ouverts ») ; c'est le replay en cours d'écriture qui dit qu'une
-  partie est en cours. Touches et clics partent à la fenêtre du jeu seule,
-  jamais dans votre application ; la caméra ne tourne pas, elle demanderait
-  la vraie souris.
+  partie est en cours.
 
-Gestes, touches et délais dans `config/local.json` :
+Touches et clics partent à la fenêtre du jeu seule, jamais dans votre
+application. Gestes, touches et délais dans `config/local.json` :
 
 ```json
-{ "anti_afk": { "enabled": true, "gestures": ["keys", "clicks", "camera"], "keys": ["W", "A", "S", "D", "SPACE"], "interval_s": [25, 50] } }
+{ "anti_afk": { "enabled": true, "gestures": ["keys", "clicks"], "keys": ["W", "A", "S", "D", "SPACE"], "interval_s": [25, 50] } }
 ```
 
-`turn_px` règle l'ampleur de la rotation (`[150, 600]`, à ajuster selon votre
-sensibilité) et `click_hold_s` la durée d'un clic.
+`click_hold_s` règle la durée d'un clic. `"camera"`, ajouté à `gestures`,
+tourne aussi la vue, jeu au premier plan seulement : c'est une souris simulée,
+que l'anti-triche du jeu peut repérer, d'où son absence par défaut ;
+`turn_px` en règle l'ampleur (`[150, 600]`, selon votre sensibilité).
 
 Touches possibles : lettres, chiffres, `SPACE`, `SHIFT`, `CTRL` (dans
 l'attribution par défaut des touches du jeu).

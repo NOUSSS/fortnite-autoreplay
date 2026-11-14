@@ -47,7 +47,7 @@ premier plan et des messages de fenêtre au second plan.
 | `panel_style.py` | Jetons du panneau : couleurs, grille, polices, icônes |
 | `panel_widgets.py` | Widgets dessinés du panneau : texte, boutons, sélecteur, curseur, bandeau |
 | `panel_glass.py` | Verre du panneau : l'écran sous lui (il est exclu des captures), capturé dans un thread puis flouté |
-| `antiafk.py` | Geste au hasard en partie (replay « en direct » ou curseur tenu par le jeu) : touche ou clic postés, caméra au premier plan |
+| `antiafk.py` | Geste au hasard en partie (replay « en direct » ou curseur tenu par le jeu) : touche ou clic postés, caméra au premier plan sur demande |
 | `chests.py` | Coffres comptés dans les replays du jeu par `replay-reader.exe` (`logs/chests.json`) |
 | `updater.py` | Manifeste signé, téléchargement vérifié, installation tout ou rien, relance |
 | `cli.py` | `run`, `check`, `config`, `window`, `stats`, `panel`, `update` + surcharges en ligne de commande |
@@ -241,7 +241,8 @@ capture n'apporterait rien. Tout le gain vient du matching.
   Touche et bouton sont relâchés sur tous les chemins, et le panneau attend la
   fin d'un geste avant de se fermer. Premier plan et curseur visible (carte,
   inventaire) : touches seulement.
-- **Caméra de l'anti-AFK** : le jeu lit la souris en entrée brute (`WM_INPUT`),
+- **Caméra de l'anti-AFK** (absente des gestes par défaut : `SendInput` marque
+  ses entrées comme simulées, ce qu'un anti-triche peut lire) : le jeu lit la souris en entrée brute (`WM_INPUT`),
   qu'aucun message posté ne remplace. Seul geste en entrée réelle : déplacements
   relatifs `SendInput`, au premier plan et curseur tenu seulement, en 12 pas sur
   0,3 s, chacun précédé d'un nouveau test (premier plan, curseur, inactivité).

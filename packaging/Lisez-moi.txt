@@ -32,7 +32,7 @@ Le panneau compte les coffres que vous ouvrez ou cassez, partie après partie, m
 
 Anti-AFK
 
-À activer dans les Réglages du panneau. En partie, l’application fait de temps en temps un geste au hasard (une touche de déplacement ou de saut, un clic, un coup d’œil autour de vous) pour que le jeu ne vous exclue pas pour inactivité. Tant que vous jouez, elle ne fait rien. Jeu au second plan, elle se sert des rediffusions (voir ci-dessus) pour savoir qu’une partie est en cours, et ne tourne pas la caméra. Les gestes se règlent dans la section "anti_afk" de config\local.json.
+À activer dans les Réglages du panneau. En partie, l’application fait de temps en temps un geste au hasard (une touche de déplacement ou de saut, un clic) pour que le jeu ne vous exclue pas pour inactivité. Tant que vous jouez, elle ne fait rien. Jeu au second plan, elle se sert des rediffusions (voir ci-dessus) pour savoir qu’une partie est en cours. Les gestes se règlent dans la section "anti_afk" de config\local.json.
 
 En cas de problème
 
