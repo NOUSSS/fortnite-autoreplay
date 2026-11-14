@@ -14,7 +14,6 @@
 
   var hero = role("hero");
   var stage = role("stage");
-  var card = role("card");
   var pill = role("pill");
   var toggle = role("toggle");
   var settingsButton = role("settings");
@@ -320,9 +319,10 @@
     return wide.matches && !reduceMotion.matches && heroVisible && !document.hidden;
   }
 
+  // offsetWidth et offsetHeight ignorent le zoom de la fenêtre, comme ses propres longueurs
   function measure() {
-    stage.style.setProperty("--ox", card.offsetWidth / 2 + "px");
-    stage.style.setProperty("--oy", card.offsetHeight / 2 + "px");
+    stage.style.setProperty("--ox", stage.offsetWidth / 2 + "px");
+    stage.style.setProperty("--oy", stage.offsetHeight / 2 + "px");
   }
 
   function frame(time) {
@@ -379,7 +379,7 @@
     }).observe(stage);
   }
 
-  if ("ResizeObserver" in window) new ResizeObserver(measure).observe(card);
+  if ("ResizeObserver" in window) new ResizeObserver(measure).observe(stage);
 
   [wide, reduceMotion].forEach(function (query) {
     query.addEventListener("change", function () {

@@ -543,9 +543,10 @@ button {
   }
 }
 
-/* La fenêtre : la carte, la pastille et les réglages forment un seul objet en 3D.
+/* La fenêtre : la pastille, la carte en dessous et les réglages forment un seul objet en 3D.
    Chacun porte la même transformation (--tilt, écrite par site.js) autour du même point,
-   le centre de la carte, pour rester solidaires. */
+   le centre de la fenêtre (--ox, --oy), pour rester solidaires : chaque origine se décale
+   de la position de l'élément dans la fenêtre. Le tout est agrandi d'un quart (zoom). */
 .window {
   translate: 0 calc(var(--p) * -8vh);
   margin: 0;
@@ -559,9 +560,14 @@ button {
   --rest: 1;
   --tilt: none;
   --ox: 160px;
-  --oy: 180px;
+  --oy: 214px;
+  --head: 48px; /* la pastille et l'écart qui la sépare de la carte */
   position: relative;
   width: 320px;
+  display: grid;
+  justify-items: start;
+  row-gap: 16px;
+  zoom: 1.25;
 }
 
 .window-stage > .glass {
@@ -571,6 +577,8 @@ button {
 
 /* la carte : ouverte au repos en mode Panneau, au survol de la pastille sinon */
 .window-stage .fp-card {
+  grid-row: 2;
+  transform-origin: var(--ox) calc(var(--oy) - var(--head));
   --tint: calc(0.56 * var(--rest));
   --blur: 36px;
   opacity: calc(var(--shown) * var(--fade));
@@ -609,11 +617,9 @@ button {
 
 .window-stage .fp-pill {
   --tint: calc(0.55 * var(--rest));
-  position: absolute;
-  left: 0;
-  top: 0;
+  grid-row: 1;
   cursor: pointer;
-  opacity: calc((1 - var(--shown)) * var(--fade));
+  opacity: var(--fade);
 }
 
 /* Opacité au repos : le contenu et la teinte s'effacent, jamais le verre lui-même.
@@ -623,7 +629,6 @@ button {
   opacity: var(--rest);
 }
 
-.window-stage[data-open] .fp-pill,
 .window-stage[data-quit] .fp-pill {
   visibility: hidden;
 }
@@ -634,7 +639,7 @@ button {
   --tint: 0.6;
   --blur: 36px;
   position: absolute;
-  top: 0;
+  top: var(--head);
   right: calc(100% + 8px);
   width: 272px;
   display: grid;
@@ -642,12 +647,15 @@ button {
   padding: 12px;
   opacity: calc(var(--pop) * var(--fade));
   scale: calc(0.96 + var(--pop) * 0.04);
-  transform-origin: calc(var(--ox) + 280px) var(--oy);
   transition:
     opacity 120ms ease-out,
     scale 120ms ease-out;
   --pop: 0;
   pointer-events: none;
+}
+
+.window-stage .fp-pop {
+  transform-origin: calc(var(--ox) + 280px) calc(var(--oy) - var(--head));
 }
 
 .window-stage[data-settings] .fp-pop {
@@ -1244,7 +1252,6 @@ button {
     top: auto;
     right: auto;
     width: 100%;
-    margin-top: 8px;
   }
 
   .window-stage:not([data-settings]) .fp-pop {
@@ -1285,6 +1292,10 @@ button {
   .lead {
     font-size: 16px;
     line-height: 24px;
+  }
+
+  .window-stage {
+    zoom: 1;
   }
 
   .window-stage,
