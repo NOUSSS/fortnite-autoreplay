@@ -47,6 +47,7 @@ class Scene:
     update: str = "idle"  # phase de la mise à jour (bandeau au-dessus du pied)
     chests: str = "counted"  # état de la ligne des coffres (voir CHESTS ; absent : compteur coupé)
     opacity: int = 80
+    anti_afk: bool | None = False  # None : anti-AFK indisponible (fenêtre du jeu non suivie)
 
 
 _LABELS = {
@@ -157,6 +158,8 @@ SCENES = [
     Scene("card-no-chests", "active", "card", recent=2, chests="disabled"),
     Scene("settings", "active", "settings", recent=3),
     Scene("settings-opacity-40", "active", "settings", opacity=40),
+    Scene("settings-anti-afk", "active", "settings", anti_afk=True),
+    Scene("settings-no-anti-afk", "active", "settings", anti_afk=None),
     Scene(
         "settings-not-yet",
         "active",
@@ -213,6 +216,12 @@ class DemoController:
 
     def chests(self) -> ChestsState | None:
         return CHESTS.get(self.scene.chests)
+
+    def anti_afk(self) -> bool | None:
+        return self.scene.anti_afk
+
+    def set_anti_afk(self, enabled: bool) -> None:
+        self.scene.anti_afk = enabled
 
 
 class DemoUpdates:

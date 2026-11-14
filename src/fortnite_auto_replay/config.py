@@ -327,6 +327,41 @@ class ChestsConfig:
 
 
 @dataclass(slots=True)
+class AntiAfkConfig:
+    """Touches au hasard en partie, pour ne pas être exclu pour inactivité (voir ``antiafk``)."""
+
+    enabled: bool = False
+    keys: list[str] = field(default_factory=lambda: ["W", "A", "S", "D", "SPACE"])
+    interval_s: list[float] = field(default_factory=lambda: [25.0, 50.0])  # entre deux appuis
+    hold_s: list[float] = field(default_factory=lambda: [0.1, 0.3])  # durée d'un appui
+    # jeu au premier plan : appui seulement sans clavier ni souris depuis ce délai
+    idle_s: float = 30.0
+    # replay « en direct » écrit depuis moins que ce délai : partie en cours
+    live_replay_s: float = 60.0
+
+    def validate(self) -> None:
+        from .antiafk import key_code  # noqa: PLC0415 - antiafk importe ce module
+
+        if not self.keys:
+            raise ConfigError("anti_afk.keys ne peut pas être vide")
+        for key in self.keys:
+            try:
+                key_code(key)
+            except ValueError as exc:
+                raise ConfigError(f"anti_afk.keys : {exc}") from exc
+        for name in ("interval_s", "hold_s"):
+            bounds = getattr(self, name)
+            if len(bounds) != 2 or not 0 < bounds[0] <= bounds[1]:
+                raise ConfigError(f"anti_afk.{name} doit être [min, max] avec 0 < min <= max")
+        if self.interval_s[0] < 2:
+            raise ConfigError("anti_afk.interval_s : au moins 2 s entre deux appuis")
+        if self.hold_s[1] > 2:
+            raise ConfigError("anti_afk.hold_s : un appui dure au plus 2 s")
+        if self.idle_s < 0 or self.live_replay_s <= 0:
+            raise ConfigError("anti_afk.idle_s doit être >= 0 et live_replay_s > 0")
+
+
+@dataclass(slots=True)
 class Config:
     capture: CaptureConfig = field(default_factory=CaptureConfig)
     vision: VisionConfig = field(default_factory=VisionConfig)
@@ -337,6 +372,7 @@ class Config:
     panel: PanelConfig = field(default_factory=PanelConfig)
     update: UpdateConfig = field(default_factory=UpdateConfig)
     chests: ChestsConfig = field(default_factory=ChestsConfig)
+    anti_afk: AntiAfkConfig = field(default_factory=AntiAfkConfig)
     states: list[StateConfig] = field(
         default_factory=lambda: [copy.copy(s) for s in DEFAULT_STATES]
     )
@@ -352,6 +388,7 @@ class Config:
         self.panel.validate()
         self.update.validate()
         self.chests.validate()
+        self.anti_afk.validate()
         seen: set[str] = set()
         for state in self.states:
             state.validate()
@@ -463,6 +500,7 @@ def load_config(
             ChestsConfig,
             {k: v for k, v in raw.get("chests", {}).items() if k not in _OLD_CHESTS_KEYS},
         ),
+        anti_afk=_to_dataclass(AntiAfkConfig, raw.get("anti_afk", {})),
         template_dir=raw.get("template_dir", "templates"),
         log_level=raw.get("log_level", "INFO"),
     )
@@ -490,6 +528,7 @@ def save_local_config(cfg: Config, path: str | Path = LOCAL_CONFIG_PATH) -> Path
         "panel": cfg.panel,
         "update": cfg.update,
         "chests": cfg.chests,
+        "anti_afk": cfg.anti_afk,
     }
     for name, section in sections.items():
         payload[name] = {f.name: getattr(section, f.name) for f in fields(section)}
@@ -553,6 +592,7 @@ def describe(cfg: Config) -> str:
                 "use_as_roi": cfg.window.use_as_roi,
                 "require_foreground": cfg.window.require_foreground,
             },
+            "anti_afk": {"enabled": cfg.anti_afk.enabled, "keys": cfg.anti_afk.keys},
             "states": [
                 {"slug": s.slug, "label": s.label, "priority": s.priority, "enabled": s.enabled}
                 for s in cfg.active_states()

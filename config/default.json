@@ -74,6 +74,14 @@
     "store_file": "logs/chests.json",
     "scan_interval_s": 10.0
   },
+  "anti_afk": {
+    "enabled": false,
+    "keys": ["W", "A", "S", "D", "SPACE"],
+    "interval_s": [25.0, 50.0],
+    "hold_s": [0.1, 0.3],
+    "idle_s": 30.0,
+    "live_replay_s": 60.0
+  },
   "template_dir": "templates",
   "log_level": "INFO",
   "states": [

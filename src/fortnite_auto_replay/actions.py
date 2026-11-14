@@ -25,6 +25,7 @@ import contextlib
 import ctypes
 import logging
 import random
+import threading
 import time
 from collections.abc import Callable, Iterator
 from ctypes import wintypes
@@ -41,6 +42,8 @@ _MOUSEEVENTF_ABSOLUTE = 0x8000
 _MOUSEEVENTF_VIRTUALDESK = 0x4000
 
 _WM_ACTIVATEAPP = 0x001C
+_WM_KEYDOWN = 0x0100
+_WM_KEYUP = 0x0101
 _WM_MOUSEMOVE = 0x0200
 _WM_LBUTTONDOWN = 0x0201
 _WM_LBUTTONUP = 0x0202
@@ -50,6 +53,10 @@ _MOUSE_BUTTONS = (0x01, 0x02, 0x04, 0x05, 0x06)
 _IDLE_POLL_S = 0.02
 _IDLE_TIMEOUT_S = 1.5  # au-delà, le clic est reporté à une prochaine image
 _ERROR_ACCESS_DENIED = 5
+_MAPVK_VK_TO_VSC = 0
+# un réveil à la fois : le moteur (clic) et l'anti-AFK (touche) se partagent le jeu, et le
+# WM_ACTIVATEAPP 0 de l'un remettrait le jeu en veille au milieu de l'envoi de l'autre
+_INPUT_LOCK = threading.Lock()
 
 _ULONG_PTR = ctypes.c_ulonglong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_ulong
 
@@ -288,6 +295,8 @@ class WindowInput(Protocol):
 
     def post(self, hwnd: int, message: int, wparam: int, x: int, y: int) -> None: ...
 
+    def post_key(self, hwnd: int, message: int, vk: int) -> None: ...
+
     def cursor(self) -> tuple[int, int]: ...
 
     def set_cursor(self, x: int, y: int) -> None: ...
@@ -315,6 +324,8 @@ class _Win32WindowInput:
         user32.SetCursorPos.restype = wintypes.BOOL
         user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
         user32.GetAsyncKeyState.restype = ctypes.c_short
+        user32.MapVirtualKeyW.argtypes = [wintypes.UINT, wintypes.UINT]
+        user32.MapVirtualKeyW.restype = wintypes.UINT
         self._user32 = user32
 
     def is_window(self, hwnd: int) -> bool:
@@ -328,6 +339,17 @@ class _Win32WindowInput:
 
     def post(self, hwnd: int, message: int, wparam: int, x: int, y: int) -> None:
         lparam = (y & 0xFFFF) << 16 | (x & 0xFFFF)  # coordonnées signées sur 16 bits
+        self._post(hwnd, message, wparam, lparam)
+
+    def post_key(self, hwnd: int, message: int, vk: int) -> None:
+        """``WM_KEYDOWN`` ou ``WM_KEYUP`` de la touche ``vk``, code de balayage compris."""
+        scan = self._user32.MapVirtualKeyW(vk, _MAPVK_VK_TO_VSC) & 0xFF
+        lparam = 1 | scan << 16  # une répétition
+        if message == _WM_KEYUP:
+            lparam |= 0xC0000000  # touche déjà enfoncée, relâchée
+        self._post(hwnd, message, vk, lparam)
+
+    def _post(self, hwnd: int, message: int, wparam: int, lparam: int) -> None:
         if self._user32.PostMessageW(hwnd, message, wparam, lparam):
             return
         error = ctypes.get_last_error()
@@ -436,13 +458,14 @@ class BackgroundClicker:
             raise InputError("fenêtre du jeu fermée avant le clic")
         cx, cy = api.to_client(hwnd, x, y)
         if self._cfg.background == "message":
-            with self._awake(hwnd):
+            with _INPUT_LOCK, self._awake(hwnd):
                 self._press(hwnd, cx, cy, clicks)
             return True
         stop = cancel if cancel is not None else _never
         if not self._mouse_idle(stop) or stop():
             return False
-        with self._awake(hwnd):  # réveil avant de prendre le curseur : moins longtemps parti
+        # réveil avant de prendre le curseur : moins longtemps parti
+        with _INPUT_LOCK, self._awake(hwnd):
             if stop() or api.buttons_down():  # un bouton enfoncé pendant le réveil
                 return False
             saved = api.cursor()
@@ -456,6 +479,23 @@ class BackgroundClicker:
                 now_x, now_y = api.cursor()
                 api.set_cursor(saved[0] + now_x - placed[0], saved[1] + now_y - placed[1])
         return True
+
+    def press_key(self, hwnd: int, vk: int, hold_s: float, *, wake: bool) -> None:
+        """Appuie ``hold_s`` secondes sur la touche ``vk`` dans la fenêtre ``hwnd``.
+
+        Le message va à la fenêtre du jeu seule : rien ne part dans la fenêtre
+        active si le jeu perd le premier plan entre-temps. ``wake`` (jeu au second
+        plan) l'encadre du réveil des clics. La touche est relâchée quoi qu'il arrive.
+        """
+        api = self._api
+        if not api.is_window(hwnd):
+            raise InputError("fenêtre du jeu fermée avant l'appui")
+        with _INPUT_LOCK, self._awake(hwnd) if wake else contextlib.nullcontext():
+            api.post_key(hwnd, _WM_KEYDOWN, vk)
+            try:
+                self._sleep(hold_s)
+            finally:
+                api.post_key(hwnd, _WM_KEYUP, vk)
 
 
 def _never() -> bool:

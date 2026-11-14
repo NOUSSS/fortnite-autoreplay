@@ -38,6 +38,10 @@ class FakeInput:
         self.posted.append((message, wparam, x, y))
         self.cursor_during_post.append(self.position)
 
+    def post_key(self, hwnd: int, message: int, vk: int) -> None:
+        assert hwnd == HWND
+        self.posted.append((message, vk, 0, 0))
+
     def cursor(self) -> tuple[int, int]:
         if self.moves:
             self.position = self.moves.pop(0)
@@ -232,3 +236,39 @@ def test_actions_report_a_deferred_click() -> None:
     actions = Actions(ActionConfig(), dry_run=True, background=make_clicker(api))
     actions.dry_run = False
     assert actions.click(600, 450, window=HWND) is None
+
+
+KEYDOWN, KEYUP = 0x0100, 0x0101
+
+
+def test_key_press_in_background_is_framed_by_the_wake_up() -> None:
+    api = FakeInput()
+    make_clicker(api).press_key(HWND, 0x57, 0.2, wake=True)
+    assert api.posted == [*WAKE, (KEYDOWN, 0x57, 0, 0), (KEYUP, 0x57, 0, 0), *SLEEP]
+    assert api.cursor_moves == []
+
+
+def test_key_press_in_foreground_does_not_put_the_game_to_sleep() -> None:
+    api = FakeInput()
+    make_clicker(api).press_key(HWND, 0x20, 0.1, wake=False)
+    assert api.posted == [(KEYDOWN, 0x20, 0, 0), (KEYUP, 0x20, 0, 0)]
+
+
+def test_key_is_released_even_when_the_wait_fails() -> None:
+    api = FakeInput()
+
+    def broken_sleep(seconds: float) -> None:
+        if seconds == 0.2:
+            raise RuntimeError("interrompu")
+
+    clicker = BackgroundClicker(ActionConfig(), api, sleep=broken_sleep, clock=Clock())
+    with pytest.raises(RuntimeError):
+        clicker.press_key(HWND, 0x57, 0.2, wake=True)
+    assert api.posted[-2:] == [(KEYUP, 0x57, 0, 0), SLEEP[0]]
+
+
+def test_key_press_on_a_closed_window_sends_nothing() -> None:
+    api = FakeInput(alive=False)
+    with pytest.raises(InputError):
+        make_clicker(api).press_key(HWND, 0x57, 0.2, wake=True)
+    assert api.posted == []

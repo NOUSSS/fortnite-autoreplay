@@ -133,6 +133,28 @@ comptée au lancement suivant, tant que son replay existe encore.
 `python -m fortnite_auto_replay chests` lit les replays terminés et affiche
 le total.
 
+### Anti-AFK
+
+Activé dans les réglages du panneau (désactivé par défaut), il appuie en
+partie sur une touche au hasard toutes les 25 à 50 secondes, pour que le jeu
+ne vous exclue pas pour inactivité. Les touches partent à la fenêtre du jeu
+seule : jamais dans une autre application.
+
+- Jeu au premier plan : seulement si clavier et souris n'ont pas servi depuis
+  30 secondes ; tant que vous jouez, rien.
+- Jeu au second plan : seulement si les rediffusions sont activées (voir
+  « Coffres ouverts ») ; c'est le replay en cours d'écriture qui dit qu'une
+  partie est en cours.
+
+Touches et délais dans `config/local.json` :
+
+```json
+{ "anti_afk": { "enabled": true, "keys": ["W", "A", "S", "D", "SPACE"], "interval_s": [25, 50] } }
+```
+
+Touches possibles : lettres, chiffres, `SPACE`, `SHIFT`, `CTRL` (dans
+l'attribution par défaut des touches du jeu).
+
 ## Comment ça marche
 
 ```

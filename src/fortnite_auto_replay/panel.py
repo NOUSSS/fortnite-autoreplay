@@ -66,7 +66,8 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout, QWidget
 
 from . import diagnostics
-from .actions import Actions
+from .actions import Actions, BackgroundClicker
+from .antiafk import AntiAfk, Win32UserInput
 from .capture import CaptureError, Frame, ScreenCapture
 from .chests import ChestTracker, Reader, Summary
 from .config import Config, PanelConfig, update_local_config
@@ -176,6 +177,7 @@ LOOKS: dict[Phase, Look] = {
 
 ANSWERS = (("ready", "Prêt"), ("not_yet", "Pas encore"), ("ignore", "Ignorer"))
 REST_MODES = (("pill", "Pastille"), ("panel", "Panneau"))
+SWITCH = (("on", "Activé"), ("off", "Désactivé"))
 ACTIVATE, DEACTIVATE = "Activer", "Désactiver"
 NO_CLICK = "Aucun clic pour l\u2019instant."
 
@@ -449,6 +451,12 @@ class Controller(Protocol):
         """Coffres ouverts comptés ; None si le compteur est désactivé."""
         ...
 
+    def anti_afk(self) -> bool | None:
+        """Anti-AFK activé ou non ; None s'il n'est pas disponible (fenêtre du jeu non suivie)."""
+        ...
+
+    def set_anti_afk(self, enabled: bool) -> None: ...
+
 
 class _NotOpenYet:
     """Capture tant que le thread du moteur n'a pas ouvert la vraie."""
@@ -464,8 +472,15 @@ class EngineController:
     s'utilisent que dans le thread qui les a créés.
     """
 
-    def __init__(self, engine: Engine, cfg: Config, window: GameWindow | None) -> None:
+    def __init__(
+        self,
+        engine: Engine,
+        cfg: Config,
+        window: GameWindow | None,
+        anti_afk: AntiAfk | None = None,
+    ) -> None:
         self.engine = engine
+        self._anti_afk = anti_afk
         self._cfg = cfg
         self._window = window
         self._fatal = ""
@@ -482,6 +497,8 @@ class EngineController:
         self._thread.start()
         if self._chests is not None:
             self._chests.start()
+        if self._anti_afk is not None:
+            self._anti_afk.start()
 
     def _run(self) -> None:
         roi = self._window if self._cfg.window.use_as_roi else None
@@ -494,9 +511,15 @@ class EngineController:
             self._fatal = str(exc) or exc.__class__.__name__
 
     def join(self, timeout: float) -> bool:
-        """Attend la fin du moteur ; faux s'il tourne encore après ``timeout``."""
+        """Attend la fin du moteur ; faux s'il tourne encore après ``timeout``.
+
+        L'anti-AFK aussi : un appui coupé net laisserait la touche enfoncée dans le jeu.
+        """
+        deadline = time.monotonic() + timeout
         if self._thread.is_alive():
             self._thread.join(timeout)
+        if self._anti_afk is not None:
+            self._anti_afk.join(max(0.0, deadline - time.monotonic()))
         return not self._thread.is_alive()
 
     def check_stall(self) -> None:
@@ -526,6 +549,8 @@ class EngineController:
         self.engine.stop()
         if self._chests is not None:
             self._chests.stop()
+        if self._anti_afk is not None:
+            self._anti_afk.stop()
 
     def still_here_answers(self) -> list[str]:
         return self.engine.still_here_answers()
@@ -537,6 +562,13 @@ class EngineController:
         if self._chests is None:
             return None
         return ChestsState(self._chests.summary(), self._chests.unavailable)
+
+    def anti_afk(self) -> bool | None:
+        return self._anti_afk.enabled if self._anti_afk is not None else None
+
+    def set_anti_afk(self, enabled: bool) -> None:
+        if self._anti_afk is not None:
+            self._anti_afk.set_enabled(enabled)
 
 
 # --- Win32 --------------------------------------------------------------------
@@ -1331,6 +1363,11 @@ class Panel:
         dialog.addWidget(self.dialog_hint)
         box.addWidget(self.s_dialog)
 
+        self.s_afk, afk = self._section("Anti-AFK")
+        self.afk_choice = self._segmented(SWITCH, self._choose_anti_afk, inner)
+        afk.addWidget(self.afk_choice)
+        box.addWidget(self.s_afk)
+
         toggle, stop = self.hotkeys
         self.hint = Wrapped(fonts.caption, C.text_3, px(LINE_SMALL), inner)
         self.hint.set_text(shortcuts_hint(toggle, stop))
@@ -1520,6 +1557,12 @@ class Panel:
             return
         self._render(self.controller.status())
         self._save({"engine": {"still_here": answer}})
+
+    def _choose_anti_afk(self, value: str) -> None:
+        enabled = value == "on"
+        self.controller.set_anti_afk(enabled)
+        self._render(self.controller.status())
+        self._save({"anti_afk": {"enabled": enabled}})
 
     def _choose_rest(self, rest: str) -> None:
         self.rest = rest
@@ -1750,6 +1793,10 @@ class Panel:
         self.dialog_hint.set_text(hint)
         self.dialog_hint.setVisible(bool(hint))
         self.dialog_gap.setVisible(bool(hint))
+        afk = self.controller.anti_afk()
+        self.s_afk.setVisible(afk is not None)
+        if afk is not None:
+            self.afk_choice.set("on" if afk else "off")
         if self.settings_open:
             self._place_settings()
 
@@ -1861,7 +1908,18 @@ def _open_panel(
     window = GameWindow(cfg.window) if cfg.window.enabled else None
     actions = Actions(cfg.actions, dry_run=dry_run)
     engine = Engine(cfg, _NotOpenYet(), actions, library, dry_run=dry_run, window=window)
-    controller = EngineController(engine, cfg, window)
+    anti_afk = None
+    if cfg.window.enabled:  # sans suivi de la fenêtre du jeu, aucune fenêtre où appuyer
+        anti_afk = AntiAfk(
+            cfg.anti_afk,
+            cfg.chests.resolved_demos_dir(),
+            GameWindow(cfg.window),  # la sienne : celle du moteur vit dans son thread
+            None if dry_run else BackgroundClicker(cfg.actions),
+            Win32UserInput(),
+            background=not cfg.window.require_foreground,
+            dry_run=dry_run,
+        )
+    controller = EngineController(engine, cfg, window, anti_afk)
     region = window.region() if window is not None else None
     home = default_home(region or win32.work_area(0, 0), win32.scale())
 
