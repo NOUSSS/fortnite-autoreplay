@@ -272,3 +272,19 @@ def test_key_press_on_a_closed_window_sends_nothing() -> None:
     with pytest.raises(InputError):
         make_clicker(api).press_key(HWND, 0x57, 0.2, wake=True)
     assert api.posted == []
+
+
+RDOWN, RUP = 0x0204, 0x0205
+
+
+def test_button_press_posts_at_client_coordinates_and_never_moves_the_cursor() -> None:
+    api = FakeInput()
+    make_clicker(api).press_button(HWND, 600, 450, "right", 0.4, wake=True)
+    assert api.posted == [*WAKE, (RDOWN, 2, 500, 400), (RUP, 0, 500, 400), *SLEEP]
+    assert api.cursor_moves == []
+
+
+def test_button_press_in_foreground_has_no_wake_up() -> None:
+    api = FakeInput()
+    make_clicker(api).press_button(HWND, 600, 450, "left", 0.1, wake=False)
+    assert api.posted == [(DOWN, 1, 500, 400), (UP, 0, 500, 400)]

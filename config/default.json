@@ -76,9 +76,12 @@
   },
   "anti_afk": {
     "enabled": false,
+    "gestures": ["keys", "clicks", "camera"],
     "keys": ["W", "A", "S", "D", "SPACE"],
     "interval_s": [25.0, 50.0],
     "hold_s": [0.1, 0.3],
+    "click_hold_s": [0.05, 0.6],
+    "turn_px": [150.0, 600.0],
     "idle_s": 30.0,
     "live_replay_s": 60.0
   },

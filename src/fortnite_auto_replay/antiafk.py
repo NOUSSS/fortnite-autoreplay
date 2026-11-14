@@ -1,4 +1,7 @@
-"""Anti-AFK : une touche au hasard de temps en temps en partie, pour ne pas être exclu.
+"""Anti-AFK : un geste au hasard de temps en temps en partie, pour ne pas être exclu.
+
+Gestes (``anti_afk.gestures``) : une touche, un clic gauche ou droit au centre
+du jeu, ou une rotation de la caméra.
 
 Quand ? En partie seulement, d'après l'un de ces deux signes :
 
@@ -7,16 +10,23 @@ Quand ? En partie seulement, d'après l'un de ces deux signes :
 - le jeu au premier plan qui tient le curseur (caché, ou bloqué dans sa
   fenêtre par ``ClipCursor``) : au salon, il le montre.
 
-Jeu au premier plan, l'appui n'a lieu que si clavier et souris n'ont pas servi
-depuis ``anti_afk.idle_s`` : le joueur qui joue n'est jamais gêné. Au second
-plan, seul le replay dit qu'une partie est en cours.
+Jeu au premier plan, rien n'a lieu si clavier et souris ont servi depuis
+``anti_afk.idle_s`` : le joueur qui joue n'est jamais gêné. Au second plan,
+seul le replay dit qu'une partie est en cours.
 
-Comment ? ``WM_KEYDOWN`` puis ``WM_KEYUP`` postés à la fenêtre du jeu, jamais
-une entrée réelle : elle partirait dans la fenêtre active si le jeu perdait le
-premier plan au mauvais moment. Au second plan, l'appui est encadré du même
-réveil que les clics (``WM_ACTIVATEAPP``, voir ``actions``). Les messages
-postés ne comptent pas comme une activité de l'utilisateur : le délai
-d'inactivité reste celui du joueur.
+Comment ? Touches et clics : messages postés à la fenêtre du jeu, jamais une
+entrée réelle, qui partirait dans la fenêtre active si le jeu perdait le
+premier plan au mauvais moment. Au second plan, ils sont encadrés du même
+réveil que les clics du moteur (``WM_ACTIVATEAPP``, voir ``actions``). Jeu au
+premier plan, un clic n'a lieu que curseur tenu (vue de jeu, pas une carte ou
+un inventaire ouverts).
+
+La caméra, elle, ne tourne qu'avec la vraie souris : le jeu lit ses
+déplacements en entrée brute, qu'aucun message ne remplace. Elle ne tourne
+donc qu'au premier plan, curseur tenu, par petits pas relatifs (``SendInput``)
+avant chacun desquels le premier plan, le curseur et l'inactivité du joueur
+sont revérifiés. Ces pas comptent pour Windows comme une activité : le délai
+d'inactivité ne les prend pas pour ceux du joueur.
 """
 
 from __future__ import annotations
@@ -44,6 +54,14 @@ _REPLAY_CHECK_S = 5.0  # le dossier des replays n'est relu qu'à cet intervalle
 _ERROR_LOG_S = 60.0
 _CURSOR_SHOWING = 0x1
 _SM_VIRTUAL_SCREEN = (76, 77, 78, 79)  # x, y, largeur, hauteur
+_MOUSEEVENTF_MOVE = 0x0001
+_TURN_STEPS = 12  # une rotation en petits pas, sur 0,3 s environ
+_TURN_STEP_S = 0.025
+# une entrée datée jusqu'à ce délai après un pas de souris est la nôtre (Windows la
+# date à son traitement, un peu après SendInput) ; une rotation entière y passe
+_OWN_MARGIN_MS = 150
+_OWN_GAP_MS = 1000  # au-delà depuis le dernier pas, une nouvelle rotation commence
+_TICK = 0xFFFFFFFF
 
 # touches sans effet hors de la partie (jamais Échap, qui ouvre le menu)
 _NAMED = {"SPACE": 0x20, "SHIFT": 0x10, "CTRL": 0x11}
@@ -83,18 +101,32 @@ class GameSource(Protocol):
 
     def hwnd(self) -> int: ...
 
+    def region(self) -> tuple[int, int, int, int] | None:
+        """Zone client du jeu en coordonnées écran ; ``None`` si absente ou réduite."""
+        ...
 
-class KeyPresser(Protocol):
+
+class GameInput(Protocol):
+    """Messages postés à la fenêtre du jeu (``actions.BackgroundClicker``)."""
+
     def press_key(self, hwnd: int, vk: int, hold_s: float, *, wake: bool) -> None: ...
+
+    def press_button(
+        self, hwnd: int, x: int, y: int, button: str, hold_s: float, *, wake: bool
+    ) -> None: ...
 
 
 class UserInput(Protocol):
     def idle_s(self) -> float:
-        """Secondes depuis la dernière entrée réelle (clavier, souris) de la session."""
+        """Secondes depuis la dernière entrée du joueur (clavier, souris), hors :meth:`nudge`."""
         ...
 
     def cursor_held(self) -> bool:
         """Curseur caché ou bloqué dans une zone : un jeu le tient."""
+        ...
+
+    def nudge(self, dx: int, dy: int) -> None:
+        """Déplacement relatif de la vraie souris (jeu au premier plan seulement)."""
         ...
 
 
@@ -124,15 +156,33 @@ class Win32UserInput:
         user32.GetClipCursor.restype = wintypes.BOOL
         user32.GetSystemMetrics.argtypes = [ctypes.c_int]
         user32.GetSystemMetrics.restype = ctypes.c_int
+        user32.SendInput.argtypes = [wintypes.UINT, ctypes.c_void_p, ctypes.c_int]
+        user32.SendInput.restype = wintypes.UINT
         kernel32 = ctypes.WinDLL("kernel32")
         kernel32.GetTickCount.restype = wintypes.DWORD
         self._user32, self._kernel32 = user32, kernel32
+        self._real: int | None = None  # dernière entrée du joueur (tick)
+        self._own: tuple[int, int] | None = None  # ticks de la rotation en cours (début, fin)
 
-    def idle_s(self) -> float:
+    def _last_input(self) -> int | None:
         info = _LastInputInfo(cbSize=ctypes.sizeof(_LastInputInfo))
         if not self._user32.GetLastInputInfo(ctypes.byref(info)):
+            return None
+        return int(info.dwTime)
+
+    def idle_s(self) -> float:
+        tick = self._last_input()
+        if tick is None:
             return 0.0  # inconnu : comme si le joueur venait de jouer
-        return ((self._kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000
+        if self._real is None or not self._ours(tick):
+            self._real = tick
+        return ((self._kernel32.GetTickCount() - self._real) & _TICK) / 1000
+
+    def _ours(self, tick: int) -> bool:
+        if self._own is None:
+            return False
+        start, end = self._own
+        return (tick - start) & _TICK <= (end - start) & _TICK
 
     def cursor_held(self) -> bool:
         info = _CursorInfo(cbSize=ctypes.sizeof(_CursorInfo))
@@ -146,9 +196,25 @@ class Win32UserInput:
         x, y, width, height = (self._user32.GetSystemMetrics(i) for i in _SM_VIRTUAL_SCREEN)
         return (clip.left, clip.top, clip.right, clip.bottom) != (x, y, x + width, y + height)
 
+    def nudge(self, dx: int, dy: int) -> None:
+        from .actions import INPUT, MOUSEINPUT, InputError  # noqa: PLC0415 - Windows uniquement
+
+        self.idle_s()  # note la dernière entrée du joueur avant d'y mêler la nôtre
+        now = self._kernel32.GetTickCount()
+        if self._own is None or (now - self._own[1]) & _TICK > _OWN_GAP_MS:
+            self._own = (now, now)
+        event = INPUT()
+        event.type = 0  # INPUT_MOUSE
+        event.union.mi = MOUSEINPUT(
+            dx=dx, dy=dy, mouseData=0, dwFlags=_MOUSEEVENTF_MOVE, time=0, dwExtraInfo=0
+        )
+        if self._user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(INPUT)) != 1:
+            raise InputError(f"SendInput a échoué (erreur {ctypes.get_last_error()})")
+        self._own = (self._own[0], (self._kernel32.GetTickCount() + _OWN_MARGIN_MS) & _TICK)
+
 
 class AntiAfk:
-    """Appuie sur une touche au hasard en partie, dans son propre thread.
+    """Fait un geste au hasard en partie, dans son propre thread.
 
     :meth:`step` fait un tour et rend le délai avant le suivant (testable sans
     thread) ; :meth:`set_enabled` l'active ou le coupe en marche.
@@ -159,7 +225,7 @@ class AntiAfk:
         cfg: AntiAfkConfig,
         demos_dir: Path,
         window: GameSource,
-        keys: KeyPresser | None,
+        game: GameInput | None,
         user: UserInput,
         *,
         background: bool = True,
@@ -167,14 +233,15 @@ class AntiAfk:
         clock: Callable[[], float] = time.monotonic,
         wall: Callable[[], float] = time.time,
         rng: random.Random | None = None,
+        sleep: Callable[[float], object] | None = None,
     ) -> None:
         self.cfg = cfg
         self._demos = demos_dir
         self._window = window
-        self._keys = keys
+        self._game = game
         self._user = user
         self._background = background  # faux avec window.require_foreground
-        self.dry_run = dry_run
+        self.dry_run = dry_run or game is None
         self._clock = clock
         self._wall = wall
         self._rng = rng or random.Random()
@@ -185,6 +252,7 @@ class AntiAfk:
         self._in_match = False
         self._error_logged_at = float("-inf")
         self._stop = threading.Event()
+        self._sleep = sleep or self._stop.wait  # interrompu par stop()
         self._thread: threading.Thread | None = None
 
     @property
@@ -206,49 +274,114 @@ class AntiAfk:
             self._replay_live = live_replay(self._demos, self._wall(), self.cfg.live_replay_s)
         return self._replay_live
 
-    def _match(self, front: bool) -> bool:
+    def _match(self, held: bool) -> bool:
         """En partie ? Note le passage d'un état à l'autre dans le journal."""
-        playing = (front and self._user.cursor_held()) or self._live_replay()
+        playing = held or self._live_replay()
         if playing != self._in_match:
             self._in_match = playing
             log.info("anti-AFK : %s", "partie en cours" if playing else "hors partie")
         return playing
 
     def step(self) -> float:
-        """Un tour : appuie si c'est le moment ; rend le délai avant le prochain tour."""
+        """Un tour : fait un geste si c'est le moment ; rend le délai avant le prochain tour."""
         if not self._enabled:
             return _POLL_S
         now = self._clock()
         if now < self._next_at:
             return min(_POLL_S, self._next_at - now)
         target = self._target()
-        if target is not None:
-            self._press(now, *target)
+        if target is None:
+            return _POLL_S
+        hwnd, front, held = target
+        gestures = self._gestures(front, held)
+        if gestures:
+            self._next_at = now + self._rng.uniform(*self.cfg.interval_s)
+            self._do(self._rng.choice(gestures), hwnd, front)
         return _POLL_S
 
-    def _target(self) -> tuple[int, bool] | None:
-        """(fenêtre du jeu, au premier plan ?) s'il faut appuyer maintenant, sinon ``None``."""
+    def _target(self) -> tuple[int, bool, bool] | None:
+        """(fenêtre du jeu, premier plan ?, curseur tenu ?) s'il faut agir, sinon ``None``."""
         focus = self._window.focus()
         front = focus == "foreground"
         if not front and not (focus == "background" and self._background):
             return None
         if front and self._user.idle_s() < self.cfg.idle_s:
             return None  # le joueur joue
-        if not self._match(front):
+        # au second plan, le jeu rend le curseur : seul le replay compte
+        held = front and self._user.cursor_held()
+        if not self._match(held):
             return None
         hwnd = self._window.hwnd()
-        return (hwnd, front) if hwnd else None
+        return (hwnd, front, held) if hwnd else None
 
-    def _press(self, now: float, hwnd: int, front: bool) -> None:
+    def _gestures(self, front: bool, held: bool) -> list[str]:
+        """Gestes possibles : clic en vue de jeu, caméra au premier plan seulement."""
+        allowed = []
+        for gesture in self.cfg.gestures:
+            if gesture == "clicks" and front and not held:
+                continue  # carte ou inventaire ouverts : le clic toucherait un menu
+            if gesture == "camera" and not held:
+                continue  # au second plan, ou curseur visible
+            allowed.append(gesture)
+        return allowed
+
+    def _do(self, gesture: str, hwnd: int, front: bool) -> None:
+        if gesture == "keys":
+            what = self._key(hwnd, front)
+        elif gesture == "clicks":
+            what = self._click(hwnd, front)
+        else:
+            what = self._camera()
+        if what:
+            where = "" if front else " (jeu au second plan)"
+            if self.dry_run:
+                log.info("[dry-run] anti-AFK : %s%s", what, where)
+            else:
+                log.debug("anti-AFK : %s%s", what, where)
+
+    def _key(self, hwnd: int, front: bool) -> str:
         name = self._rng.choice(self.cfg.keys)
         hold = self._rng.uniform(*self.cfg.hold_s)
-        self._next_at = now + self._rng.uniform(*self.cfg.interval_s)
-        where = "" if front else " (jeu au second plan)"
-        if self.dry_run or self._keys is None:
-            log.info("[dry-run] anti-AFK : touche %s, %.2f s%s", name, hold, where)
-            return
-        self._keys.press_key(hwnd, key_code(name), hold, wake=not front)
-        log.debug("anti-AFK : touche %s, %.2f s%s", name, hold, where)
+        if self._game is not None and not self.dry_run:
+            self._game.press_key(hwnd, key_code(name), hold, wake=not front)
+        return f"touche {name}, {hold:.2f} s"
+
+    def _click(self, hwnd: int, front: bool) -> str:
+        region = self._window.region()
+        if region is None:
+            return ""
+        button = self._rng.choice(("left", "right"))
+        hold = self._rng.uniform(*self.cfg.click_hold_s)
+        x, y = (region[0] + region[2]) // 2, (region[1] + region[3]) // 2
+        if self._game is not None and not self.dry_run:
+            self._game.press_button(hwnd, x, y, button, hold, wake=not front)
+        return f"clic {'gauche' if button == 'left' else 'droit'}, {hold:.2f} s"
+
+    def _camera(self) -> str:
+        dx = round(self._rng.choice((-1, 1)) * self._rng.uniform(*self.cfg.turn_px))
+        dy = round(dx * self._rng.uniform(-0.15, 0.15))
+        what = f"caméra {dx:+d} x {dy:+d}"
+        if not self.dry_run and not self._turn(dx, dy):
+            what += " (interrompue)"
+        return what
+
+    def _turn(self, dx: int, dy: int) -> bool:
+        """Rotation en petits pas ; faux dès que le jeu ou le joueur reprend la main."""
+        done_x = done_y = 0
+        for index in range(1, _TURN_STEPS + 1):
+            if (
+                self._stop.is_set()
+                or self._window.focus() != "foreground"
+                or not self._user.cursor_held()
+                or self._user.idle_s() < self.cfg.idle_s
+            ):
+                return False
+            step_x = round(dx * index / _TURN_STEPS) - done_x
+            step_y = round(dy * index / _TURN_STEPS) - done_y
+            self._user.nudge(step_x, step_y)
+            done_x, done_y = done_x + step_x, done_y + step_y
+            self._sleep(_TURN_STEP_S)
+        return True
 
     def _run(self) -> None:
         delay = _POLL_S
@@ -258,7 +391,7 @@ class AntiAfk:
             except Exception as exc:  # fenêtre fermée, envoi refusé : on réessaie plus tard
                 now = self._clock()
                 if now - self._error_logged_at >= _ERROR_LOG_S:
-                    log.warning("anti-AFK : appui impossible (%s)", exc)
+                    log.warning("anti-AFK : geste impossible (%s)", exc)
                     self._error_logged_at = now
                 self._next_at = now + self.cfg.interval_s[0]
                 delay = _POLL_S

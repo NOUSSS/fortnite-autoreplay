@@ -47,7 +47,15 @@ _WM_KEYUP = 0x0101
 _WM_MOUSEMOVE = 0x0200
 _WM_LBUTTONDOWN = 0x0201
 _WM_LBUTTONUP = 0x0202
+_WM_RBUTTONDOWN = 0x0204
+_WM_RBUTTONUP = 0x0205
 _MK_LBUTTON = 0x0001
+_MK_RBUTTON = 0x0002
+# bouton -> (appui, relâche, drapeau du bouton enfoncé)
+_BUTTONS = {
+    "left": (_WM_LBUTTONDOWN, _WM_LBUTTONUP, _MK_LBUTTON),
+    "right": (_WM_RBUTTONDOWN, _WM_RBUTTONUP, _MK_RBUTTON),
+}
 # VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2
 _MOUSE_BUTTONS = (0x01, 0x02, 0x04, 0x05, 0x06)
 _IDLE_POLL_S = 0.02
@@ -496,6 +504,26 @@ class BackgroundClicker:
                 self._sleep(hold_s)
             finally:
                 api.post_key(hwnd, _WM_KEYUP, vk)
+
+    def press_button(
+        self, hwnd: int, x: int, y: int, button: str, hold_s: float, *, wake: bool
+    ) -> None:
+        """Appuie ``hold_s`` secondes sur un bouton de la souris au point écran (x, y).
+
+        Comme :meth:`press_key` : message posté à la fenêtre du jeu seule, jamais
+        le curseur réel, réveil si ``wake``, bouton relâché quoi qu'il arrive.
+        """
+        down, up, flag = _BUTTONS[button]
+        api = self._api
+        if not api.is_window(hwnd):
+            raise InputError("fenêtre du jeu fermée avant le clic")
+        cx, cy = api.to_client(hwnd, x, y)
+        with _INPUT_LOCK, self._awake(hwnd) if wake else contextlib.nullcontext():
+            api.post(hwnd, down, flag, cx, cy)
+            try:
+                self._sleep(hold_s)
+            finally:
+                api.post(hwnd, up, 0, cx, cy)
 
 
 def _never() -> bool:

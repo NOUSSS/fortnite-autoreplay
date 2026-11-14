@@ -47,7 +47,7 @@ premier plan et des messages de fenêtre au second plan.
 | `panel_style.py` | Jetons du panneau : couleurs, grille, polices, icônes |
 | `panel_widgets.py` | Widgets dessinés du panneau : texte, boutons, sélecteur, curseur, bandeau |
 | `panel_glass.py` | Verre du panneau : l'écran sous lui (il est exclu des captures), capturé dans un thread puis flouté |
-| `antiafk.py` | Touche au hasard en partie (replay « en direct » ou curseur tenu par le jeu), postée à sa fenêtre |
+| `antiafk.py` | Geste au hasard en partie (replay « en direct » ou curseur tenu par le jeu) : touche ou clic postés, caméra au premier plan |
 | `chests.py` | Coffres comptés dans les replays du jeu par `replay-reader.exe` (`logs/chests.json`) |
 | `updater.py` | Manifeste signé, téléchargement vérifié, installation tout ou rien, relance |
 | `cli.py` | `run`, `check`, `config`, `window`, `stats`, `panel`, `update` + surcharges en ligne de commande |
@@ -232,13 +232,22 @@ capture n'apporterait rien. Tout le gain vient du matching.
   écrit depuis moins de `anti_afk.live_replay_s`, ou si le jeu au premier plan
   tient le curseur (caché ou `ClipCursor`). Au premier plan, il attend que le
   joueur n'ait rien touché depuis `anti_afk.idle_s` (`GetLastInputInfo`, que
-  les messages postés ne changent pas). Touche postée à la fenêtre du jeu
-  (`WM_KEYDOWN`/`WM_KEYUP`, code de balayage dans `lParam`), jamais `SendInput` :
-  le jeu peut perdre le premier plan entre le test et l'appui. Au second plan,
-  même réveil que les clics ; un verrou commun (`actions._INPUT_LOCK`) empêche
-  le `WM_ACTIVATEAPP` 0 de l'un de rendormir le jeu pendant l'envoi de l'autre.
-  La touche est relâchée sur tous les chemins, et le panneau attend la fin d'un
-  appui avant de se fermer.
+  les messages postés ne changent pas). Touche et clic sont postés à la fenêtre
+  du jeu (`WM_KEYDOWN`/`WM_KEYUP` avec le code de balayage dans `lParam`,
+  `WM_LBUTTONDOWN`… au centre de la zone client), jamais `SendInput` : le jeu peut
+  perdre le premier plan entre le test et l'appui. Au second plan, même réveil
+  que les clics ; un verrou commun (`actions._INPUT_LOCK`) empêche le
+  `WM_ACTIVATEAPP` 0 de l'un de rendormir le jeu pendant l'envoi de l'autre.
+  Touche et bouton sont relâchés sur tous les chemins, et le panneau attend la
+  fin d'un geste avant de se fermer. Premier plan et curseur visible (carte,
+  inventaire) : touches seulement.
+- **Caméra de l'anti-AFK** : le jeu lit la souris en entrée brute (`WM_INPUT`),
+  qu'aucun message posté ne remplace. Seul geste en entrée réelle : déplacements
+  relatifs `SendInput`, au premier plan et curseur tenu seulement, en 12 pas sur
+  0,3 s, chacun précédé d'un nouveau test (premier plan, curseur, inactivité).
+  Windows date ces pas un peu après l'envoi : toute entrée datée entre le
+  premier pas et 150 ms après le dernier est prise pour la nôtre, pour que le
+  délai d'inactivité reste celui du joueur.
 - **Aucune valeur dans le code** : tout est configuration.
 
 ## Points d'extension prévus

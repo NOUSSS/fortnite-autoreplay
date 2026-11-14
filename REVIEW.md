@@ -66,11 +66,13 @@
   périmée (texte coupé, lignes superposées).
 - Garde du clic couvert (`Engine._click_covered`, `GameWindow.covering`) :
   un clic n'est envoyé que si le point visé appartient au processus du jeu.
-- Anti-AFK (`antiafk.py`, `BackgroundClicker.press_key`) : jamais d'entrée
-  réelle (`SendInput`), seulement des messages postés à la fenêtre du jeu ;
-  touche relâchée sur tous les chemins ; au premier plan, aucun appui tant que
-  le joueur a touché clavier ou souris depuis `anti_afk.idle_s` ; réveil
-  (`WM_ACTIVATEAPP`) seulement au second plan, sous `actions._INPUT_LOCK`.
+- Anti-AFK (`antiafk.py`, `BackgroundClicker.press_key`/`press_button`) :
+  touches et clics seulement postés à la fenêtre du jeu, relâchés sur tous les
+  chemins ; seule la caméra passe par `SendInput`, jamais au second plan ni
+  curseur visible, et chaque pas revérifie premier plan, curseur et
+  inactivité ; au premier plan, aucun geste tant que le joueur a touché
+  clavier ou souris depuis `anti_afk.idle_s` ; réveil (`WM_ACTIVATEAPP`)
+  seulement au second plan, sous `actions._INPUT_LOCK`.
 - `window.py` : handles 64 bits (instances `WinDLL` privées avec `argtypes`),
   fenêtres annexes « Fortnite » (anti-triche, rapport de plantage) à écarter.
 - `updater.py` : rien du manifeste n'est utilisé avant `verify_manifest` ;
