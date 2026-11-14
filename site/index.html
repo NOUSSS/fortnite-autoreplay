@@ -59,11 +59,10 @@
     </header>
 
     <main>
-      <section class="wrap hero">
-        <div class="lens">
+      <section class="wrap hero" data-role="hero">
+        <div class="lens hero-copy">
           <span class="lens-rim"></span>
           <div class="glass">
-            <span class="fp fp-pill glass"><span class="fp-dot" data-role="dot"></span><span data-role="state">Relance active</span><span class="fp-sep"></span><svg class="fp-box" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2.6 6.2h10.8v6.6a1 1 0 0 1-1 1H3.6a1 1 0 0 1-1-1z M2 3.6a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v2.6H2z M6.6 8.4h2.8" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="fp-strong">1&#8239;248</span></span>
             <h1 class="rise">Relance automatique des parties de Fortnite</h1>
             <p class="lead rise rise-2">Une application Windows qui clique à votre place sur Retourner au salon, Continuer et Jouer, et compte les coffres que vous ouvrez.</p>
             <div class="download rise rise-3">
@@ -72,40 +71,67 @@
             </div>
           </div>
         </div>
-      </section>
 
-      <section class="wrap section" aria-labelledby="panneau-titre">
-        <div class="showcase glass">
-          <div class="showcase-text">
-            <h2 id="panneau-titre">Posé sur le jeu, sans le gêner</h2>
-            <p>Au repos, une pastille&nbsp;: l’état de la relance et le total des coffres. Le curseur posé dessus ouvre la carte. Le jeu reste visible au travers, flouté, et le panneau ne lui prend jamais le focus.</p>
+        <figure class="window" data-role="window">
+          <div class="window-stage" data-role="stage" data-rest="panel">
+            <div class="fp fp-card glass" data-role="card" role="group" aria-label="Carte du panneau">
+              <div class="fp-row">
+                <span class="fp-dot" data-role="dot"></span><span class="fp-title">Relance auto</span>
+                <button class="fp-btn fp-toggle fp-end" type="button" data-role="toggle">Désactiver</button>
+              </div>
+              <div class="fp-detail">
+                <p class="fp-heading">Derniers clics</p>
+                <ul class="fp-log" data-role="clicks"><li><time>21:42</time>Jouer</li><li><time>21:41</time>Continuer</li><li><time>21:41</time>Retourner au salon</li></ul>
+              </div>
+              <div class="fp-rule"></div>
+              <div class="fp-row">
+                <span class="fp-dot"></span>
+                <span class="fp-name"><span class="fp-title">Coffres</span><span class="fp-caption" data-role="counting" hidden>Comptage de la partie finie…</span></span>
+                <span class="fp-title fp-end fp-number" data-role="total">1&#8239;248</span>
+              </div>
+              <div class="fp-detail">
+                <p class="fp-heading">Dernières parties</p>
+                <ul class="fp-log" data-role="games"><li><time>21:21</time>14 coffres</li><li><time>20:58</time>9 coffres</li><li><time>20:35</time>12 coffres</li></ul>
+              </div>
+              <div class="fp-rule"></div>
+              <div class="fp-foot">
+                <button class="fp-btn fp-subtle" type="button" data-role="settings" aria-expanded="false" aria-controls="reglages"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2.5 5h6M12 5h1.5M2.5 11h1.5M7.5 11h6" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="10.2" cy="5" r="1.7" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="5.8" cy="11" r="1.7" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>Réglages</button>
+                <button class="fp-btn" type="button" data-role="quit">Quitter</button>
+              </div>
+            </div>
+
+            <div class="fp fp-pill glass" data-role="pill" role="button" tabindex="0" aria-label="Ouvrir le panneau"><span class="fp-dot" data-role="dot"></span><span data-role="state">Relance active</span><span class="fp-sep"></span><svg class="fp-box" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2.6 6.2h10.8v6.6a1 1 0 0 1-1 1H3.6a1 1 0 0 1-1-1z M2 3.6a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v2.6H2z M6.6 8.4h2.8" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="fp-strong" data-role="total">1&#8239;248</span></div>
+
+            <div class="fp fp-pop glass" id="reglages" data-role="pop" role="group" aria-label="Réglages">
+              <div>
+                <p class="fp-heading">Au repos</p>
+                <div class="fp-seg" data-role="rest"><button type="button" aria-pressed="false" data-value="pill">Pastille</button><button type="button" aria-pressed="true" data-value="panel">Panneau</button></div>
+              </div>
+              <div>
+                <div class="fp-pop-head"><p class="fp-heading">Opacité au repos</p><p class="fp-heading fp-number" data-role="opacity-value">80&nbsp;%</p></div>
+                <input class="fp-range" type="range" min="20" max="100" step="5" value="80" aria-label="Opacité au repos" data-role="opacity">
+              </div>
+              <div>
+                <p class="fp-heading">Vous êtes toujours là&#8239;?</p>
+                <div class="fp-seg"><button type="button" aria-pressed="true">Prêt</button><button type="button" aria-pressed="false">Pas encore</button><button type="button" aria-pressed="false">Ignorer</button></div>
+              </div>
+              <div>
+                <p class="fp-heading">Anti-AFK</p>
+                <div class="fp-seg" data-role="afk"><button type="button" aria-pressed="false" data-value="on">Activé</button><button type="button" aria-pressed="true" data-value="off">Désactivé</button></div>
+              </div>
+              <p class="fp-caption">En jeu, F8&nbsp;: activer ou désactiver, F9&nbsp;: quitter</p>
+            </div>
+
+            <button class="button window-reopen glass" type="button" data-role="reopen" hidden>Relancer le panneau</button>
           </div>
-          <div class="fp fp-card glass" role="group" aria-label="Carte du panneau">
-            <div class="fp-row">
-              <span class="fp-dot" data-role="dot"></span><span class="fp-title">Relance auto</span>
-              <button class="fp-btn fp-toggle fp-end" type="button" data-role="toggle">Désactiver</button>
-            </div>
-            <div class="fp-detail">
-              <p class="fp-heading">Derniers clics</p>
-              <ul class="fp-log"><li><time>21:42</time>Jouer</li><li><time>21:41</time>Continuer</li><li><time>21:41</time>Retourner au salon</li></ul>
-            </div>
-            <div class="fp-rule"></div>
-            <div class="fp-row">
-              <span class="fp-dot"></span><span class="fp-title">Coffres</span>
-              <span class="fp-title fp-end fp-number">1&#8239;248</span>
-            </div>
-            <div class="fp-detail">
-              <p class="fp-heading">Dernières parties</p>
-              <ul class="fp-log"><li><time>21:18</time>14 coffres</li><li><time>20:51</time>9 coffres</li></ul>
-            </div>
-          </div>
-        </div>
+          <figcaption class="window-caption">Le panneau, tel qu’il se pose sur le jeu.</figcaption>
+        </figure>
       </section>
 
       <section class="wrap section" aria-label="Fonctions">
         <div class="tiles">
           <div class="tile glass">
-            <h3><span class="fp-dot"></span>Relance auto</h3>
+            <h3><span class="fp-dot" data-role="dot"></span>Relance auto</h3>
             <p>Il reconnaît à l’image les boutons de fin de partie et du salon, et ne clique sur rien d’autre. En groupe, il répond Prêt ou Pas encore à «&nbsp;Vous êtes toujours là&#8239;?&nbsp;».</p>
           </div>
           <div class="tile glass">
@@ -113,7 +139,7 @@
             <p>Comptés dans les replays du jeu, partie après partie, coffres cassés compris. Le compte continue quand la relance est désactivée.</p>
           </div>
           <div class="tile glass">
-            <h3><span class="fp-dot" data-state="off"></span>Anti-AFK</h3>
+            <h3><span class="fp-dot" data-state="off" data-role="afk-dot"></span>Anti-AFK</h3>
             <p>À activer dans les réglages. En partie, une touche ou un clic au hasard toutes les 25 à 50 secondes. Tant que vous jouez, il ne fait rien.</p>
           </div>
         </div>
@@ -160,35 +186,6 @@
     </footer>
   </div>
 
-  <script>
-    // Activer / Désactiver dans la carte : la pastille, l'état et le bouton suivent.
-    (function () {
-      var active = true;
-      var toggle = document.querySelector('[data-role="toggle"]');
-      toggle.addEventListener("click", function () {
-        active = !active;
-        document.querySelectorAll('[data-role="dot"]').forEach(function (dot) { dot.dataset.state = active ? "on" : "off"; });
-        document.querySelector('[data-role="state"]').textContent = active ? "Relance active" : "Relance désactivée";
-        toggle.textContent = active ? "Désactiver" : "Activer";
-        toggle.classList.toggle("is-accent", !active);
-      });
-
-      // Reflet : chaque verre s'éclaire du côté du pointeur.
-      var frame = 0, x = 0, y = 0;
-      document.addEventListener("pointermove", function (e) {
-        x = e.clientX; y = e.clientY;
-        if (frame) return;
-        frame = requestAnimationFrame(function () {
-          frame = 0;
-          document.querySelectorAll(".glass").forEach(function (glass) {
-            var r = glass.getBoundingClientRect();
-            if (r.bottom < 0 || r.top > innerHeight) return;
-            glass.style.setProperty("--mx", x - r.left + "px");
-            glass.style.setProperty("--my", y - r.top + "px");
-          });
-        });
-      }, { passive: true });
-    })();
-  </script>
+  <script src="site.js?v={{script_version}}" defer></script>
 </body>
 </html>

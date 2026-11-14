@@ -397,6 +397,7 @@ def render_site(version: str, archive_name: str, size: int, date: str) -> Path:
     shutil.copytree(SITE_FONTS, SITE_OUT / "fonts", dirs_exist_ok=True)
     versions = read_changelog()
     styles = (SITE_SRC / "styles.css").read_bytes()
+    script = (SITE_SRC / "site.js").read_bytes()
     values = {
         "version": version,
         "download_url": f"releases/{archive_name}",
@@ -405,6 +406,7 @@ def render_site(version: str, archive_name: str, size: int, date: str) -> Path:
         "source_url": SOURCE_URL,
         "site_url": SITE_URL,
         "styles_version": hashlib.sha256(styles).hexdigest()[:10],
+        "script_version": hashlib.sha256(script).hexdigest()[:10],
         "changelog": changelog_html(versions[:RECENT_RELEASES]),
         "changelog_older": changelog_html(versions[RECENT_RELEASES:]),
     }

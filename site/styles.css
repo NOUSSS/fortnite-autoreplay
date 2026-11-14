@@ -55,6 +55,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -444,33 +448,54 @@ button {
   transition: color 150ms ease-out;
 }
 
-/* --- ouverture ------------------------------------------------------------------------ */
+/* --- ouverture : le texte à gauche, la fenêtre du logiciel à droite ------------------ */
+/* Au défilement, l'ouverture recule et s'efface : --p (0 à 1) vient de site.js et
+   s'applique à chaque verre lui-même, jamais à leur parent (voir « verre »). */
+@property --shown {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+
+@property --rest {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+
 .hero {
+  --p: 0;
+  /* les verres restent pleins jusqu'à mi-course : à moins de 100 %, le fond net perce leur flou */
+  --fade: min(1, (1 - var(--p)) * 2);
   min-height: calc(100vh - 68px);
   display: grid;
-  place-items: center;
-  padding-block: 48px 96px;
+  grid-template-columns: minmax(0, 11fr) minmax(0, 9fr);
+  align-items: center;
+  gap: 56px;
+  padding-block: 40px 96px;
 }
 
-.hero .lens {
-  width: min(820px, 100%);
+.hero-copy {
+  --rr: 40px;
+  --rim: 16px;
 }
 
-.hero .lens > .glass {
+.hero-copy > .lens-rim,
+.hero-copy > .glass {
+  opacity: var(--fade);
+  transform: translateY(calc(var(--p) * -12vh)) scale(calc(1 - var(--p) * 0.16));
+}
+
+.hero-copy > .glass {
   --tint: 0.42;
   --blur: 28px;
-  padding: 48px 56px 44px;
-  text-align: center;
-}
-
-.hero .fp-pill {
-  margin-bottom: 28px;
+  padding: 44px 44px 40px;
 }
 
 .hero h1 {
   font-family: var(--font-title);
-  font-size: 60px;
-  line-height: 62px;
+  font-size: clamp(40px, 4.2vw, 56px);
+  line-height: 1.05;
   font-weight: 800;
   letter-spacing: -0.02em;
   text-wrap: balance;
@@ -478,7 +503,7 @@ button {
 
 .lead {
   max-width: 32em;
-  margin: 20px auto 0;
+  margin-top: 20px;
   color: var(--text-2);
   font-size: 18px;
   line-height: 28px;
@@ -489,7 +514,7 @@ button {
   margin-top: 32px;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
 }
 
@@ -518,6 +543,147 @@ button {
   }
 }
 
+/* La fenêtre : la carte, la pastille et les réglages forment un seul objet en 3D.
+   Chacun porte la même transformation (--tilt, écrite par site.js) autour du même point,
+   le centre de la carte, pour rester solidaires. */
+.window {
+  translate: 0 calc(var(--p) * -8vh);
+  margin: 0;
+  display: grid;
+  justify-items: center;
+  gap: 40px;
+}
+
+.window-stage {
+  --shown: 1;
+  --rest: 1;
+  --tilt: none;
+  --ox: 160px;
+  --oy: 180px;
+  position: relative;
+  width: 320px;
+}
+
+.window-stage > .glass {
+  transform: var(--tilt);
+  transform-origin: var(--ox) var(--oy);
+}
+
+/* la carte : ouverte au repos en mode Panneau, au survol de la pastille sinon */
+.window-stage .fp-card {
+  --tint: calc(0.56 * var(--rest));
+  --blur: 36px;
+  opacity: calc(var(--shown) * var(--fade));
+  scale: calc(0.96 + var(--shown) * 0.04);
+}
+
+.window-stage {
+  transition:
+    --shown 120ms ease-out,
+    --rest 150ms ease-out;
+}
+
+.window-stage[data-open] {
+  transition:
+    --shown 180ms var(--ease-out),
+    --rest 150ms ease-out;
+}
+
+.window-stage:not([data-open]),
+.window-stage[data-quit] {
+  --shown: 0;
+}
+
+.window-stage:not([data-open]) .fp-card {
+  pointer-events: none;
+}
+
+/* reflet qui glisse sur la carte quand elle tourne */
+.window-stage .fp-card::after {
+  background:
+    radial-gradient(520px circle at var(--mx, 20%) var(--my, -10%), rgba(255, 255, 255, 0.13), transparent 55%),
+    linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.12) 42%, transparent 50%) no-repeat;
+  background-size: auto, 260% 100%;
+  background-position: 0 0, var(--streak, 120%) 0;
+}
+
+.window-stage .fp-pill {
+  --tint: calc(0.55 * var(--rest));
+  position: absolute;
+  left: 0;
+  top: 0;
+  cursor: pointer;
+  opacity: calc((1 - var(--shown)) * var(--fade));
+}
+
+/* Opacité au repos : le contenu et la teinte s'effacent, jamais le verre lui-même.
+   Un verre à moins de 100 % d'opacité laisse voir le fond net à travers son flou. */
+.window-stage .fp-card > *,
+.window-stage .fp-pill > * {
+  opacity: var(--rest);
+}
+
+.window-stage[data-open] .fp-pill,
+.window-stage[data-quit] .fp-pill {
+  visibility: hidden;
+}
+
+/* les réglages, à 8 px à gauche de la carte, son haut aligné sur le sien */
+.fp-pop {
+  --r: 12px;
+  --tint: 0.6;
+  --blur: 36px;
+  position: absolute;
+  top: 0;
+  right: calc(100% + 8px);
+  width: 272px;
+  display: grid;
+  gap: 16px;
+  padding: 12px;
+  opacity: calc(var(--pop) * var(--fade));
+  scale: calc(0.96 + var(--pop) * 0.04);
+  transform-origin: calc(var(--ox) + 280px) var(--oy);
+  transition:
+    opacity 120ms ease-out,
+    scale 120ms ease-out;
+  --pop: 0;
+  pointer-events: none;
+}
+
+.window-stage[data-settings] .fp-pop {
+  --pop: 1;
+  pointer-events: auto;
+  transition:
+    opacity 180ms var(--ease-out),
+    scale 180ms var(--ease-out);
+}
+
+.window-stage:not([data-settings]) .fp-pop {
+  visibility: hidden;
+  transition:
+    opacity 120ms ease-out,
+    scale 120ms ease-out,
+    visibility 0s 120ms;
+}
+
+.window-stage[data-quit] .fp-card {
+  visibility: hidden;
+}
+
+.window-reopen {
+  position: absolute;
+  left: 0;
+  top: 0;
+  --r: 999px;
+}
+
+.window-caption {
+  color: var(--text-3);
+  font-size: 14px;
+  line-height: 20px;
+  opacity: var(--fade);
+}
+
 /* --- sections ------------------------------------------------------------------------ */
 .section {
   padding-bottom: 32px;
@@ -529,23 +695,6 @@ button {
   font-size: 28px;
   line-height: 34px;
   font-weight: 700;
-}
-
-.showcase {
-  --r: 32px;
-  --tint: 0.42;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 48px;
-  padding: 48px;
-}
-
-.showcase-text p {
-  max-width: 30em;
-  margin-top: 12px;
-  color: var(--text-2);
-  text-wrap: pretty;
 }
 
 .tiles {
@@ -820,17 +969,294 @@ button {
   min-width: 104px;
 }
 
+/* nom de la fonction, et sous « Coffres » ce qui passe vite */
+.fp-name {
+  display: grid;
+}
+
+.fp-caption {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-2);
+}
+
+.fp-pop .fp-caption {
+  color: var(--text-3);
+}
+
+/* un clic ou une partie qui arrive dans le journal */
+.fp-log li[data-new] {
+  animation: log-in 200ms var(--ease-out);
+}
+
+@keyframes log-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+.fp-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.fp-btn {
+  gap: 8px;
+  font-weight: 400;
+}
+
+.fp-toggle {
+  font-weight: 600;
+}
+
+.fp-subtle {
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+  padding: 0 12px;
+}
+
+.fp-subtle[aria-expanded="true"] {
+  background: var(--layer);
+  color: var(--cream);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .fp-subtle:hover {
+    background: var(--layer);
+    color: var(--cream);
+  }
+}
+
+.fp-pop-head {
+  display: flex;
+  justify-content: space-between;
+}
+
+.fp-pop .fp-heading + * {
+  margin-top: 4px;
+}
+
+.fp-seg {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  height: 32px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--layer);
+  box-shadow: inset 0 0 0 1px var(--stroke);
+}
+
+.fp-seg button {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color 150ms ease-out,
+    color 150ms ease-out;
+}
+
+.fp-seg button[aria-pressed="true"] {
+  background: rgba(255, 255, 255, 0.22);
+  color: var(--cream);
+  font-weight: 600;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .fp-seg button:not([aria-pressed="true"]):hover {
+    background: var(--layer-hover);
+    color: var(--cream);
+  }
+}
+
+/* curseur d'opacité : piste de 6 px, part remplie en blanc, poignée de 18 px */
+.fp-range {
+  --fill: 75%;
+  display: block;
+  width: 100%;
+  height: 20px;
+  margin: 4px 0 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.fp-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--cream) var(--fill), var(--layer-hover) var(--fill));
+}
+
+.fp-range::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--layer-hover);
+}
+
+.fp-range::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--cream);
+}
+
+.fp-range::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--cream);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: transform 100ms ease-out;
+  -webkit-appearance: none;
+}
+
+.fp-range:active::-webkit-slider-thumb {
+  transform: scale(0.9);
+}
+
+.fp-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--cream);
+}
+
+/* --- défilement : la scène suit, les plaques de verre basculent en place --------------- */
+@supports (animation-timeline: scroll()) {
+  .scene {
+    animation: scene-hue linear both;
+    animation-timeline: scroll(root);
+  }
+
+  @keyframes scene-hue {
+    to {
+      filter: hue-rotate(-120deg) saturate(1.2);
+    }
+  }
+
+  .row-1,
+  .row-3,
+  .row-5 {
+    animation-name: slide, scrub-left;
+    animation-timing-function: linear, linear;
+    animation-iteration-count: infinite, 1;
+    animation-fill-mode: none, both;
+    animation-timeline: auto, scroll(root);
+  }
+
+  .row-2,
+  .row-4 {
+    animation-name: slide, scrub-right;
+    animation-timing-function: linear, linear;
+    animation-iteration-count: infinite, 1;
+    animation-direction: reverse, normal;
+    animation-fill-mode: none, both;
+    animation-timeline: auto, scroll(root);
+  }
+
+  .row-1 {
+    animation-duration: 60s, auto;
+  }
+
+  .row-2 {
+    animation-duration: 75s, auto;
+  }
+
+  .row-3 {
+    animation-duration: 52s, auto;
+  }
+
+  .row-4 {
+    animation-duration: 90s, auto;
+  }
+
+  .row-5 {
+    animation-duration: 66s, auto;
+  }
+
+  @keyframes scrub-left {
+    to {
+      translate: -70vw 0;
+    }
+  }
+
+  @keyframes scrub-right {
+    to {
+      translate: 70vw 0;
+    }
+  }
+
+  .tile,
+  .split,
+  .site-footer .glass {
+    transform-origin: 50% 100%;
+    animation: plate-in linear both;
+    animation-timeline: view();
+    animation-range: entry 0 entry 260px;
+  }
+
+  /* dernière plaque : la page ne défile pas 260 px au-delà, elle finit dès qu'elle est entrée */
+  .site-footer .glass {
+    animation-range: entry 0 entry 100%;
+  }
+
+  .tile:nth-child(2) {
+    animation-range: entry 40px entry 300px;
+  }
+
+  .tile:nth-child(3) {
+    animation-range: entry 80px entry 340px;
+  }
+
+  @keyframes plate-in {
+    from {
+      opacity: 0;
+      transform: perspective(1000px) rotateX(28deg) translateY(90px) scale(0.9);
+    }
+  }
+}
+
 /* --- petits écrans -------------------------------------------------------------------- */
+@media (max-width: 960px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: auto;
+    gap: 40px;
+    padding-block: 32px 72px;
+  }
+
+  .window {
+    gap: 24px;
+  }
+
+  /* sous la carte, dans le flux : pas la place à côté */
+  .fp-pop {
+    position: relative;
+    top: auto;
+    right: auto;
+    width: 100%;
+    margin-top: 8px;
+  }
+
+  .window-stage:not([data-settings]) .fp-pop {
+    display: none;
+  }
+}
+
 @media (max-width: 860px) {
-  .showcase,
   .split {
     grid-template-columns: minmax(0, 1fr);
     gap: 28px;
     padding: 28px;
-  }
-
-  .showcase .fp-card {
-    justify-self: center;
   }
 
   .tiles {
@@ -847,23 +1273,13 @@ button {
     gap: 12px;
   }
 
-  .hero {
-    min-height: auto;
-    padding-block: 32px 64px;
-  }
-
-  .hero .lens {
+  .hero-copy {
     --rr: 32px;
     --rim: 12px;
   }
 
-  .hero .lens > .glass {
-    padding: 32px 20px 28px;
-  }
-
-  .hero h1 {
-    font-size: 38px;
-    line-height: 42px;
+  .hero-copy > .glass {
+    padding: 28px 20px;
   }
 
   .lead {
@@ -871,7 +1287,8 @@ button {
     line-height: 24px;
   }
 
-  .showcase .fp-card {
+  .window-stage,
+  .window-stage .fp-card {
     width: 100%;
   }
 }
@@ -879,12 +1296,22 @@ button {
 @media (prefers-reduced-motion: reduce) {
   .orb,
   .marquee-row,
-  .rise {
-    animation: none;
+  .rise,
+  .fp-log li[data-new],
+  .scene,
+  .tile,
+  .split,
+  .site-footer .glass {
+    animation: none !important;
   }
 
   .button:active,
   .fp-btn:active {
     transform: none;
+  }
+
+  .window-stage .fp-card,
+  .fp-pop {
+    scale: none;
   }
 }
