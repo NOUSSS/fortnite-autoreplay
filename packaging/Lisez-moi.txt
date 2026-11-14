@@ -30,6 +30,10 @@ Coffres ouverts
 
 Le panneau compte les coffres que vous ouvrez ou cassez, partie après partie, même quand la relance est désactivée. Il les lit dans les replays du jeu : activez « Enregistrer les rediffusions » dans Fortnite (Paramètres, Jeu, Rediffusions). Une partie est comptée quelques secondes après sa fin. Le lecteur de replays (dossier replay-reader) reprend le code de ChestCounter, sous licence MIT ; il ne touche ni au jeu ni à sa mémoire.
 
+Anti-AFK
+
+À activer dans les Réglages du panneau. En partie, l’application fait de temps en temps un geste au hasard (une touche de déplacement ou de saut, un clic, un coup d’œil autour de vous) pour que le jeu ne vous exclue pas pour inactivité. Tant que vous jouez, elle ne fait rien. Jeu au second plan, elle se sert des rediffusions (voir ci-dessus) pour savoir qu’une partie est en cours, et ne tourne pas la caméra. Les gestes se règlent dans la section "anti_afk" de config\local.json.
+
 En cas de problème
 
 - Le panneau signale tout blocage et dit quoi faire. Le détail est dans logs\bot.log.
