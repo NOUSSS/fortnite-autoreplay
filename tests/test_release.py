@@ -57,6 +57,10 @@ def test_site_is_fully_rendered(release, tmp_path: Path, monkeypatch) -> None:
     assert f"Version {version}" in page
     assert (out / "styles.css").exists()
     assert not list(out.glob("*.md"))
+    for font in ("Figtree.ttf", "BricolageGrotesque.ttf", "OFL-Figtree.txt"):
+        assert (out / "fonts" / font).exists()
+    oldest = release.read_changelog()[-1][0]
+    assert f"Version {oldest}<time" in page  # sous « Versions précédentes »
 
 
 def test_site_keeps_published_archives(release, tmp_path: Path, monkeypatch) -> None:

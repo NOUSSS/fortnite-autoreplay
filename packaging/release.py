@@ -65,6 +65,9 @@ from fortnite_auto_replay import updater  # noqa: E402
 SITE_URL = "https://autoreplay.feitanx.com"
 SOURCE_URL = "https://github.com/NOUSSS/fortnite-autoreplay"
 SITE_SRC = ROOT / "site"
+# polices de l'application, reprises par la landing (licences OFL comprises)
+SITE_FONTS = ROOT / "src" / "fortnite_auto_replay" / "fonts"
+RECENT_RELEASES = 3  # versions affichées d'emblée, les autres sous « Versions précédentes »
 SITE_OUT = build.DIST / "site"
 CHANGELOG = ROOT / "CHANGELOG.md"
 SECRET = Path(os.environ.get("USERPROFILE", str(Path.home()))) / ".secrets"
@@ -391,6 +394,8 @@ def render_site(version: str, archive_name: str, size: int, date: str) -> Path:
             if item != keep:
                 shutil.rmtree(item) if item.is_dir() else item.unlink()
     shutil.copytree(SITE_SRC, SITE_OUT, dirs_exist_ok=True, ignore=shutil.ignore_patterns("*.md"))
+    shutil.copytree(SITE_FONTS, SITE_OUT / "fonts", dirs_exist_ok=True)
+    versions = read_changelog()
     styles = (SITE_SRC / "styles.css").read_bytes()
     values = {
         "version": version,
@@ -400,7 +405,8 @@ def render_site(version: str, archive_name: str, size: int, date: str) -> Path:
         "source_url": SOURCE_URL,
         "site_url": SITE_URL,
         "styles_version": hashlib.sha256(styles).hexdigest()[:10],
-        "changelog": changelog_html(read_changelog()),
+        "changelog": changelog_html(versions[:RECENT_RELEASES]),
+        "changelog_older": changelog_html(versions[RECENT_RELEASES:]),
     }
     page = (SITE_SRC / "index.html").read_text("utf-8")
     for name, value in values.items():
