@@ -5,6 +5,10 @@ Une section par version, la plus récente en haut, au format
 toutes, et le manifeste de mise à jour reprend celles de la dernière version
 (`packaging/release.py`).
 
+## 0.7.2 (2026-11-15)
+
+- Les parties où vous avez trouvé une récompense de trésor (coffre doré, gadget) sont de nouveau comptées : leur replay ne pouvait pas être lu. Celles déjà jouées dont le replay est encore là sont comptées au prochain lancement.
+
 ## 0.7.1 (2026-11-14)
 
 - L’anti-AFK ne tourne plus la caméra : il se contente de touches et de clics, envoyés au jeu seul.

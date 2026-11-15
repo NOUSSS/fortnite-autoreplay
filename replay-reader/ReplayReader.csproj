@@ -5,6 +5,9 @@
     <AssemblyName>replay-reader</AssemblyName>
     <RootNamespace>ReplayReader</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Lang.cs demande la culture fr-FR, refusée en mode invariant sans ce réglage
+         (récompense de trésor dans la partie : replay illisible). -->
+    <PredefinedCulturesOnly>false</PredefinedCulturesOnly>
     <!-- Le lecteur découvre ses types par réflexion : pas d'élagage. -->
     <PublishTrimmed>false</PublishTrimmed>
     <ServerGarbageCollection>false</ServerGarbageCollection>

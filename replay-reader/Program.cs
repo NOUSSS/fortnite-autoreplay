@@ -9,9 +9,14 @@ if (args.Length == 0 || args.Contains("--help"))
     Console.Error.WriteLine("usage : replay-reader <fichier.replay>…  |  replay-reader --version");
     return 2;
 }
+// Révision du lecteur, à monter quand une correction d'ici change ce qu'il rend :
+// la version change et l'application relit les replays encore présents.
+// 1 : culture fr-FR autorisée (les replays avec une récompense de trésor échouaient).
+const int ReaderRevision = 1;
+
 if (args.Contains("--version"))
 {
-    Console.Out.WriteLine(ReplayAnalyzer.CurrentVersion);
+    Console.Out.WriteLine(ReplayAnalyzer.CurrentVersion * 100 + ReaderRevision);
     return 0;
 }
 
@@ -48,7 +53,11 @@ foreach (var path in args)
     }
     catch (Exception ex)
     {
-        var inner = (ex as AggregateException)?.InnerException ?? ex;
+        var inner = ex;
+        while (inner is AggregateException or TypeInitializationException && inner.InnerException is { } cause)
+        {
+            inner = cause;
+        }
         line = new { file = name, ok = false, error = $"{inner.GetType().Name}: {inner.Message}" };
     }
     Console.Out.WriteLine(JsonSerializer.Serialize(line));

@@ -6,7 +6,7 @@ fichier donné en argument.
 
 ```
 replay-reader.exe <fichier.replay>…
-replay-reader.exe --version        # version de l'analyse (relit les replays si elle change)
+replay-reader.exe --version        # analyse × 100 + révision du lecteur (relit les replays si elle change)
 ```
 
 ```json
@@ -43,7 +43,9 @@ analyse 15) :
   changements de ChestCounter décrits dans `vendor/PATCHES.md`.
 
 `Directory.Build.props` vient aussi de ChestCounter ; seuls `Program.cs` et
-`ReplayReader.csproj` sont propres à ce dépôt.
+`ReplayReader.csproj` sont propres à ce dépôt ; `ReplayReader.csproj` autorise
+la culture fr-FR que demande `Lang.cs` malgré le mode invariant
+(`PredefinedCulturesOnly`).
 
 ## Mettre à jour
 
@@ -51,4 +53,6 @@ Quand Epic change le format des replays, ChestCounter publie un correctif. Pour
 le reprendre : recopier les mêmes fichiers depuis son dépôt, noter le nouveau
 commit ci-dessus, reconstruire, puis lire quelques replays récents. Si la
 version de l'analyse (`ReplayAnalyzer.CurrentVersion`) a changé, l'application
-relit d'elle-même les replays encore présents.
+relit d'elle-même les replays encore présents. Une correction propre à ce
+dépôt qui change ce que rend le lecteur monte `ReaderRevision` dans
+`Program.cs`, pour le même effet.
