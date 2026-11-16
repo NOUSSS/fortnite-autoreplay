@@ -276,7 +276,11 @@ def run(old_zip: Path, new_zip: Path) -> int:
         }
     )
     (served / "latest.json").write_text(json.dumps(manifest, ensure_ascii=False), "utf-8")
-    local: dict[str, object] = {"update": {"manifest_url": f"http://127.0.0.1:{port}/latest.json"}}
+    local: dict[str, object] = {
+        "update": {"manifest_url": f"http://127.0.0.1:{port}/latest.json"},
+        # historique des coffres dans le dossier d'essai seul, jamais dans le vrai %APPDATA%
+        "chests": {"store_file": "logs/chests.json", "backup_file": "logs/chests.json"},
+    }
     qt = any(app.rglob("Qt6Core.dll"))  # panneau Qt : carte toujours ouverte, voir click_update_qt
     if qt:
         local["panel"] = {"rest": "panel"}
