@@ -13,7 +13,7 @@ from PIL import Image
 from PySide6.QtCore import QTimer
 
 from fortnite_auto_replay import config as config_mod
-from fortnite_auto_replay.panel import Panel, qt_app
+from fortnite_auto_replay.panel import LAUNCH_S, Panel, hover_step, qt_app
 from fortnite_auto_replay.panel_glass import GlassFeed, GlassWorker, blur
 from fortnite_auto_replay.panel_style import qcolor
 from fortnite_auto_replay.panel_widgets import Button
@@ -97,6 +97,24 @@ def test_wheel_scrolls_every_match_three_at_a_time() -> None:
     panel._set_view(True)
     panel._render(controller.status())
     assert shown() == first
+
+
+def test_card_opens_at_launch_then_folds_into_the_pill() -> None:
+    """Au lancement, la carte se voit LAUNCH_S secondes ; le survol la retient."""
+    qt_app()
+    cfg = config_mod.load_config(None, use_local=False)
+    controller = DemoController(cfg)
+    panel = Panel(controller, cfg.panel, persist=False, follow_cursor=False, show=False)
+    assert not panel.card_shown  # captures : rien d'ouvert d'office
+    panel.show_at_launch(100.0)
+    panel._render(controller.status())
+    assert panel.card_shown and panel.card.isVisibleTo(panel.window)
+    panel._apply_alpha(100.0)
+    assert panel.window.windowOpacity() == 1.0
+    left = panel._left_at
+    assert hover_step(False, True, left, 100.0 + LAUNCH_S - 0.1) == (True, left)
+    assert hover_step(False, True, left, 100.0 + LAUNCH_S) == (False, None)
+    assert hover_step(True, True, left, 101.0) == (True, None)  # survolée : reste ouverte
 
 
 class _Shot:

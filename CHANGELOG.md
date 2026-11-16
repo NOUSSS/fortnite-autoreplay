@@ -7,6 +7,7 @@ toutes, et le manifeste de mise à jour reprend celles de la dernière version
 
 ## 0.8.0 (2026-11-16)
 
+- Au lancement, la carte du panneau s’ouvre en grand quelques secondes avant de se replier en pastille : on voit tout de suite que l’application tourne, et où elle se range.
 - Vos coffres comptés sont gardés hors du dossier de l’application, avec une seconde copie à côté d’elle : effacer ou réinstaller l’application, ou perdre l’une des deux copies, ne remet plus le compteur à zéro. Une copie abîmée est mise de côté au lieu d’être écrasée.
 - Sous le total des coffres, la moyenne par partie et le nombre de parties comptées.
 - La liste des parties les garde toutes : la molette fait défiler les plus anciennes.

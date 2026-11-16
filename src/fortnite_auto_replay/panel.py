@@ -157,6 +157,7 @@ Area = tuple[int, int, int, int]  # left, top, right, bottom en pixels écran
 OPACITY_MIN, OPACITY_MAX, OPACITY_STEP = 20, 100, 5
 _HOVER_MS = 50  # suivi du curseur : ouverture au survol
 LEAVE_S = 0.4  # la carte se referme après ce délai hors du panneau
+LAUNCH_S = 4.0  # au lancement, la carte reste ouverte ce temps : on voit que l'appli tourne
 PREVIEW_S = 0.7  # aperçu de l'opacité après le dernier mouvement du curseur
 
 
@@ -1076,6 +1077,8 @@ class Panel:
         self._games_count = 0
         self._build()
         self._build_settings()
+        if show and follow_cursor:
+            self.show_at_launch(time.monotonic())
         self._render(controller.status())
         self.hwnd = int(self.window.winId())
         self.settings_hwnd = int(self.settings.winId())
@@ -1691,6 +1694,15 @@ class Panel:
         self._save({"panel": {"position": list(self._pos)}})
 
     # --- survol et opacité ----------------------------------------------------
+    def show_at_launch(self, now: float) -> None:
+        """Carte ouverte et opaque au lancement, repliée en pastille après ``LAUNCH_S``.
+
+        La pastille seule, à l'opacité au repos, passerait inaperçue sur le jeu.
+        C'est une sortie du curseur programmée : le survol la prolonge comme d'habitude.
+        """
+        self.expanded = True
+        self._left_at = now + LAUNCH_S - LEAVE_S
+
     def _follow(self) -> None:
         """Toutes les 50 ms : souris traversante en partie, carte ouverte au survol."""
         if self.controller.closing:
