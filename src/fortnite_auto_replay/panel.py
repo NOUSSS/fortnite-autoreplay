@@ -345,13 +345,15 @@ class ChestsState:
 
 @dataclass(frozen=True, slots=True)
 class ChestsView:
-    """Ligne « Coffres » : pastille, état, total ; dessous, bandeau et dernières parties."""
+    """Ligne « Coffres » : pastille, état, total et moyenne ; dessous, bandeau et parties."""
 
     dot: str  # couleur de la pastille
-    state: str = ""  # sous « Coffres » : ce qui est en cours, sinon la moyenne par partie
+    state: str = ""  # sous « Coffres », à gauche : ce qui est en cours, rien sinon
     value: str = ""  # total à droite, vide tant qu'il n'y en a pas
     notice: tuple[str, str] | None = None  # gravité, message
     games: tuple[tuple[str, str], ...] = ()  # toutes les parties, la dernière d'abord
+    average: str = ""  # sous le total : coffres par partie (caché pendant ``state``)
+    count: str = ""  # intertitre de la liste : nombre de parties comptées
 
 
 def chests_view(state: ChestsState, *, game_open: bool = True) -> ChestsView:
@@ -359,8 +361,9 @@ def chests_view(state: ChestsState, *, game_open: bool = True) -> ChestsView:
 
     Une ligne d'état seulement pour ce qui passe vite : premier tour des
     replays et sa progression, comptage de la partie qui vient de finir (pas la
-    partie en cours, qui durerait toute la partie) ; le reste du temps, la moyenne par partie
-    et le nombre de parties comptées. Ce qui
+    partie en cours, qui durerait toute la partie). Les chiffres sont à droite :
+    le total, la moyenne par partie dessous ; le nombre de parties est l'intertitre
+    de la liste. Ce qui
     empêche de compter (partie interrompue, jeu fermé : son replay reste « en
     direct » ; replay illisible ; lecteur absent) a son bandeau.
     """
@@ -382,18 +385,23 @@ def chests_view(state: ChestsState, *, game_open: bool = True) -> ChestsView:
         busy = reading(*summary.progress)
     if summary.since is None or summary.last is None:
         return ChestsView(dot, busy, value="0", notice=notice)
-    shown = busy or average(summary.total, summary.matches)
     return ChestsView(
-        dot, shown, value=number(summary.total), notice=notice, games=games(summary.recent)
+        dot,
+        busy,
+        value=number(summary.total),
+        notice=notice,
+        games=games(summary.recent),
+        average=average(summary.total, summary.matches),
+        count=plural(summary.matches, "partie"),
     )
 
 
 def average(total: int, matches: int) -> str:
-    """« Moyenne de 7,6 par partie sur 18 parties » (une décimale, sans « ,0 »)."""
+    """« 7,6 par partie » (une décimale, sans « ,0 »)."""
     if matches <= 0:
         return ""
     value = f"{total / matches:.1f}".removesuffix(".0").replace(".", ",")
-    return f"Moyenne de {value}{NBSP}par partie sur {plural(matches, 'partie')}"
+    return f"{value}{NBSP}par partie"
 
 
 @functools.lru_cache(maxsize=2)
@@ -1213,15 +1221,20 @@ class Panel:
         block = self._box(self.chests_block, (0, 0, 0, 0))
         # le total sur la ligne du nom, aligné sur le bord droit du bouton de la relance
         self.chests_value = self._text(fonts.title, C.text, align=Qt.AlignmentFlag.AlignRight)
+        # dessous, la moyenne : les chiffres se lisent ensemble, à droite
+        self.chests_average = self._text(
+            tabular(fonts.caption), C.text_2, align=Qt.AlignmentFlag.AlignRight
+        )
         self.chests_row, self.chests_dot, _, self.chests_state = self._feature_row(
-            "Coffres", value=self.chests_value
+            "Coffres", value=self.chests_value, detail=self.chests_average
         )
         block.addWidget(self.chests_row)
         self.chests_body = QWidget()
         chests = self._box(self.chests_body, (PAD, 0, PAD, PAD), SECTION_GAP)
         self.chests_notice = self._notice(inner)
         chests.addWidget(self.chests_notice)
-        self.s_games, games = self._section("Dernières parties")
+        self.s_games, games = self._section("Parties")
+        self.games_title = games.itemAt(0).widget()  # nombre de parties comptées
         # toutes les parties, trois à la fois : la molette fait défiler
         scroller = QHBoxLayout()
         scroller.setContentsMargins(0, 0, 0, 0)
@@ -1275,10 +1288,16 @@ class Panel:
         return holder
 
     def _feature_row(
-        self, name: str, *, side: QWidget | None = None, value: QWidget | None = None
+        self,
+        name: str,
+        *,
+        side: QWidget | None = None,
+        value: QWidget | None = None,
+        detail: QWidget | None = None,
     ) -> tuple[QWidget, Dot, Text, Text]:
         """Ligne d'une fonction : pastille et nom, ``value`` au bout de la ligne du nom ;
-        dessous, une ligne d'état cachée tant qu'elle est vide ; à droite, ``side``."""
+        dessous, une ligne d'état cachée tant qu'elle est vide, partie du bord comme les
+        intertitres, et ``detail`` sous ``value`` ; à droite, ``side``."""
         px, fonts = self.px, self.fonts
         row = QWidget()
         row.setFixedHeight(px(FEATURE_H))
@@ -1302,15 +1321,20 @@ class Panel:
         state = self._text(fonts.caption, C.text_2, elide=True)
         state.hide()
         state_line = QHBoxLayout()
-        state_line.setContentsMargins(px(DOT) + px(GAP), 0, 0, 0)
-        state_line.addWidget(state)
+        state_line.setContentsMargins(0, 0, 0, 0)
+        state_line.setSpacing(px(GAP))
+        state_line.addWidget(state, 1)
+        if detail is not None:
+            detail.hide()
+            state_line.addWidget(detail, 0, Qt.AlignmentFlag.AlignRight)
         lines.addLayout(state_line)
         layout.addWidget(names, 1, Qt.AlignmentFlag.AlignVCenter)
         if side is not None:
             layout.addWidget(side, 0, Qt.AlignmentFlag.AlignVCenter)
         self._draggable(row, names, dot, title, state)
-        if value is not None:
-            self._draggable(value)
+        for extra in (value, detail):
+            if extra is not None:
+                self._draggable(extra)
         return row, dot, title, state
 
     def _section(self, title: str) -> tuple[QWidget, QVBoxLayout]:
@@ -1826,6 +1850,9 @@ class Panel:
             self.chests_dot.set_color(chests.dot)
             self.chests_state.set_text(chests.state)
             self.chests_state.setVisible(bool(chests.state))
+            self.chests_average.set_text(chests.average)
+            self.chests_average.setVisible(bool(chests.average) and not chests.state)
+            self.games_title.set_text(chests.count)
             self.chests_value.set_text(chests.value)
             self.pill_total.set_text(chests.value)
             self._show_games(chests.games)

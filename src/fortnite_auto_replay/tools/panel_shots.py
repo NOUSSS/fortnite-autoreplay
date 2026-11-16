@@ -288,6 +288,8 @@ def _geometry(panel: Panel, offset: QPoint) -> dict[str, object]:
         "chests_dot": panel.chests_dot,
         "chests_state": panel.chests_state,
         "chests_value": panel.chests_value,
+        "chests_average": panel.chests_average,
+        "games_title": panel.games_title,
         "chests_body": panel.chests_body,
         "chests_notice": panel.chests_notice,
         "s_games": panel.s_games,

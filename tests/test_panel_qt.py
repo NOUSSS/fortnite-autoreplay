@@ -86,6 +86,8 @@ def test_wheel_scrolls_every_match_three_at_a_time() -> None:
 
     first = shown()
     assert len(first) == 3 and panel.games_mark.isVisibleTo(panel.card)
+    assert panel.games_title.text() == f"18{chr(0xA0)}parties"
+    assert panel.chests_average.isVisibleTo(panel.card)  # rien en cours : la moyenne s'affiche
     assert not panel.scroll_games(-1)  # déjà en haut
     assert panel.scroll_games(1)
     assert shown()[:2] == first[1:]

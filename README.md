@@ -133,9 +133,8 @@ l'application (`%APPDATA%\Fortnite AutoReplay\chests.json`) et reste si on
 l'efface ou la réinstalle ailleurs ; la seconde est dans `logs/chests.json`.
 Une copie effacée se refait depuis l'autre au lancement, une copie illisible est
 gardée à côté (`chests.illisible-….json`) avant d'être refaite. Sous le total, la
-carte donne la moyenne de coffres par partie et le nombre de parties comptées ;
-la liste des parties les montre toutes, trois à la fois, à faire défiler à la
-molette. Une partie jouée application fermée est
+carte donne la moyenne de coffres par partie ; la liste des parties, titrée de
+leur nombre, les montre toutes, trois à la fois, à faire défiler à la molette. Une partie jouée application fermée est
 comptée au lancement suivant, tant que son replay existe encore. Chaque replay
 n'est lu qu'une fois ; une nouvelle version du lecteur relit ceux encore
 présents. Au lancement, les parties déjà comptées s'affichent tout de suite et

@@ -519,9 +519,9 @@ def test_summary_lists_every_match_newest_first() -> None:
 
 def test_average_per_match() -> None:
     nbsp = chr(0xA0)
-    assert average(137, 18) == f"Moyenne de 7,6{nbsp}par partie sur 18{nbsp}parties"
-    assert average(9, 1) == f"Moyenne de 9{nbsp}par partie sur 1{nbsp}partie"
-    assert average(0, 3) == f"Moyenne de 0{nbsp}par partie sur 3{nbsp}parties"
+    assert average(137, 18) == f"7,6{nbsp}par partie"
+    assert average(9, 1) == f"9{nbsp}par partie"
+    assert average(0, 3) == f"0{nbsp}par partie"
     assert average(0, 0) == ""
 
 
@@ -545,11 +545,11 @@ def test_chests_view() -> None:
     assert (none.state, none.value, none.dot) == ("", "0", C.success)
     counted = chests_view(ChestsState(summary()))
     assert (counted.value, counted.dot, counted.notice) == ("137", C.success, None)
-    mean = average(137, 18)
-    assert counted.state == mean  # rien en cours : la moyenne sous « Coffres »
-    assert chests_view(ChestsState(summary(recording=True))).state == mean  # partie en cours
+    assert counted.state == ""  # rien en cours : pas d'état sous « Coffres »
+    assert (counted.average, counted.count) == (f"7,6{nbsp}par partie", f"18{nbsp}parties")
+    assert chests_view(ChestsState(summary(recording=True))).state == ""  # dure toute la partie
     failed = chests_view(ChestsState(summary(failed=True)))
-    assert (failed.state, failed.dot) == (mean, C.caution)
+    assert (failed.state, failed.dot) == ("", C.caution)
     assert failed.notice == ("caution", READ_FAILED)
     games = summary(recent=((datetime(2026, 11, 13, 18, 12).astimezone(), 1),))
     assert chests_view(ChestsState(games)).games == ((f"13{nbsp}nov. 18:12", f"1{nbsp}coffre"),)
@@ -559,10 +559,10 @@ def test_chests_view() -> None:
     both = chests_view(ChestsState(summary(counting=True, recording=True)))
     assert both.state == COUNTING
     closed = chests_view(ChestsState(summary(recording=True)), game_open=False)
-    assert (closed.state, closed.dot) == (mean, C.caution)
+    assert (closed.state, closed.dot) == ("", C.caution)
     assert closed.notice == ("caution", INTERRUPTED)
     cut = chests_view(ChestsState(summary(interrupted=True)))
-    assert (cut.state, cut.notice) == (mean, ("caution", INTERRUPTED))
+    assert (cut.state, cut.notice) == ("", ("caution", INTERRUPTED))
     progress = chests_view(ChestsState(summary(progress=(12, 76), counting=True)))
     assert progress.state == f"Lecture des replays{nbsp}: 12 sur 76"
     fresh = summary(total=0, matches=0, last=None, since=None, progress=(0, 4))

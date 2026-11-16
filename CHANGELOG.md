@@ -9,7 +9,7 @@ toutes, et le manifeste de mise à jour reprend celles de la dernière version
 
 - Au lancement, la carte du panneau s’ouvre en grand quelques secondes avant de se replier en pastille : on voit tout de suite que l’application tourne, et où elle se range.
 - Vos coffres comptés sont gardés hors du dossier de l’application, avec une seconde copie à côté d’elle : effacer ou réinstaller l’application, ou perdre l’une des deux copies, ne remet plus le compteur à zéro. Une copie abîmée est mise de côté au lieu d’être écrasée.
-- Sous le total des coffres, la moyenne par partie et le nombre de parties comptées.
+- Sous le total des coffres, la moyenne par partie ; au-dessus de la liste, le nombre de parties comptées.
 - La liste des parties les garde toutes : la molette fait défiler les plus anciennes.
 - Au lancement, vos coffres déjà comptés s’affichent tout de suite. Les replays à lire (parties jouées application fermée, ou relecture après une amélioration du lecteur) le sont de la partie la plus récente à la plus ancienne, avec leur progression, et chacun est gardé dès qu’il est lu.
 
