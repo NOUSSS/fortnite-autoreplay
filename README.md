@@ -127,8 +127,15 @@ reprise dans `replay-reader/` (voir son README) : un petit programme à part,
 `replay-reader.exe`, livré avec l'application. Il ne touche ni au jeu ni à sa
 mémoire et n'envoie rien.
 
-Les parties comptées sont gardées dans `logs/chests.json` : le jeu efface ses
-vieux replays, le compteur continue. Une partie jouée application fermée est
+Les parties comptées sont gardées en deux copies : le jeu efface ses vieux
+replays, le compteur continue. La principale est hors du dossier de
+l'application (`%APPDATA%\Fortnite AutoReplay\chests.json`) et reste si on
+l'efface ou la réinstalle ailleurs ; la seconde est dans `logs/chests.json`.
+Une copie effacée se refait depuis l'autre au lancement, une copie illisible est
+gardée à côté (`chests.illisible-….json`) avant d'être refaite. Sous le total, la
+carte donne la moyenne de coffres par partie et le nombre de parties comptées ;
+la liste des parties les montre toutes, trois à la fois, à faire défiler à la
+molette. Une partie jouée application fermée est
 comptée au lancement suivant, tant que son replay existe encore.
 `python -m fortnite_auto_replay chests` lit les replays terminés et affiche
 le total.

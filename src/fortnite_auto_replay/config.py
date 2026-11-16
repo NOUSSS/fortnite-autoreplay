@@ -314,7 +314,10 @@ class ChestsConfig:
     enabled: bool = True  # compter les coffres dans les replays
     demos_dir: str = "%LOCALAPPDATA%/FortniteGame/Saved/Demos"  # variables d'environnement lues
     reader: str = "replay-reader/replay-reader.exe"  # lecteur de replays (relatif à l'appli)
-    store_file: str = "logs/chests.json"  # parties comptées (le jeu efface ses vieux replays)
+    # parties comptées (le jeu efface ses vieux replays), hors du dossier de l'application :
+    # elles restent si on l'efface ou la réinstalle ailleurs
+    store_file: str = "%APPDATA%/Fortnite AutoReplay/chests.json"
+    backup_file: str = "logs/chests.json"  # seconde copie, à côté de l'application
     scan_interval_s: float = 10.0
 
     def validate(self) -> None:
@@ -432,8 +435,20 @@ class Config:
     def resolved_stats_file(self) -> Path | None:
         return resolve_path(self.engine.stats_file) if self.engine.stats_file else None
 
-    def resolved_chests_file(self) -> Path:
-        return resolve_path(self.chests.store_file)
+    def resolved_chests_files(self) -> tuple[Path, ...]:
+        """Copies de l'historique des coffres, la principale d'abord.
+
+        Une variable d'environnement absente écarte sa copie ; il en reste toujours une.
+        """
+        paths: list[Path] = []
+        for value in (self.chests.store_file, self.chests.backup_file):
+            expanded = os.path.expandvars(value) if value else ""
+            if not expanded or "%" in expanded or "$" in expanded:
+                continue
+            path = resolve_path(expanded)
+            if path not in paths:
+                paths.append(path)
+        return tuple(paths) or (resolve_path("logs/chests.json"),)
 
     def resolved_reader(self) -> Path:
         return resolve_path(self.chests.reader)

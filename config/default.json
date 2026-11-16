@@ -71,7 +71,8 @@
     "enabled": true,
     "demos_dir": "%LOCALAPPDATA%/FortniteGame/Saved/Demos",
     "reader": "replay-reader/replay-reader.exe",
-    "store_file": "logs/chests.json",
+    "store_file": "%APPDATA%/Fortnite AutoReplay/chests.json",
+    "backup_file": "logs/chests.json",
     "scan_interval_s": 10.0
   },
   "anti_afk": {

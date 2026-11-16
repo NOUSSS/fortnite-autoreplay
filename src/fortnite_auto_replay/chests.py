@@ -11,8 +11,10 @@ replay.
 
 Le jeu n'écrit la clé de déchiffrement d'un replay qu'à la fin de la partie :
 une partie se compte quelques secondes après sa fin, une fois son replay
-terminé et stable. Les parties comptées sont gardées dans ``chests.store_file``
-(le jeu efface ses vieux replays) ; chaque replay n'est lu qu'une fois, et une
+terminé et stable. Les parties comptées sont gardées en deux copies (le jeu
+efface ses vieux replays) : ``chests.store_file``, hors du dossier de
+l'application (dans ``%APPDATA%``), et ``chests.backup_file`` à côté d'elle ;
+une copie effacée se refait depuis l'autre. Chaque replay n'est lu qu'une fois, et une
 même partie (``session_id``) ne compte qu'une fois. Une nouvelle version du
 lecteur relit les replays encore présents, et les parties relues remplacent
 les anciennes.
@@ -28,7 +30,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -124,33 +126,125 @@ def _iso(when: datetime) -> str:
     return when.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def load_store(path: Path) -> Store:
-    """Parties gardées ; un fichier absent ou illisible repart de zéro."""
+_BAD_ITEM = (ValueError, KeyError, TypeError, AttributeError, ConfigError)
+
+
+def _read_match(item: Any) -> MatchChests:
+    return MatchChests(
+        session=str(item["session"]),
+        start=parse_utc(item["start"]) if item.get("start") else None,
+        chests=int(item["chests"]),
+        destroyed=int(item.get("destroyed", 0)),
+        counted_at=parse_utc(item["counted_at"]),
+    )
+
+
+def _read_store(path: Path) -> Store | None:
+    """Parties d'un fichier ; ``None`` s'il n'existe pas, :class:`ValueError` s'il est illisible.
+
+    Une partie mal formée est sautée sans perdre les autres ; un fichier d'une
+    version plus récente (application revenue en arrière) garde ses parties.
+    Un fichier inaccessible (verrouillé un instant) lève :class:`OSError` : il
+    ne doit pas être réécrit sans avoir été lu.
+    """
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        if raw.get("version") != _STORE_VERSION:
-            raise ValueError(f"version {raw.get('version')!r}")
-        matches = {}
-        for item in raw["matches"]:
-            match = MatchChests(
-                session=str(item["session"]),
-                start=parse_utc(item["start"]) if item.get("start") else None,
-                chests=int(item["chests"]),
-                destroyed=int(item.get("destroyed", 0)),
-                counted_at=parse_utc(item["counted_at"]),
-            )
-            matches[match.session] = match
-        files = {str(key): str(value) for key, value in raw["files"].items()}
-        return Store(reader=int(raw.get("reader", 0)), files=files, matches=matches)
+        text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        return Store()
-    except (OSError, ValueError, KeyError, TypeError, AttributeError, ConfigError) as exc:
-        log.warning("%s illisible (%s) : les replays présents seront relus", path.name, exc)
-        return Store()
+        return None
+    except UnicodeDecodeError as exc:
+        raise ValueError(str(exc)) from exc
+    try:
+        raw = json.loads(text)
+        version = raw.get("version")
+        if not isinstance(version, int) or version < 1:
+            raise ValueError(f"version {version!r}")
+        items = raw["matches"]
+        if not isinstance(items, list):
+            raise TypeError("matches n'est pas une liste")
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise ValueError(str(exc)) from exc
+    matches: dict[str, MatchChests] = {}
+    for item in items:
+        try:
+            match = _read_match(item)
+        except _BAD_ITEM as exc:
+            log.warning("%s : partie illisible sautée (%s)", path.name, exc)
+            continue
+        matches[match.session] = match
+    files: dict[str, str] = {}
+    reader = 0
+    if version == _STORE_VERSION:  # sinon les replays présents seront relus
+        try:
+            files = {str(key): str(value) for key, value in raw.get("files", {}).items()}
+            reader = int(raw.get("reader", 0))
+        except _BAD_ITEM:
+            files, reader = {}, 0
+    return Store(reader=reader, files=files, matches=matches)
 
 
-def save_store(store: Store, path: Path) -> None:
-    """Écriture atomique : fichier temporaire, puis remplacement."""
+def _set_aside(path: Path) -> None:
+    """Copie d'un fichier illisible, avant qu'il soit réécrit : rien ne s'efface sans trace."""
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    try:
+        copy = path.with_name(f"{path.stem}.illisible-{stamp}{path.suffix}")
+        if not copy.exists():
+            copy.write_bytes(path.read_bytes())
+    except OSError as exc:
+        log.warning("%s : copie du fichier illisible impossible (%s)", path.name, exc)
+
+
+def load_store(*paths: Path) -> Store:
+    """Parties gardées, réunies depuis chaque copie (la première l'emporte).
+
+    Une copie effacée (dossier de l'application supprimé, réinstallation,
+    nettoyage) se retrouve dans l'autre ; une copie illisible est mise de côté
+    avant d'être réécrite. Rien de lisible : on repart de zéro, les replays
+    encore présents sont relus. :class:`OSError` si une copie existe mais ne
+    s'ouvre pas : le suivi réessaie au tour suivant.
+    """
+    base: Store | None = None
+    for path in paths:
+        try:
+            store = _read_store(path)
+        except ValueError as exc:
+            log.warning("%s illisible (%s) : copie gardée à côté", path, exc)
+            _set_aside(path)
+            continue
+        if store is None:
+            continue
+        if base is None:
+            base = store
+            continue
+        for session, match in store.matches.items():
+            base.matches.setdefault(session, match)
+        if store.reader == base.reader:
+            for key, value in store.files.items():
+                base.files.setdefault(key, value)
+    return base or Store()
+
+
+def save_store(store: Store, *paths: Path) -> None:
+    """Écrit chaque copie (atomique : fichier temporaire, puis remplacement).
+
+    Une copie qui ne s'écrit pas n'empêche pas les autres ; :class:`OSError`
+    seulement si aucune ne s'est écrite.
+    """
+    payload = _payload(store)
+    errors: list[OSError] = []
+    for path in paths:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_name(path.name + ".tmp")
+            temporary.write_text(payload, "utf-8")
+            temporary.replace(path)
+        except OSError as exc:
+            log.warning("%s : écriture impossible (%s)", path, exc)
+            errors.append(exc)
+    if errors and len(errors) == len(paths):
+        raise errors[0]
+
+
+def _payload(store: Store) -> str:
     payload: dict[str, Any] = {
         "version": _STORE_VERSION,
         "reader": store.reader,
@@ -166,10 +260,7 @@ def save_store(store: Store, path: Path) -> None:
             for m in sorted(store.matches.values(), key=_order)
         ],
     }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=1, ensure_ascii=False) + "\n", "utf-8")
-    temporary.replace(path)
+    return json.dumps(payload, indent=1, ensure_ascii=False) + "\n"
 
 
 def _order(match: MatchChests) -> datetime:
@@ -271,13 +362,10 @@ class Summary:
     recording: bool  # une partie en cours d'enregistrement
     replays: bool  # au moins un replay vu dans le dossier (enregistrement activé)
     failed: bool  # le dernier replay lu n'a pas pu l'être
-    # dernières parties, la plus récente d'abord : (début UTC, coffres)
+    # toutes les parties comptées, la plus récente d'abord : (début UTC, coffres)
     recent: tuple[tuple[datetime, int], ...] = ()
     counting: bool = False  # une partie quittée, son replay pas encore lu
     interrupted: bool = False  # la dernière partie s'est arrêtée jeu fermé : non comptée
-
-
-RECENT_MATCHES = 5
 
 
 def summarize(
@@ -290,7 +378,7 @@ def summarize(
     interrupted: bool = False,
 ) -> Summary:
     ordered = sorted(store.matches.values(), key=_order)
-    recent = tuple((_order(m), m.chests) for m in reversed(ordered[-RECENT_MATCHES:]))
+    recent = tuple((_order(m), m.chests) for m in reversed(ordered))
     return Summary(
         total=sum(m.chests for m in ordered),
         matches=len(ordered),
@@ -316,14 +404,15 @@ class ChestTracker:
     def __init__(
         self,
         cfg: ChestsConfig,
-        store_path: Path,
+        store_path: Path | Sequence[Path],
         reader: Reader,
         *,
         clock: Callable[[], float] = time.time,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self.cfg = cfg
-        self.store_path = store_path
+        # copies de l'historique : la première l'emporte, chacune réécrite si elle manque
+        self.store_paths = (store_path,) if isinstance(store_path, Path) else tuple(store_path)
         self.reader = reader
         self._clock = clock
         self._now = now or (lambda: datetime.now(timezone.utc))
@@ -332,6 +421,7 @@ class ChestTracker:
         self._unavailable = ""  # lecteur absent ou inutilisable
         self._stop = threading.Event()
         self._store: Store | None = None
+        self._rewrite = False
         self._sizes: dict[str, int] = {}  # taille de chaque replay au tour précédent
         self._failed = False
         self._interrupted = False
@@ -365,7 +455,7 @@ class ChestTracker:
 
     def _open_store(self) -> Store:
         if self._store is None:
-            store = load_store(self.store_path)
+            store = load_store(*self.store_paths)
             version = self.reader.version()
             if version != store.reader:
                 # nouveau lecteur : les replays encore présents sont relus
@@ -374,6 +464,7 @@ class ChestTracker:
                 store.files.clear()
                 store.reader = version
             self._store = store
+            self._rewrite = True  # copies réunies, illisibles ou absentes : toutes réécrites
         return self._store
 
     def refresh(self) -> Summary:
@@ -386,7 +477,8 @@ class ChestTracker:
             paths = []
         recording = waiting = False
         ready: list[tuple[Path, str, Header | None, float]] = []
-        changed = not self.store_path.exists()
+        changed, self._rewrite = self._rewrite, False
+        changed = changed or not all(path.exists() for path in self.store_paths)
         for path in paths:
             try:
                 stat = path.stat()
@@ -412,7 +504,11 @@ class ChestTracker:
             changed = True
         self._sizes = {k: v for k, v in self._sizes.items() if (demos / k).exists()}
         if changed:
-            save_store(store, self.store_path)
+            try:
+                save_store(store, *self.store_paths)
+            except OSError:
+                self._rewrite = True  # réessayé au tour suivant
+                raise
         return self._publish(store, recording=recording, replays=bool(paths), counting=waiting)
 
     def _publish(self, store: Store, *, recording: bool, replays: bool, counting: bool) -> Summary:

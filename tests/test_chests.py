@@ -42,6 +42,7 @@ from fortnite_auto_replay.panel import (
     REPLAYS_OFF,
     C,
     ChestsState,
+    average,
     chests_view,
     match_time,
 )
@@ -151,13 +152,72 @@ def test_store_round_trip(tmp_path: Path) -> None:
     assert load_store(path) == store
 
 
-def test_unreadable_store_starts_over(tmp_path: Path) -> None:
+def test_unreadable_store_starts_over_and_keeps_a_copy(tmp_path: Path) -> None:
     path = tmp_path / "chests.json"
     path.write_text("{", encoding="utf-8")
     assert load_store(path) == Store()
+    copies = list(tmp_path.glob("chests.illisible-*.json"))
+    assert [c.read_text(encoding="utf-8") for c in copies] == ["{"]
     path.write_text(json.dumps({"version": 99}), encoding="utf-8")
     assert load_store(path) == Store()
     assert load_store(tmp_path / "absent.json") == Store()
+
+
+def stored(*matches: MatchChests, version: int = 1, files: dict[str, str] | None = None) -> str:
+    items: list[Any] = [
+        {
+            "session": m.session,
+            "start": None,
+            "chests": m.chests,
+            "counted_at": "2026-11-10T12:00:00Z",
+        }
+        for m in matches
+    ]
+    return json.dumps({"version": version, "reader": 15, "files": files or {}, "matches": items})
+
+
+def test_a_bad_match_does_not_lose_the_others(tmp_path: Path) -> None:
+    path = tmp_path / "chests.json"
+    raw = json.loads(stored(MatchChests("s1", None, 8, 0, UTC_NOW)))
+    raw["matches"].append({"session": "s2", "chests": "huit"})  # mal formée
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    store = load_store(path)
+    assert list(store.matches) == ["s1"]
+    assert store.reader == 15
+
+
+def test_a_newer_store_keeps_its_matches(tmp_path: Path) -> None:
+    """Application revenue en arrière : les parties restent, les replays sont relus."""
+    path = tmp_path / "chests.json"
+    text = stored(MatchChests("s1", None, 8, 0, UTC_NOW), version=2, files={"a|1|2": "s1"})
+    path.write_text(text, encoding="utf-8")
+    store = load_store(path)
+    assert list(store.matches) == ["s1"]
+    assert (store.reader, store.files) == (0, {})
+
+
+def test_copies_are_merged_the_first_one_winning(tmp_path: Path) -> None:
+    main, backup = tmp_path / "appdata" / "chests.json", tmp_path / "logs" / "chests.json"
+    main.parent.mkdir()
+    backup.parent.mkdir()
+    main.write_text(stored(MatchChests("s1", None, 8, 0, UTC_NOW)), encoding="utf-8")
+    backup.write_text(
+        stored(MatchChests("s1", None, 3, 0, UTC_NOW), MatchChests("s2", None, 5, 0, UTC_NOW)),
+        encoding="utf-8",
+    )
+    store = load_store(main, backup)
+    assert {k: m.chests for k, m in store.matches.items()} == {"s1": 8, "s2": 5}
+
+
+def test_a_copy_that_cannot_be_written_spares_the_other(tmp_path: Path) -> None:
+    blocked = tmp_path / "blocked"
+    blocked.write_text("", encoding="utf-8")  # un fichier là où il faudrait un dossier
+    good = tmp_path / "chests.json"
+    store = Store(matches={"s1": MatchChests("s1", None, 8, 0, UTC_NOW)})
+    save_store(store, blocked / "chests.json", good)
+    assert load_store(good) == store
+    with pytest.raises(OSError):
+        save_store(store, blocked / "chests.json")
 
 
 # --- suivi ------------------------------------------------------------------------------
@@ -288,6 +348,55 @@ def test_new_reader_rereads_present_replays(tmp_path: Path, demos: Path) -> None
     assert (summary.total, summary.matches) == (12, 2)
 
 
+def two_copies(tmp_path: Path, demos: Path, reader: FakeReader) -> ChestTracker:
+    cfg = ChestsConfig(demos_dir=str(demos))
+    paths = (tmp_path / "appdata" / "chests.json", tmp_path / "logs" / "chests.json")
+    return ChestTracker(cfg, paths, reader, clock=lambda: NOW, now=lambda: UTC_NOW)
+
+
+@pytest.mark.parametrize("lost", [0, 1])
+def test_history_survives_a_deleted_copy_and_deleted_replays(
+    tmp_path: Path, demos: Path, lost: int
+) -> None:
+    """Dossier de l'application effacé (ou %APPDATA% nettoyé), replays effacés par le jeu."""
+    write_replay(demos, "a.replay", mtime=NOW - 3600, live=False)
+    write_replay(demos, "b.replay", mtime=NOW - 3000, live=False)
+    reader = FakeReader({"a.replay": match("s1", 6), "b.replay": match("s2", 4)})
+    first = two_copies(tmp_path, demos, reader)
+    assert first.refresh().total == 10
+    kept = load_store(first.store_paths[1 - lost])
+    for replay in demos.iterdir():
+        replay.unlink()
+    first.store_paths[lost].unlink()
+    again = two_copies(tmp_path, demos, FakeReader({}))
+    summary = again.refresh()
+    assert (summary.total, summary.matches) == (10, 2)
+    assert all(load_store(path) == kept for path in again.store_paths)
+
+
+def test_a_corrupt_copy_is_rebuilt_from_the_other(tmp_path: Path, demos: Path) -> None:
+    write_replay(demos, "a.replay", mtime=NOW - 3600, live=False)
+    first = two_copies(tmp_path, demos, FakeReader({"a.replay": match("s1", 6)}))
+    first.refresh()
+    main = first.store_paths[0]
+    main.write_text("{ tronqué", encoding="utf-8")
+    again = two_copies(tmp_path, demos, FakeReader({}))
+    assert again.refresh().total == 6
+    assert load_store(main).matches.keys() == {"s1"}
+    assert list(main.parent.glob("chests.illisible-*.json"))
+
+
+def test_a_locked_copy_is_not_overwritten(tmp_path: Path, demos: Path) -> None:
+    """Copie qui ne s'ouvre pas (verrouillée un instant) : rien n'est réécrit, on réessaie."""
+    main = tmp_path / "chests.json"
+    main.mkdir()  # se lit comme un fichier inaccessible
+    backup = tmp_path / "b.json"
+    tracker = ChestTracker(ChestsConfig(demos_dir=str(demos)), (main, backup), FakeReader({}))
+    with pytest.raises(OSError):
+        tracker.refresh()
+    assert not backup.exists()
+
+
 def test_no_demos_folder(tmp_path: Path) -> None:
     tracker = tracker_for(tmp_path, tmp_path / "absent", FakeReader({}))
     summary = tracker.refresh()
@@ -348,7 +457,7 @@ def summary(**kw: Any) -> Summary:
     return Summary(**{**base, **kw})
 
 
-def test_summary_lists_the_last_five_matches_newest_first() -> None:
+def test_summary_lists_every_match_newest_first() -> None:
     def at(hour: int) -> datetime:
         return datetime(2026, 11, 10, hour, tzinfo=timezone.utc)
 
@@ -356,8 +465,16 @@ def test_summary_lists_the_last_five_matches_newest_first() -> None:
     for hour in (9, 14, 11, 16, 10, 13, 12):  # dans le désordre
         store.matches[f"s{hour}"] = MatchChests(f"s{hour}", at(hour), hour, 0, at(hour))
     summary = summarize(store, recording=False, replays=True, failed=False)
-    assert summary.recent == tuple((at(h), h) for h in (16, 14, 13, 12, 11))
+    assert summary.recent == tuple((at(h), h) for h in (16, 14, 13, 12, 11, 10, 9))
     assert summarize(Store(), recording=False, replays=True, failed=False).recent == ()
+
+
+def test_average_per_match() -> None:
+    nbsp = chr(0xA0)
+    assert average(137, 18) == f"Moyenne de 7,6{nbsp}par partie sur 18{nbsp}parties"
+    assert average(9, 1) == f"Moyenne de 9{nbsp}par partie sur 1{nbsp}partie"
+    assert average(0, 3) == f"Moyenne de 0{nbsp}par partie sur 3{nbsp}parties"
+    assert average(0, 0) == ""
 
 
 def test_match_time_is_local_with_a_short_month() -> None:
@@ -380,10 +497,11 @@ def test_chests_view() -> None:
     assert (none.state, none.value, none.dot) == ("", "0", C.success)
     counted = chests_view(ChestsState(summary()))
     assert (counted.value, counted.dot, counted.notice) == ("137", C.success, None)
-    assert counted.state == ""  # rien en cours : pas de ligne sous « Coffres »
-    assert chests_view(ChestsState(summary(recording=True))).state == ""  # dure toute la partie
+    mean = average(137, 18)
+    assert counted.state == mean  # rien en cours : la moyenne sous « Coffres »
+    assert chests_view(ChestsState(summary(recording=True))).state == mean  # partie en cours
     failed = chests_view(ChestsState(summary(failed=True)))
-    assert (failed.state, failed.dot) == ("", C.caution)
+    assert (failed.state, failed.dot) == (mean, C.caution)
     assert failed.notice == ("caution", READ_FAILED)
     games = summary(recent=((datetime(2026, 11, 13, 18, 12).astimezone(), 1),))
     assert chests_view(ChestsState(games)).games == ((f"13{nbsp}nov. 18:12", f"1{nbsp}coffre"),)
@@ -393,10 +511,10 @@ def test_chests_view() -> None:
     both = chests_view(ChestsState(summary(counting=True, recording=True)))
     assert both.state == COUNTING
     closed = chests_view(ChestsState(summary(recording=True)), game_open=False)
-    assert (closed.state, closed.dot) == ("", C.caution)
+    assert (closed.state, closed.dot) == (mean, C.caution)
     assert closed.notice == ("caution", INTERRUPTED)
     cut = chests_view(ChestsState(summary(interrupted=True)))
-    assert (cut.state, cut.notice) == ("", ("caution", INTERRUPTED))
+    assert (cut.state, cut.notice) == (mean, ("caution", INTERRUPTED))
     big = chests_view(ChestsState(summary(total=1234)))
     assert big.value == f"1{nbsp}234"
 

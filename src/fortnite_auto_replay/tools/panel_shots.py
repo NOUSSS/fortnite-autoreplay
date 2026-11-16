@@ -48,6 +48,7 @@ class Scene:
     chests: str = "counted"  # état de la ligne des coffres (voir CHESTS ; absent : compteur coupé)
     opacity: int = 80
     anti_afk: bool | None = False  # None : anti-AFK indisponible (fenêtre du jeu non suivie)
+    scroll: int = 0  # crans de molette sur la liste des parties (positif : plus anciennes)
 
 
 _LABELS = {
@@ -74,12 +75,20 @@ _GAMES = (
     (datetime(2026, 11, 12, 21, 5, tzinfo=timezone.utc), 0),
     (datetime(2026, 11, 9, 20, 40, tzinfo=timezone.utc), 7),
 )
+# 18 parties, comme le total de « counted » (137 coffres)
+_ALL = _GAMES + tuple(
+    (datetime(2026, 11, 8 - i // 4, 21 - 2 * (i % 4), 15, tzinfo=timezone.utc), c)
+    for i, c in enumerate((14, 6, 9, 3, 11, 8, 5, 10, 7, 12, 4, 6, 13))
+)
 CHESTS = {
     "off": ChestsState(Summary(0, 0, None, None, recording=False, replays=False, failed=False)),
     "reading": ChestsState(None),
     "none": ChestsState(Summary(0, 0, None, None, recording=False, replays=True, failed=False)),
     "counted": ChestsState(
-        Summary(137, 18, 9, _SINCE, recording=False, replays=True, failed=False, recent=_GAMES)
+        Summary(137, 18, 9, _SINCE, recording=False, replays=True, failed=False, recent=_ALL)
+    ),
+    "three": ChestsState(
+        Summary(22, 3, 9, _SINCE, recording=False, replays=True, failed=False, recent=_GAMES[:3])
     ),
     "recording": ChestsState(
         Summary(137, 18, 9, _SINCE, recording=True, replays=True, failed=False, recent=_GAMES)
@@ -117,6 +126,9 @@ SCENES = [
     Scene("card-paused", "paused", "card"),
     Scene("card-active", "active", "card", recent=5),
     Scene("card-two-clicks", "active", "card", recent=2),
+    Scene("card-games-scrolled", "paused", "card", scroll=2),
+    Scene("card-games-end", "paused", "card", scroll=99),
+    Scene("card-games-three", "paused", "card", chests="three"),
     *(
         Scene(f"card-chests-{state}", "paused", "card", chests=state)
         for state in (
@@ -271,6 +283,7 @@ def _geometry(panel: Panel, offset: QPoint) -> dict[str, object]:
         "chests_body": panel.chests_body,
         "chests_notice": panel.chests_notice,
         "s_games": panel.s_games,
+        "games_mark": panel.games_mark,
         "footer_rule": panel.footer_rule,
         "update_box": panel.update_box,
         "update_notice": panel.update_notice,
@@ -401,7 +414,10 @@ def _shoot_all(args: argparse.Namespace) -> int:
         for button in buttons.values():
             button.set_state(hover=False, pressed=False)
         panel.segmented.set_hover("")
+        panel._games_first = 0
         panel._render(controller.status())
+        if scene.scroll:
+            panel.scroll_games(scene.scroll)
         if scene.view == "settings":
             panel._toggle_settings()
         if scene.hover in buttons:

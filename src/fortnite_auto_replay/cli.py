@@ -246,17 +246,21 @@ def cmd_chests(args: argparse.Namespace) -> int:
     Un seul tour : un replay en cours d'écriture sera compté par le panneau.
     """
     cfg = _build_config(args)
-    tracker = ChestTracker(cfg.chests, cfg.resolved_chests_file(), Reader(cfg.resolved_reader()))
+    tracker = ChestTracker(cfg.chests, cfg.resolved_chests_files(), Reader(cfg.resolved_reader()))
     try:
         summary = tracker.refresh()
     except ReaderError as exc:
         log.error("coffres : %s", exc)
         return 1
     report = {
+        "historique": [str(path) for path in tracker.store_paths],
         "replays": str(cfg.chests.resolved_demos_dir()),
         "lecteur": str(cfg.resolved_reader()),
         "coffres": summary.total,
         "parties": summary.matches,
+        "moyenne_par_partie": round(summary.total / summary.matches, 2)
+        if summary.matches
+        else None,
         "derniere_partie": summary.last,
         "depuis": summary.since.isoformat() if summary.since else None,
         "partie_en_cours": summary.recording,

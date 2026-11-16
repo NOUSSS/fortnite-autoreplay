@@ -48,7 +48,7 @@ premier plan et des messages de fenêtre au second plan.
 | `panel_widgets.py` | Widgets dessinés du panneau : texte, boutons, sélecteur, curseur, bandeau |
 | `panel_glass.py` | Verre du panneau : l'écran sous lui (il est exclu des captures), capturé dans un thread puis flouté |
 | `antiafk.py` | Geste au hasard en partie (replay « en direct » ou curseur tenu par le jeu) : touche ou clic postés, caméra au premier plan sur demande |
-| `chests.py` | Coffres comptés dans les replays du jeu par `replay-reader.exe` (`logs/chests.json`) |
+| `chests.py` | Coffres comptés dans les replays du jeu par `replay-reader.exe` (`%APPDATA%\Fortnite AutoReplay\chests.json`, copie dans `logs/`) |
 | `updater.py` | Manifeste signé, téléchargement vérifié, installation tout ou rien, relance |
 | `cli.py` | `run`, `check`, `config`, `window`, `stats`, `panel`, `update` + surcharges en ligne de commande |
 

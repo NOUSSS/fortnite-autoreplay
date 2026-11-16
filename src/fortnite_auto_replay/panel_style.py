@@ -90,7 +90,9 @@ NOTICE_ICON = 14
 CLOCK_W = 40  # colonne de l'heure des derniers clics
 DATE_W = 104  # colonne du début des dernières parties
 JOURNAL_GAP = 12
-RECENT_ROWS = 3
+RECENT_ROWS = 3  # rangées d'un journal ; les parties au-delà défilent à la molette
+SCROLL_W = 3  # barre de défilement des parties
+SCROLL_INSET = 4  # retrait de la barre en haut et en bas de la liste
 
 # mouvements (millisecondes), repris du prototype
 OPEN_MS = 180  # carte et réglages qui s'ouvrent : rapide puis doux

@@ -236,6 +236,43 @@ class Rule(QWidget):
         painter.fillRect(self.rect(), QColor(C.stroke))
 
 
+class ScrollMark(QWidget):
+    """Barre de défilement d'une liste, sans prise : un voile pour la piste, un trait
+    pour la partie visible. Cachée par :meth:`set_window` quand tout tient."""
+
+    def __init__(self, width: int, height: int, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedSize(width, height)
+        self._first, self._shown, self._count = 0, 0, 0
+
+    def set_window(self, first: int, shown: int, count: int) -> None:
+        """Rangées ``first`` à ``first + shown`` sur ``count``."""
+        self.setVisible(count > shown)
+        if (first, shown, count) != (self._first, self._shown, self._count):
+            self._first, self._shown, self._count = first, shown, count
+            self.update()
+
+    def thumb(self) -> tuple[float, float]:
+        """Haut et hauteur du trait, en pixels (assez haut pour se voir)."""
+        if self._count <= 0:
+            return 0.0, float(self.height())
+        height = max(self.width() * 2.0, self.height() * self._shown / self._count)
+        room = self.height() - height
+        last = max(1, self._count - self._shown)
+        return room * min(self._first, last) / last, height
+
+    def paintEvent(self, _event: QPaintEvent) -> None:
+        painter = _painter(self)
+        painter.setPen(Qt.PenStyle.NoPen)
+        radius = self.width() / 2
+        painter.setBrush(QColor(C.layer))
+        painter.drawRoundedRect(QRectF(self.rect()), radius, radius)
+        top, height = self.thumb()
+        painter.setBrush(QColor(C.text_3))
+        painter.drawRoundedRect(QRectF(0, top, self.width(), height), radius, radius)
+
+
 class Icon(QWidget):
     """Icône dessinée (coffre, réglages)."""
 

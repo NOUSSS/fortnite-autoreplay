@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import ctypes
 import dataclasses
+import functools
 import logging
 import os
 import sys
@@ -62,6 +63,7 @@ from PySide6.QtGui import (
     QPainterPath,
     QPaintEvent,
     QPixmap,
+    QWheelEvent,
 )
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout, QWidget
 
@@ -104,6 +106,8 @@ from .panel_style import (
     POPOVER_W,
     RECENT_ROWS,
     ROW_H,
+    SCROLL_INSET,
+    SCROLL_W,
     SECTION_GAP,
     SEGMENT_INSET,
     SETTING_GAP,
@@ -127,6 +131,7 @@ from .panel_widgets import (
     IconPainter,
     Notice,
     Rule,
+    ScrollMark,
     Segmented,
     Slider,
     Text,
@@ -335,10 +340,10 @@ class ChestsView:
     """Ligne « Coffres » : pastille, état, total ; dessous, bandeau et dernières parties."""
 
     dot: str  # couleur de la pastille
-    state: str = ""  # sous « Coffres » : ce qui est en cours, rien sinon
+    state: str = ""  # sous « Coffres » : ce qui est en cours, sinon la moyenne par partie
     value: str = ""  # total à droite, vide tant qu'il n'y en a pas
     notice: tuple[str, str] | None = None  # gravité, message
-    games: tuple[tuple[str, str], ...] = ()  # dernières parties : (début, coffres)
+    games: tuple[tuple[str, str], ...] = ()  # toutes les parties, la dernière d'abord
 
 
 def chests_view(state: ChestsState, *, game_open: bool = True) -> ChestsView:
@@ -346,7 +351,8 @@ def chests_view(state: ChestsState, *, game_open: bool = True) -> ChestsView:
 
     Une ligne d'état seulement pour ce qui passe vite : premier tour des
     replays, comptage de la partie qui vient de finir (pas la partie en cours,
-    qui durerait toute la partie). Ce qui
+    qui durerait toute la partie) ; le reste du temps, la moyenne par partie
+    et le nombre de parties comptées. Ce qui
     empêche de compter (partie interrompue, jeu fermé : son replay reste « en
     direct » ; replay illisible ; lecteur absent) a son bandeau.
     """
@@ -363,11 +369,26 @@ def chests_view(state: ChestsState, *, game_open: bool = True) -> ChestsView:
         dot, notice = C.caution, ("caution", INTERRUPTED)
     elif summary.failed:
         dot, notice = C.caution, ("caution", READ_FAILED)
-    shown = COUNTING if summary.counting else ""
     if summary.since is None or summary.last is None:
-        return ChestsView(dot, shown, value="0", notice=notice)
-    games = tuple((match_time(when), plural(count, "coffre")) for when, count in summary.recent)
-    return ChestsView(dot, shown, value=number(summary.total), notice=notice, games=games)
+        return ChestsView(dot, COUNTING if summary.counting else "", value="0", notice=notice)
+    shown = COUNTING if summary.counting else average(summary.total, summary.matches)
+    return ChestsView(
+        dot, shown, value=number(summary.total), notice=notice, games=games(summary.recent)
+    )
+
+
+def average(total: int, matches: int) -> str:
+    """« Moyenne de 7,6 par partie sur 18 parties » (une décimale, sans « ,0 »)."""
+    if matches <= 0:
+        return ""
+    value = f"{total / matches:.1f}".removesuffix(".0").replace(".", ",")
+    return f"Moyenne de {value}{NBSP}par partie sur {plural(matches, 'partie')}"
+
+
+@functools.lru_cache(maxsize=2)
+def games(recent: tuple[tuple[datetime, int], ...]) -> tuple[tuple[str, str], ...]:
+    """Journal des parties : (début, coffres) ; gardé d'un tour à l'autre du panneau."""
+    return tuple((match_time(when), plural(count, "coffre")) for when, count in recent)
 
 
 # --- géométrie ----------------------------------------------------------------
@@ -487,7 +508,7 @@ class EngineController:
         self._quit = threading.Event()
         self._stall_reported = False
         self._chests = (
-            ChestTracker(cfg.chests, cfg.resolved_chests_file(), Reader(cfg.resolved_reader()))
+            ChestTracker(cfg.chests, cfg.resolved_chests_files(), Reader(cfg.resolved_reader()))
             if cfg.chests.enabled
             else None
         )
@@ -1040,6 +1061,9 @@ class Panel:
         self._fade.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._fade.valueChanged.connect(lambda v: self.window.setWindowOpacity(float(v)))
         self._dragger = _Dragger(self)
+        self._wheel = _Wheel(self)
+        self._games_first = 0  # première partie affichée (molette)
+        self._games_count = 0
         self._build()
         self._build_settings()
         self._render(controller.status())
@@ -1185,7 +1209,20 @@ class Panel:
         self.chests_notice = self._notice(inner)
         chests.addWidget(self.chests_notice)
         self.s_games, games = self._section("Dernières parties")
-        self.games = self._journal(games, px(DATE_W))
+        # toutes les parties, trois à la fois : la molette fait défiler
+        scroller = QHBoxLayout()
+        scroller.setContentsMargins(0, 0, 0, 0)
+        scroller.setSpacing(px(GAP))
+        rows = QVBoxLayout()
+        rows.setContentsMargins(0, 0, 0, 0)
+        rows.setSpacing(0)
+        self.games = self._journal(rows, px(DATE_W))
+        scroller.addLayout(rows, 1)
+        self.games_mark = ScrollMark(px(SCROLL_W), RECENT_ROWS * px(ROW_H) - 2 * px(SCROLL_INSET))
+        self.games_mark.hide()
+        scroller.addWidget(self.games_mark, 0, Qt.AlignmentFlag.AlignVCenter)
+        games.addLayout(scroller)
+        self.s_games.installEventFilter(self._wheel)
         chests.addWidget(self.s_games)
         block.addWidget(self.chests_body)
         column.addWidget(self.chests_block)
@@ -1482,6 +1519,8 @@ class Panel:
         if card == self._card_view:
             return
         self._card_view = card
+        if not card:
+            self._games_first = 0  # rouverte, la carte repart des dernières parties
         origin = QPointF(self.px(16), self.px(16))
         if not self.animate or not self.window.isVisible():
             self.ghost.stop()
@@ -1767,7 +1806,7 @@ class Panel:
             self.chests_state.setVisible(bool(chests.state))
             self.chests_value.set_text(chests.value)
             self.pill_total.set_text(chests.value)
-            self._fill_journal(self.games, chests.games[:RECENT_ROWS])
+            self._show_games(chests.games)
         recent = tuple(
             (time.strftime("%H:%M", time.localtime(c.ts)), c.label)
             for c in status.recent[:RECENT_ROWS]
@@ -1822,6 +1861,28 @@ class Panel:
         self.updates.request_install(resume=status.phase in RUNNING)
         self.controller.quit()
 
+    def _show_games(self, games: tuple[tuple[str, str], ...]) -> None:
+        """Trois parties à partir de celle choisie à la molette, et la barre de défilement."""
+        self._games_count = len(games)
+        last = max(0, len(games) - RECENT_ROWS)
+        self._games_first = min(self._games_first, last)
+        first = self._games_first
+        self._fill_journal(self.games, games[first : first + RECENT_ROWS])
+        self.games_mark.set_window(first, RECENT_ROWS, len(games))
+
+    def scroll_games(self, rows: int) -> bool:
+        """Fait défiler les parties de ``rows`` rangées (négatif : vers les plus récentes).
+
+        Vrai si la liste a bougé.
+        """
+        last = max(0, self._games_count - RECENT_ROWS)
+        first = max(0, min(last, self._games_first + rows))
+        if first == self._games_first:
+            return False
+        self._games_first = first
+        self._render(self.controller.status())
+        return True
+
     @staticmethod
     def _fill_journal(journal: Journal, rows: tuple[tuple[str, str], ...]) -> None:
         for index, (row, when, what) in enumerate(journal):
@@ -1852,6 +1913,25 @@ class _Dragger(QObject):
             self._panel.drag_end()
             return True
         return False
+
+
+class _Wheel(QObject):
+    """Molette sur la liste des parties : une rangée par cran (pavé tactile compris)."""
+
+    def __init__(self, panel: Panel) -> None:
+        super().__init__(panel.window)
+        self._panel = panel
+        self._rest = 0  # fraction de cran pas encore utilisée (pavé tactile, molette fine)
+
+    def eventFilter(self, _watched: QObject, event: QEvent) -> bool:
+        if event.type() != QEvent.Type.Wheel or not isinstance(event, QWheelEvent):
+            return False
+        self._rest += event.angleDelta().y()
+        notches = int(self._rest / 120)  # vers zéro : le reste garde son signe
+        if notches:
+            self._rest -= notches * 120
+            self._panel.scroll_games(-notches)  # molette vers soi : parties plus anciennes
+        return True
 
 
 # --- lancement ------------------------------------------------------------------

@@ -72,6 +72,33 @@ def test_update_notice_keeps_one_button() -> None:
     assert shown == [notice.button]
 
 
+def test_wheel_scrolls_every_match_three_at_a_time() -> None:
+    qt_app()
+    cfg = config_mod.load_config(None, use_local=False)
+    controller = DemoController(cfg)
+    controller.scene = next(s for s in SCENES if s.name == "card-paused")
+    panel = Panel(controller, cfg.panel, persist=False, follow_cursor=False, show=False)
+    panel.expanded = True
+    panel._render(controller.status())
+
+    def shown() -> list[str]:
+        return [when.text() for row, when, _ in panel.games if row.isVisibleTo(panel.card)]
+
+    first = shown()
+    assert len(first) == 3 and panel.games_mark.isVisibleTo(panel.card)
+    assert not panel.scroll_games(-1)  # déjà en haut
+    assert panel.scroll_games(1)
+    assert shown()[:2] == first[1:]
+    assert panel.scroll_games(99)
+    top, height = panel.games_mark.thumb()
+    assert top + height == panel.games_mark.height()  # en bas de la piste
+    assert not panel.scroll_games(1)  # déjà en bas
+    panel._set_view(False)  # carte refermée : elle rouvre sur les dernières parties
+    panel._set_view(True)
+    panel._render(controller.status())
+    assert shown() == first
+
+
 class _Shot:
     size = (16, 16)
     bgra = bytes(16 * 16 * 4)
