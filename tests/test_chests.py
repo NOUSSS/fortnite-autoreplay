@@ -397,6 +397,54 @@ def test_a_locked_copy_is_not_overwritten(tmp_path: Path, demos: Path) -> None:
     assert not backup.exists()
 
 
+def test_reading_shows_history_first_then_newest_replays_with_progress(
+    tmp_path: Path, demos: Path
+) -> None:
+    """Nouveau lecteur : l'historique gardé se voit tout de suite, la relecture part
+    de la dernière partie, avance replay par replay et se garde au fil de l'eau."""
+    for i, name in enumerate(("a.replay", "b.replay", "c.replay")):
+        write_replay(demos, name, mtime=NOW - 3600 + 60 * i, live=False)
+    store = Store(reader=15, matches={"old": MatchChests("old", None, 5, 0, UTC_NOW)})
+    save_store(store, tmp_path / "chests.json")
+    seen: list[tuple[str, int, tuple[int, int] | None, int]] = []
+
+    class Watching(FakeReader):
+        def read(self, path: Path) -> dict[str, Any]:
+            now = tracker.summary()
+            assert now is not None
+            kept = len(load_store(tmp_path / "chests.json").matches)
+            seen.append((path.name, now.total, now.progress, kept))
+            return super().read(path)
+
+    answers = {"a.replay": match("s1", 1), "b.replay": match("s2", 2), "c.replay": match("s3", 3)}
+    tracker = tracker_for(tmp_path, demos, Watching(answers, version=16))
+    summary = tracker.refresh()
+    assert seen == [
+        ("c.replay", 5, (0, 3), 1),
+        ("b.replay", 8, (1, 3), 2),
+        ("a.replay", 10, (2, 3), 3),
+    ]
+    assert (summary.total, summary.progress, summary.counting) == (11, None, False)
+
+
+def test_a_single_game_after_launch_is_counting_not_progress(tmp_path: Path, demos: Path) -> None:
+    tracker = tracker_for(tmp_path, demos, FakeReader({"a.replay": match("s1", 4)}))
+    tracker.refresh()  # premier tour : rien à lire
+    write_replay(demos, "a.replay", mtime=NOW - 3600, live=False)
+    states: list[tuple[bool, tuple[int, int] | None]] = []
+    original = tracker._count
+
+    def count(*args: Any, **kw: Any) -> str:
+        now = tracker.summary()
+        assert now is not None
+        states.append((now.counting, now.progress))
+        return original(*args, **kw)
+
+    tracker._count = count  # type: ignore[method-assign]
+    assert tracker.refresh().total == 4
+    assert states == [(True, None)]
+
+
 def test_no_demos_folder(tmp_path: Path) -> None:
     tracker = tracker_for(tmp_path, tmp_path / "absent", FakeReader({}))
     summary = tracker.refresh()
@@ -515,6 +563,10 @@ def test_chests_view() -> None:
     assert closed.notice == ("caution", INTERRUPTED)
     cut = chests_view(ChestsState(summary(interrupted=True)))
     assert (cut.state, cut.notice) == (mean, ("caution", INTERRUPTED))
+    progress = chests_view(ChestsState(summary(progress=(12, 76), counting=True)))
+    assert progress.state == f"Lecture des replays{nbsp}: 12 sur 76"
+    fresh = summary(total=0, matches=0, last=None, since=None, progress=(0, 4))
+    assert chests_view(ChestsState(fresh)).state == f"Lecture des replays{nbsp}: 0 sur 4"
     big = chests_view(ChestsState(summary(total=1234)))
     assert big.value == f"1{nbsp}234"
 

@@ -366,6 +366,7 @@ class Summary:
     recent: tuple[tuple[datetime, int], ...] = ()
     counting: bool = False  # une partie quittée, son replay pas encore lu
     interrupted: bool = False  # la dernière partie s'est arrêtée jeu fermé : non comptée
+    progress: tuple[int, int] | None = None  # plusieurs replays à lire : (lus, à lire)
 
 
 def summarize(
@@ -376,6 +377,7 @@ def summarize(
     failed: bool,
     counting: bool = False,
     interrupted: bool = False,
+    progress: tuple[int, int] | None = None,
 ) -> Summary:
     ordered = sorted(store.matches.values(), key=_order)
     recent = tuple((_order(m), m.chests) for m in reversed(ordered))
@@ -390,6 +392,7 @@ def summarize(
         recent=recent,
         counting=counting,
         interrupted=interrupted,
+        progress=progress,
     )
 
 
@@ -422,6 +425,7 @@ class ChestTracker:
         self._stop = threading.Event()
         self._store: Store | None = None
         self._rewrite = False
+        self._first = True  # premier tour : les parties d'avant le lancement
         self._sizes: dict[str, int] = {}  # taille de chaque replay au tour précédent
         self._failed = False
         self._interrupted = False
@@ -430,7 +434,7 @@ class ChestTracker:
         self._newest = float("-inf")
 
     def summary(self) -> Summary | None:
-        """``None`` tant que le premier tour n'est pas fini."""
+        """``None`` tant que rien n'est à montrer (le premier tour se repère par ``_first``)."""
         with self._lock:
             return self._summary
 
@@ -465,6 +469,8 @@ class ChestTracker:
                 store.reader = version
             self._store = store
             self._rewrite = True  # copies réunies, illisibles ou absentes : toutes réécrites
+            if store.matches:  # l'historique gardé se montre avant toute lecture
+                self._publish(store, recording=False, replays=True, counting=False)
         return self._store
 
     def refresh(self) -> Summary:
@@ -494,24 +500,46 @@ class ChestTracker:
                 # en direct : partie en cours ; sinon partie quittée, replay en train de se finir
                 recording = recording or header.live
                 waiting = waiting or not header.live
-        first = self.summary() is None  # premier tour : « Lecture des replays… » jusqu'au bout
-        if ready and not first:
-            self._publish(store, recording=recording, replays=True, counting=True)
-        for path, key, header, mtime in ready:
+        first = self._first
+        # les plus récents d'abord : la dernière partie se voit sans attendre les autres
+        ready.sort(key=lambda item: item[3], reverse=True)
+        # premier tour (parties jouées application fermée, nouveau lecteur) ou plusieurs
+        # replays : une progression ; sinon le comptage de la partie qui vient de finir
+        many = first or len(ready) > 1
+        for done, (path, key, header, mtime) in enumerate(ready):
+            self._publish(
+                store,
+                recording=recording,
+                replays=True,
+                counting=not many,
+                progress=(done, len(ready)) if many else None,
+            )
             newest = mtime >= self._newest
             self._newest = max(self._newest, mtime)
             store.files[key] = self._count(path, header, store, live=not first, newest=newest)
-            changed = True
+            self._save(store)  # gardé au fil de la lecture : rien à relire si on quitte
+        self._first = False
         self._sizes = {k: v for k, v in self._sizes.items() if (demos / k).exists()}
         if changed:
-            try:
-                save_store(store, *self.store_paths)
-            except OSError:
-                self._rewrite = True  # réessayé au tour suivant
-                raise
+            self._save(store)
         return self._publish(store, recording=recording, replays=bool(paths), counting=waiting)
 
-    def _publish(self, store: Store, *, recording: bool, replays: bool, counting: bool) -> Summary:
+    def _save(self, store: Store) -> None:
+        try:
+            save_store(store, *self.store_paths)
+        except OSError:
+            self._rewrite = True  # réessayé au tour suivant
+            raise
+
+    def _publish(
+        self,
+        store: Store,
+        *,
+        recording: bool,
+        replays: bool,
+        counting: bool,
+        progress: tuple[int, int] | None = None,
+    ) -> Summary:
         result = summarize(
             store,
             recording=recording,
@@ -519,6 +547,7 @@ class ChestTracker:
             failed=self._failed,
             counting=counting,
             interrupted=self._interrupted,
+            progress=progress,
         )
         with self._lock:
             self._summary = result

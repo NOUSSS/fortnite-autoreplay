@@ -106,6 +106,12 @@ CHESTS = {
         Summary(137, 18, 9, _SINCE, False, True, failed=False, recent=_GAMES, interrupted=True)
     ),
     "down": ChestsState(None, "lecteur de replays introuvable"),
+    "progress": ChestsState(
+        Summary(137, 18, 9, _SINCE, False, True, failed=False, recent=_ALL, progress=(12, 76))
+    ),
+    "first-read": ChestsState(
+        Summary(22, 3, 9, _SINCE, False, True, failed=False, recent=_GAMES[:3], progress=(3, 76))
+    ),
     "big": ChestsState(
         Summary(12840, 412, 9, _SINCE, recording=False, replays=True, failed=False, recent=_GAMES)
     ),
@@ -140,6 +146,8 @@ SCENES = [
             "interrupted",
             "failed",
             "down",
+            "progress",
+            "first-read",
         )
     ),
     Scene("card-stuck", "stuck", "card", detail=_STUCK, recent=5),

@@ -136,7 +136,10 @@ gardée à côté (`chests.illisible-….json`) avant d'être refaite. Sous le t
 carte donne la moyenne de coffres par partie et le nombre de parties comptées ;
 la liste des parties les montre toutes, trois à la fois, à faire défiler à la
 molette. Une partie jouée application fermée est
-comptée au lancement suivant, tant que son replay existe encore.
+comptée au lancement suivant, tant que son replay existe encore. Chaque replay
+n'est lu qu'une fois ; une nouvelle version du lecteur relit ceux encore
+présents. Au lancement, les parties déjà comptées s'affichent tout de suite et
+les replays à lire le sont du plus récent au plus ancien, avec leur progression.
 `python -m fortnite_auto_replay chests` lit les replays terminés et affiche
 le total.
 

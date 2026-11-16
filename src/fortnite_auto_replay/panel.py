@@ -303,6 +303,13 @@ READER_DOWN = "Le lecteur de replays ne démarre pas, vos coffres ne sont pas co
 READ_FAILED = "Le replay de votre dernière partie n\u2019a pas pu être lu."
 READING_REPLAYS = "Lecture des replays…"
 COUNTING = "Comptage de votre dernière partie…"
+
+
+def reading(done: int, total: int) -> str:
+    """« Lecture des replays : 12 sur 76 »."""
+    return f"Lecture des replays{NBSP}: {number(done)} sur {number(total)}"
+
+
 INTERRUPTED = f"Le jeu s\u2019est fermé pendant la partie{NBSP}: ses coffres ne sont pas comptés."
 
 SHORT_MONTHS = (
@@ -350,8 +357,8 @@ def chests_view(state: ChestsState, *, game_open: bool = True) -> ChestsView:
     """Ce que montre la ligne « Coffres », indépendante de la relance (désactivée comprise).
 
     Une ligne d'état seulement pour ce qui passe vite : premier tour des
-    replays, comptage de la partie qui vient de finir (pas la partie en cours,
-    qui durerait toute la partie) ; le reste du temps, la moyenne par partie
+    replays et sa progression, comptage de la partie qui vient de finir (pas la
+    partie en cours, qui durerait toute la partie) ; le reste du temps, la moyenne par partie
     et le nombre de parties comptées. Ce qui
     empêche de compter (partie interrompue, jeu fermé : son replay reste « en
     direct » ; replay illisible ; lecteur absent) a son bandeau.
@@ -369,9 +376,12 @@ def chests_view(state: ChestsState, *, game_open: bool = True) -> ChestsView:
         dot, notice = C.caution, ("caution", INTERRUPTED)
     elif summary.failed:
         dot, notice = C.caution, ("caution", READ_FAILED)
+    busy = COUNTING if summary.counting else ""
+    if summary.progress is not None:
+        busy = reading(*summary.progress)
     if summary.since is None or summary.last is None:
-        return ChestsView(dot, COUNTING if summary.counting else "", value="0", notice=notice)
-    shown = COUNTING if summary.counting else average(summary.total, summary.matches)
+        return ChestsView(dot, busy, value="0", notice=notice)
+    shown = busy or average(summary.total, summary.matches)
     return ChestsView(
         dot, shown, value=number(summary.total), notice=notice, games=games(summary.recent)
     )
